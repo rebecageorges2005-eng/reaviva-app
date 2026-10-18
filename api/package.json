@@ -1,0 +1,1 @@
+{"dependencies":{"bcryptjs":"^2.4.3","dotenv":"^16.4.5","express":"^4.19.2","jsonwebtoken":"^9.0.2"},"description":"Backend API for the Reaviva emotional-healing membership web app","engines":{"node":">=22.5.0"},"main":"server.js","name":"reaviva-api","scripts":{"dev":"node --watch server.js","start":"node server.js"},"version":"1.0.0"}
