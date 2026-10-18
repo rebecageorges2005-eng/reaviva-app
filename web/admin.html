@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Reaviva</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/styles.css?v=3">
+<style>
+.admin-login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--sand);padding:20px}
+.admin-login-card{background:#fff;border-radius:20px;padding:36px 32px;max-width:380px;width:100%;box-shadow:0 8px 32px rgba(74,55,40,.12);text-align:center}
+.admin-login-card h2{margin:14px 0 20px;color:var(--cocoa)}
+.admin-login-card .field{margin-bottom:12px}
+#admin-err{color:#a33;font-size:.85rem;min-height:1.2em;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="admin-login-page">
+  <div class="admin-login-card">
+    <a class="logo" href="/">Reaviva<span>.</span></a>
+    <h2>Acceso administrador 👑</h2>
+    <input id="admin-code" class="field" type="password" placeholder="Código de administrador" autocomplete="off">
+    <button class="btn btn-primary btn-block" onclick="doAdminLogin()">Entrar</button>
+    <p id="admin-err"></p>
+  </div>
+</div>
+<script>
+async function doAdminLogin(){
+  const code = document.querySelector("#admin-code").value.trim();
+  const err = document.querySelector("#admin-err");
+  if(!code){ err.textContent = "Escribe el código"; return; }
+  err.textContent = "Verificando…";
+  try{
+    const r = await fetch("/api/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    const j = await r.json();
+    if(!r.ok){ err.textContent = j.error || "Código incorrecto"; return; }
+    localStorage.setItem("reaviva_user", JSON.stringify({ email: j.user.email, name: j.user.name }));
+    localStorage.setItem("reaviva_token", JSON.stringify(j.token));
+    localStorage.setItem("reaviva_admin", JSON.stringify(true));
+    localStorage.setItem("reaviva_paid", JSON.stringify(true));
+    location.href = "/#app";
+  }catch(e){ err.textContent = "Error de conexión"; }
+}
+document.querySelector("#admin-code").addEventListener("keydown", e => { if(e.key === "Enter") doAdminLogin(); });
+</script>
+</body>
+</html>
