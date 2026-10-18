@@ -121,22 +121,24 @@ async function doAdminLogin(ev){
 
 /* ---------- views ---------- */
 function showView(name){
-  ["landing","auth","app","admin-login"].forEach(v => $("#view-"+v).style.display = v===name ? "" : "none");
-  if(name==="landing") $("#view-landing").style.display = "";
-  if(name==="auth")    $("#view-auth").style.display = "";
-  if(name==="app")     $("#view-app").style.display = "";
-  if(name==="admin-login") $("#view-admin-login").style.display = "";
-  window.scrollTo(0,0);
+  ["landing","auth","app","admin-login"].forEach(v => {
+    const el = $("#view-"+v);
+    if(el) el.style.display = v===name ? "" : "none";
+  });
+  const target = $("#view-"+name);
+  if(target) target.style.display = "";
+  try{ window.scrollTo(0,0); }catch(e){}
 }
 function enterApp(){
   showView("app");
   const u = currentUser();
-  $("#user-chip").textContent = "Hola, " + esc(u.name);
+  const chip = $("#user-chip");
+  if(chip && u) chip.textContent = "Hola, " + esc(u.name);
   // Mostrar pestaña Admin solo para administradores
   const adminTab = document.querySelector('[data-tab="admin"]');
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
-  switchTab("hoy");
-  checkUserMessages();
+  try{ switchTab("hoy"); }catch(e){ console.error("switchTab:", e); }
+  try{ checkUserMessages(); }catch(e){}
 }
 function switchTab(tab){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
@@ -145,6 +147,7 @@ function switchTab(tab){
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
   if(tab==="progreso") renderProgreso();
+  if(tab==="comunidad") renderComunidad();
   if(tab==="admin") renderAdmin();
 }
 
@@ -247,8 +250,13 @@ async function renderAdmin(){
         <h3 style="margin-top:20px">📨 Mensajes enviados</h3>
         <div id="admin-sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>
       </div>
+      <div class="admin-section">
+        <h3>💬 Moderar comunidad</h3>
+        <p class="greet-sub">Solo tú ves quién escribió cada comentario. Puedes ocultar los inapropiados o escribirle a la persona.</p>
+        <div id="admin-community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>
+      </div>
       <div id="admin-user-detail"></div>`;
-    await Promise.all([loadGrowth(adminGrowthDays), loadAdminUsers(), loadSentMessages()]);
+    await Promise.all([loadGrowth(adminGrowthDays), loadAdminUsers(), loadSentMessages(), loadAdminCommunity()]);
     // restaurar selector al período actual
     const sel = $("#growth-period");
     if(sel) sel.value = String(adminGrowthDays);
@@ -395,6 +403,49 @@ async function loadSentMessages(){
       </div>`).join("") || `<p style="color:var(--cocoa-soft)">Aún no enviaste mensajes.</p>`;
   }catch(e){
     box.innerHTML = `<p style="color:#a33">Error cargando mensajes</p>`;
+  }
+}
+
+/* --- Moderación de la comunidad (solo admin: ve la identidad real) --- */
+async function loadAdminCommunity(){
+  const box = $("#admin-community-list");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/admin/community", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const items = j.comentarios || [];
+    box.innerHTML = items.map(c=>`
+      <div class="comment-card admin-comment ${c.oculto?'hidden-comment':''}">
+        <div class="comment-body">
+          <div class="comment-head">
+            <b>👤 ${esc(c.nombre)}</b><span>${esc(c.email)}</span><span>${esc(c.fecha)}</span>
+            ${c.oculto?'<span class="tag-free">OCULTO</span>':''}
+          </div>
+          <p>${esc(c.texto)}</p>
+          <div class="comment-actions">
+            <button class="btn btn-ghost btn-sm" onclick="prefillMessage(${c.usuarioId})">✉️ Mensaje</button>
+            ${c.oculto
+              ? `<button class="btn btn-ghost btn-sm" onclick="toggleCommunityHide(${c.id},false)">👁️ Mostrar</button>`
+              : `<button class="btn btn-ghost btn-sm" onclick="toggleCommunityHide(${c.id},true)">🚫 Ocultar</button>`}
+          </div>
+        </div>
+      </div>`).join("") || `<p style="color:var(--cocoa-soft)">Aún no hay comentarios.</p>`;
+  }catch(e){
+    box.innerHTML = `<p style="color:#a33">Error cargando comunidad</p>`;
+  }
+}
+
+async function toggleCommunityHide(id, hide){
+  try{
+    const r = await fetch(`/api/admin/community/${id}/${hide?"hide":"unhide"}`, {
+      method: "POST", headers: authHeaders()
+    });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    toast(hide ? "Comentario ocultado 🚫" : "Comentario visible 👁️");
+    loadAdminCommunity();
+  }catch(e){
+    toast("Error: " + e.message);
   }
 }
 
@@ -551,6 +602,53 @@ function renderProgreso(){
   }
   html += "</div>";
   $("#cal").innerHTML = html;
+}
+
+/* ============================================================
+   COMUNIDAD ANÓNIMA 💬
+   ============================================================ */
+async function renderComunidad(){
+  const list = $("#community-list");
+  list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando comentarios…</p>`;
+  try{
+    const r = await fetch("/api/community", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const items = j.comentarios || [];
+    list.innerHTML = items.map(c=>`
+      <div class="comment-card">
+        <div class="comment-avatar">${c.avatar}</div>
+        <div class="comment-body">
+          <div class="comment-head"><b>Anónimo</b><span>${esc(c.fecha)}</span></div>
+          <p>${esc(c.texto)}</p>
+        </div>
+      </div>`).join("") ||
+      `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
+       <p><b>Sé la primera persona en compartir</b></p>
+       <p style="font-size:.85rem;color:var(--cocoa-soft)">Tu historia puede ayudar a alguien que lo necesita.</p></div>`;
+  }catch(e){
+    list.innerHTML = `<p style="text-align:center;color:#a33">Error cargando la comunidad</p>`;
+  }
+}
+
+async function postCommunity(){
+  const box = $("#community-text");
+  const text = box ? box.value.trim() : "";
+  if(!text){ toast("Escribe algo para compartir 💛"); return; }
+  try{
+    const r = await fetch("/api/community", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ text })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(box) box.value = "";
+    toast("¡Publicado! Gracias por compartir 💛");
+    renderComunidad();
+  }catch(e){
+    toast(e.message);
+  }
 }
 
 /* ---------- paywall / PayPal ---------- */
