@@ -780,3 +780,43 @@ try {
 } catch (e) {
   console.error("[db] migración álbumes:", e.message);
 }
+
+/* --- Sistema de banderas de advertencia (moderación comunitaria) ---
+ * user_flags: cada usuario puede banderear una vez al mismo usuario
+ * (UNIQUE evita abuso; el nivel rojo requiere 4 usuarios distintos).
+ * users.chat_disabled: 1 = deshabilitado para chatear/publicar (bandera roja).
+ * Nivel = COUNT de flags (cap 4): 0=blanca, 1=azul, 2=amarilla, 3=negra, 4=roja. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_flags (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_user_id   INTEGER NOT NULL,
+      reporter_user_id INTEGER NOT NULL,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(target_user_id, reporter_user_id),
+      FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (reporter_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_flags_target ON user_flags(target_user_id);
+  `);
+  const colsF = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!colsF.includes("chat_disabled")) {
+    db.exec("ALTER TABLE users ADD COLUMN chat_disabled INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna users.chat_disabled agregada");
+  }
+  console.log("[db] migración: tabla user_flags lista");
+} catch (e) {
+  console.error("[db] migración banderas:", e.message);
+}
+
+/* --- Fecha de nacimiento en el registro (18+) ---
+ * users.birthdate: formato YYYY-MM-DD. */
+try {
+  const colsB = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!colsB.includes("birthdate")) {
+    db.exec("ALTER TABLE users ADD COLUMN birthdate TEXT");
+    console.log("[db] migración: columna users.birthdate agregada");
+  }
+} catch (e) {
+  console.error("[db] migración birthdate:", e.message);
+}
