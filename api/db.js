@@ -162,6 +162,7 @@ try {
       text       TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       hidden     INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_community_user ON community_comments(user_id);
@@ -170,6 +171,26 @@ try {
   console.log("[db] migración: tabla community_comments lista");
 } catch (e) {
   console.error("[db] migración community_comments:", e.message);
+}
+
+/* --- Migration: expiración de mensajes del chat grupal por plan ---
+ * expires_at: fecha UTC 'YYYY-MM-DD HH:MM:SS' en que el mensaje se
+ * elimina automáticamente. Mensual → 5h, anual/admin → 24h,
+ * gratuito → 28h. Las fotos temporales usan su propia lógica de
+ * 30 segundos (expires_at = NULL para ellas). */
+try {
+  const colsCC = db.prepare("PRAGMA table_info(community_comments)").all().map((c) => c.name);
+  if (!colsCC.includes("expires_at")) {
+    db.exec("ALTER TABLE community_comments ADD COLUMN expires_at TEXT");
+    // Mensajes existentes: vencen 28h después de su creación
+    // (política del plan gratuito).
+    db.exec(
+      "UPDATE community_comments SET expires_at = datetime(created_at, '+28 hours') WHERE expires_at IS NULL"
+    );
+    console.log("[db] migración: community_comments.expires_at agregada");
+  }
+} catch (e) {
+  console.error("[db] migración expires_at:", e.message);
 }
 
 /* --- Migration: Oct 2026 — verificación de correo ---
