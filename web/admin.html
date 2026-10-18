@@ -42,7 +42,7 @@ async function doAdminLogin(){
     localStorage.setItem("reaviva_token", JSON.stringify(j.token));
     localStorage.setItem("reaviva_admin", JSON.stringify(true));
     localStorage.setItem("reaviva_paid", JSON.stringify(true));
-    location.href = "/#app";
+    location.href = "/admin/panel";
   }catch(e){ err.textContent = "Error de conexión"; }
 }
 document.querySelector("#admin-code").addEventListener("keydown", e => { if(e.key === "Enter") doAdminLogin(); });

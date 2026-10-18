@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel Admin — Reaviva</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+:root{--sand:#faf6f1;--sand-2:#f3ece3;--rose:#f6e3da;--terra:#c4704f;--terra-dark:#a5583a;--cocoa:#4a3728;--cocoa-soft:#7a6252}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--sand);color:var(--cocoa);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+.top{position:sticky;top:0;z-index:10;background:rgba(250,246,241,.96);border-bottom:1px solid #eadfd3;padding:12px 18px;display:flex;align-items:center;gap:12px}
+.logo{font-size:1.2rem;font-weight:800;text-decoration:none;color:var(--cocoa)}
+.logo span{color:var(--terra)}
+.top .spacer{flex:1}
+.btn{border:none;border-radius:12px;padding:10px 18px;font-size:.9rem;font-weight:700;cursor:pointer;background:var(--terra);color:#fff}
+.btn:active{transform:scale(.98)}
+.btn-ghost{background:transparent;color:var(--cocoa-soft);border:1px solid #ddd}
+.btn-sm{padding:6px 12px;font-size:.8rem;border-radius:8px}
+.btn-danger{background:#b0523c}
+.wrap{max-width:960px;margin:0 auto;padding:20px 16px 80px}
+h2.sec{margin:26px 0 12px;font-size:1.15rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.card{background:#fff;border-radius:14px;padding:16px;text-align:center;box-shadow:0 2px 10px rgba(74,55,40,.07)}
+.card b{display:block;font-size:1.6rem;color:var(--terra-dark)}
+.card span{font-size:.82rem;color:var(--cocoa-soft)}
+.field{width:100%;border:1px solid #e2d5c5;border-radius:12px;padding:11px 14px;font-size:.95rem;margin-bottom:10px;background:#fff;color:var(--cocoa)}
+.field:focus{outline:2px solid var(--terra)}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(74,55,40,.07);font-size:.88rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--sand-2)}
+th{background:var(--sand-2);font-size:.78rem;text-transform:uppercase;letter-spacing:.4px;color:var(--cocoa-soft)}
+tr:last-child td{border-bottom:none}
+tr.clickable{cursor:pointer}
+tr.clickable:hover{background:var(--sand)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:700}
+.badge.ok{background:#e3f2e5;color:#2e7d32}
+.badge.warn{background:#fdeeda;color:#b26a00}
+.badge.info{background:#e3ecf7;color:#2456a6}
+.badge.muted{background:#eee;color:#888}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ccc;margin-right:6px}
+.dot.on{background:#37b24d}
+.block{background:#fff;border-radius:14px;padding:16px;box-shadow:0 2px 10px rgba(74,55,40,.07);margin-bottom:16px}
+.detail{border-left:4px solid var(--terra)}
+.msg{border-left:4px solid var(--terra)}
+.msg .m-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}
+.msg b{font-size:.95rem}
+.msg small{color:var(--cocoa-soft)}
+.msg p{font-size:.9rem;white-space:pre-wrap}
+.cmt{border-left:4px solid var(--rose);margin-bottom:12px}
+.cmt.hidden-c{opacity:.55;border-left-color:#ccc}
+.cmt .who{font-size:.8rem;color:var(--cocoa-soft);margin-bottom:4px}
+.cmt .actions{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.chart{display:flex;align-items:flex-end;gap:3px;height:120px;background:#fff;border-radius:14px;padding:14px 12px 8px;box-shadow:0 2px 10px rgba(74,55,40,.07);margin-bottom:12px;overflow-x:auto}
+.bar{flex:1;min-width:8px;background:var(--rose);border-radius:4px 4px 0 0;position:relative}
+.bar.plan{background:var(--terra)}
+.bar:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:var(--cocoa);color:#fff;font-size:.7rem;padding:4px 8px;border-radius:6px;white-space:nowrap;z-index:5}
+.center{text-align:center;padding:60px 20px;color:var(--cocoa-soft)}
+.center a{color:var(--terra-dark)}
+.err{background:#fde8e4;color:#a33;border-radius:12px;padding:12px 16px;margin:12px 0;font-size:.9rem}
+.okmsg{background:#e3f2e5;color:#2e7d32;border-radius:12px;padding:12px 16px;margin:12px 0;font-size:.9rem}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.toolbar select{width:auto;margin-bottom:0}
+@media(max-width:600px){th,td{padding:8px 8px;font-size:.8rem}.cards{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="top">
+  <a class="logo" href="/">Reaviva<span>.</span></a>
+  <span style="font-size:.85rem;color:var(--cocoa-soft)">👑 Panel de administrador</span>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>
+</div>
+<div class="wrap" id="app"><p class="center">Cargando…</p></div>
+
+<script>
+"use strict";
+/* ---------- helpers ---------- */
+var $ = function(s){ return document.querySelector(s); };
+var $$ = function(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); };
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function token(){ try{ return JSON.parse(localStorage.getItem("reaviva_token")||"null"); }catch(e){ return null; } }
+function isAdmin(){ try{ return JSON.parse(localStorage.getItem("reaviva_admin")||"false")===true; }catch(e){ return false; } }
+function headers(){ var t=token(); return t?{"Authorization":"Bearer "+t,"Content-Type":"application/json"}:{"Content-Type":"application/json"}; }
+function logout(){ localStorage.removeItem("reaviva_user"); localStorage.removeItem("reaviva_token"); localStorage.removeItem("reaviva_admin"); localStorage.removeItem("reaviva_paid"); location.href="/"; }
+
+async function api(method, path, body){
+  var opts={method:method,headers:headers()};
+  if(body) opts.body=JSON.stringify(body);
+  var r=await fetch(path,opts);
+  if(r.status===401||r.status===403) throw new Error("AUTH");
+  if(!r.ok){ var t=""; try{ t=await r.text(); }catch(e){} throw new Error("HTTP "+r.status+" "+t.slice(0,120)); }
+  return r.json();
+}
+function authFail(){
+  $("#app").innerHTML='<div class="center"><h2>Sesión expirada 🔒</h2><p>Vuelve a entrar como administrador.</p><p style="margin-top:16px"><a class="btn" href="/admin/ingzoe" style="text-decoration:none">Ir al acceso admin</a></p></div>';
+}
+
+/* ---------- boot ---------- */
+document.addEventListener("DOMContentLoaded", function(){
+  if(!isAdmin()||!token()){
+    $("#app").innerHTML='<div class="center"><h2>Acceso denegado 🔒</h2><p>Esta página es solo para administradores.</p><p style="margin-top:16px"><a class="btn" href="/admin/ingzoe" style="text-decoration:none">Ir al acceso admin</a></p></div>';
+    return;
+  }
+  render();
+});
+
+async function render(){
+  try{
+    var s=await api("GET","/api/admin/stats");
+    $("#app").innerHTML=
+      '<h2 class="sec">📊 Estadísticas</h2>'+
+      '<div class="cards">'+
+      '<div class="card"><b>'+s.totalUsers+'</b><span>👥 Usuarios registrados</span></div>'+
+      '<div class="card"><b>'+s.subscribedUsers+'</b><span>💳 Con plan pagado</span></div>'+
+      '<div class="card"><b>'+s.trialUsers+'</b><span>🆓 En prueba / sin plan</span></div>'+
+      '<div class="card"><b>'+s.onlineNow+'</b><span>🟢 Conectados ahora</span></div>'+
+      '<div class="card"><b>'+s.signupsToday+'</b><span>📝 Registros hoy</span></div>'+
+      '<div class="card"><b>$'+(s.mrr||0)+'</b><span>💰 MRR estimado</span></div>'+
+      '</div>'+
+      '<h2 class="sec">📈 Crecimiento</h2>'+
+      '<div class="toolbar"><select id="growth-days" class="field" onchange="loadGrowth()">'+
+      '<option value="8">Últimos 8 días</option><option value="15">Últimos 15 días</option>'+
+      '<option value="30" selected>Últimos 30 días</option><option value="60">Últimos 60 días</option>'+
+      '<option value="90">Últimos 90 días</option><option value="180">Últimos 6 meses</option>'+
+      '<option value="365">Último año</option></select></div>'+
+      '<div id="growth-chart" class="chart"></div>'+
+      '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
+      '<h2 class="sec">👥 Usuarios</h2>'+
+      '<div id="user-detail"></div>'+
+      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Plan</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="4">Cargando…</td></tr></tbody></table>'+
+      '<h2 class="sec">✉️ Enviar mensaje</h2>'+
+      '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
+      '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
+      '<textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>'+
+      '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
+      '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
+      '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>';
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity();
+  }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
+}
+
+/* ---------- crecimiento ---------- */
+async function loadGrowth(){
+  var days=($("#growth-days")||{}).value||30;
+  try{
+    var g=await api("GET","/api/admin/growth?days="+encodeURIComponent(days));
+    var max=1;
+    (g.periods||[]).forEach(function(p){ max=Math.max(max,p.nuevosUsuarios||0); });
+    $("#growth-chart").innerHTML=(g.periods||[]).map(function(p){
+      var h=Math.max(4,Math.round((p.nuevosUsuarios||0)/max*110));
+      return '<div class="bar'+(p.nuevosConPlan>0?' plan':'')+'" style="height:'+h+'px" data-tip="'+esc(p.etiqueta)+': '+(p.nuevosUsuarios||0)+' usuarios"></div>';
+    }).join("");
+    $("#growth-body").innerHTML=(g.periods||[]).map(function(p){
+      return '<tr><td>'+esc(p.etiqueta)+'</td><td>'+(p.nuevosUsuarios||0)+'</td><td>'+(p.nuevosConPlan||0)+'</td></tr>';
+    }).join("")||'<tr><td colspan="3">Sin datos</td></tr>';
+  }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+
+/* ---------- usuarios ---------- */
+var usersCache=[];
+function planBadge(u){
+  if(u.conPlan) return '<span class="badge ok">💳 CON PLAN</span>';
+  return '<span class="badge warn">SIN PLAN</span>';
+}
+async function loadUsers(){
+  try{
+    var d=await api("GET","/api/admin/users");
+    usersCache=d.users||[];
+    $("#users-body").innerHTML=usersCache.map(function(u){
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+planBadge(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+    }).join("")||'<tr><td colspan="4">Sin usuarios</td></tr>';
+    var sel=$("#msg-user");
+    sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
+      return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+')</option>';
+    }).join("");
+  }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+async function showUser(id){
+  var box=$("#user-detail");
+  box.innerHTML='<div class="block"><p style="color:var(--cocoa-soft)">Cargando…</p></div>';
+  try{
+    var u=await api("GET","/api/admin/users/"+id);
+    box.innerHTML='<div class="block detail"><div class="m-head"><b>'+(u.conPlan?'✅ TIENE PLAN':'⚠️ SIN PLAN')+'</b>'+
+      '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'#user-detail\').innerHTML=\'\'">Cerrar</button></div>'+
+      '<p><b>'+esc(u.nombre)+'</b> · '+esc(u.email)+'</p>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Plan: '+esc(u.plan||'—')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Registrado: '+esc(u.registrado||'—')+' · Última conexión: '+esc(u.ultimaConexion||'—')+'</p>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Días completados: '+(u.diasCompletados||0)+' · Entradas de diario: '+(u.entradasDiario||0)+'</p>'+
+      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="messageUser('+u.id+')">✉️ Enviar mensaje</button></div></div>';
+    box.scrollIntoView({behavior:"smooth",block:"nearest"});
+  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+}
+function messageUser(id){
+  var sel=$("#msg-user"); if(sel) sel.value=String(id);
+  var t=$("#msg-title"); if(t) t.focus();
+  window.scrollTo(0,document.querySelector("#msg-user").offsetTop-80);
+}
+
+/* ---------- mensajes ---------- */
+async function sendMessage(){
+  var uid=$("#msg-user").value, title=$("#msg-title").value.trim(), body=$("#msg-body").value.trim();
+  var res=$("#msg-result");
+  if(!title||!body){ res.innerHTML='<div class="err">Escribe título y mensaje.</div>'; return; }
+  try{
+    await api("POST","/api/admin/messages",{userId:uid==="all"?"all":parseInt(uid,10),title:title,body:body});
+    $("#msg-title").value=""; $("#msg-body").value="";
+    res.innerHTML='<div class="okmsg">Mensaje enviado ✅</div>';
+    loadSent();
+  }catch(e){ if(e.message==="AUTH") authFail(); else res.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+}
+async function loadSent(){
+  try{
+    var d=await api("GET","/api/admin/messages");
+    $("#sent-list").innerHTML=(d.messages||[]).map(function(m){
+      return '<div class="block msg"><div class="m-head"><b>📢 '+esc(m.titulo)+'</b><small>Para: '+esc(m.para)+' · '+esc(m.enviado)+'</small></div><p>'+esc(m.cuerpo)+'</p></div>';
+    }).join("")||'<p style="color:var(--cocoa-soft)">Aún no enviaste mensajes.</p>';
+  }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+
+/* ---------- comunidad ---------- */
+async function loadCommunity(){
+  try{
+    var d=await api("GET","/api/admin/community");
+    $("#community-list").innerHTML=(d.comentarios||[]).map(function(c){
+      return '<div class="block cmt'+(c.oculto?' hidden-c':'')+'"><div class="who">👤 '+esc(c.nombre)+' · '+esc(c.email)+' · '+esc(c.fecha)+(c.oculto?' · <b>OCULTO</b>':'')+'</div>'+
+      '<p>'+esc(c.texto)+'</p><div class="actions">'+
+      '<button class="btn btn-sm" onclick="messageUser('+c.usuarioId+')">✉️ Mensaje</button>'+
+      (c.oculto
+        ? '<button class="btn btn-ghost btn-sm" onclick="toggleComment('+c.id+',false)">👁️ Mostrar</button>'
+        : '<button class="btn btn-danger btn-sm" onclick="toggleComment('+c.id+',true)">🚫 Ocultar</button>')+
+      '</div></div>';
+    }).join("")||'<p style="color:var(--cocoa-soft)">Sin comentarios aún.</p>';
+  }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+async function toggleComment(id,hide){
+  try{ await api("POST","/api/admin/community/"+id+(hide?"/hide":"/unhide")); loadCommunity(); }
+  catch(e){ if(e.message==="AUTH") authFail(); }
+}
+</script>
+</body>
+</html>
