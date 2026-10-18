@@ -34,6 +34,196 @@ function toast(msg){
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), 2600);
 }
+
+/* ============================================================
+   ALERTA ROJA DE ANTI-SPAM 🚩
+   Banner grande y muy visible (no un toast sutil) cuando el servidor
+   bloquea un mensaje por spam: strikes 1/2 o muteo definitivo.
+   ============================================================ */
+function showStrikeBanner(message){
+  let b = $("#strike-banner");
+  if(!b){
+    b = document.createElement("div");
+    b.id = "strike-banner";
+    b.className = "strike-banner";
+    const wrap = $("#community-wrap");
+    if(wrap && wrap.parentNode) wrap.parentNode.insertBefore(b, wrap);
+    else return toast(message);
+  }
+  b.innerHTML = `<span class="strike-flag">🚩</span><span>${esc(message)}</span>
+    <button class="strike-close" onclick="hideStrikeBanner()" aria-label="Cerrar">✕</button>`;
+  b.style.display = "flex";
+  clearTimeout(b._h);
+  b._h = setTimeout(hideStrikeBanner, 12000);
+  b.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function hideStrikeBanner(){
+  const b = $("#strike-banner");
+  if(b) b.style.display = "none";
+}
+
+/* Deshabilita el compositor del chat (usuario muteado: solo lectura). */
+function disableCommunityComposer(){
+  const ta = $("#community-text");
+  const btn = document.querySelector("#community-wrap .community-composer .btn-primary");
+  const photoBtn = $("#photo-btn");
+  const emojiBtn = $("#emoji-btn");
+  const topicBtn = $("#topic-add-btn");
+  if(ta){ ta.disabled = true; ta.placeholder = "🚩 Solo puedes ver los mensajes (chat deshabilitado)"; }
+  if(btn){ btn.disabled = true; btn.style.opacity = ".5"; }
+  if(photoBtn) photoBtn.style.display = "none";
+  if(emojiBtn) emojiBtn.style.display = "none";
+  if(topicBtn) topicBtn.style.display = "none";
+  let note = $("#muted-note");
+  if(!note){
+    note = document.createElement("div");
+    note.id = "muted-note";
+    note.className = "muted-note";
+    const comp = document.querySelector("#community-wrap .community-composer");
+    if(comp) comp.appendChild(note);
+  }
+  if(note) note.textContent = "🚩 Tu capacidad de escribir está deshabilitada. Solo puedes ver los mensajes.";
+}
+
+/* Maneja los códigos de error del filtro anti-spam del servidor. */
+function handleSpamError(j){
+  const code = j && j.error;
+  const msg = (j && j.message) || "Contenido no permitido.";
+  if(code === "STRIKE_1" || code === "STRIKE_2" || code === "MUTED"){
+    showStrikeBanner(msg);
+    toast(msg); // también visible si el usuario está en otra pestaña
+    if(code === "MUTED") disableCommunityComposer();
+    return true;
+  }
+  if(code === "NO_RV"){
+    // Sin RV suficientes: banner rojo EN EL CHAT con botón de recarga.
+    showRVBanner(msg);
+    return true;
+  }
+  return false;
+}
+
+/* ============================================================
+   RV — MONEDA PARA PROMOCIONES 💰 (todo dentro del chat)
+   10 RV = 5 links · 10 RV = 8 imágenes. 1 link = 2 RV.
+   ============================================================ */
+
+/* Banner rojo de error RV con botón "Recargar RV" ahí mismo en el chat. */
+function showRVBanner(message){
+  const b = $("#rv-error");
+  if(!b){ toast(message); return; }
+  b.innerHTML = `<span>🚩</span><span>${esc(message)}</span>
+    <button class="btn btn-primary btn-sm" onclick="openRVModal()">Recargar RV 💰</button>
+    <button class="strike-close" onclick="hideRVBanner()" aria-label="Cerrar">✕</button>`;
+  b.style.display = "flex";
+  clearTimeout(b._h);
+  b._h = setTimeout(hideRVBanner, 15000);
+  b.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function hideRVBanner(){
+  const b = $("#rv-error");
+  if(b) b.style.display = "none";
+}
+
+/* Saldo de RV en la cabecera del chat (solo usuarios con plan). */
+async function loadRVBalance(){
+  const btn = $("#rv-btn");
+  if(!btn) return;
+  if(!isPaid()){
+    btn.style.display = "none";
+    return;
+  }
+  btn.style.display = "";
+  try{
+    const r = await fetch("/api/rv/balance", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    const bal = $("#rv-balance");
+    if(bal) bal.textContent = Number(j.rv) || 0;
+  }catch(e){ /* sin conexión */ }
+}
+
+/* Modal de recarga de RV. */
+async function openRVModal(){
+  const modal = $("#rv-modal");
+  if(!modal) return;
+  modal.classList.add("open");
+  const box = $("#rv-packs");
+  const err = $("#rv-modal-err");
+  if(err) err.textContent = "";
+  if(box) box.innerHTML = `<p style="color:var(--cocoa-soft)">Cargando paquetes…</p>`;
+  try{
+    const r = await fetch("/api/rv/packs");
+    const j = await r.json();
+    const packs = j.packs || [];
+    if(box) box.innerHTML = packs.map(p => `
+      <div class="rv-pack${p.popular ? " rv-popular" : ""}">
+        ${p.popular ? `<span class="rv-tag">Más popular</span>` : ""}
+        <div class="rv-pack-rv">💰 ${esc(String(p.rv))} RV</div>
+        <div class="rv-pack-detalle">${esc(p.detalle || "")}</div>
+        <div class="rv-pack-precio">$${esc(String(p.precio))} USD</div>
+        <button class="btn btn-primary btn-block" onclick="buyRV('${esc(String(p.pack))}')">Comprar 💳</button>
+      </div>`).join("");
+  }catch(e){
+    if(box) box.innerHTML = `<p style="color:#a33">Error cargando paquetes.</p>`;
+  }
+}
+function closeRVModal(){
+  const modal = $("#rv-modal");
+  if(modal) modal.classList.remove("open");
+}
+
+/* Comprar RV: crea la orden en PayPal y redirige a aprobar. */
+async function buyRV(pack){
+  const err = $("#rv-modal-err");
+  if(err) err.textContent = "Conectando con PayPal…";
+  try{
+    const r = await fetch("/api/rv/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ pack: String(pack) }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || "No se pudo crear la orden");
+    if(j.approveUrl){
+      location.href = j.approveUrl; // PayPal → regresa con ?rv=ok&token=ORDERID
+    }else{
+      throw new Error("PayPal no devolvió link de pago");
+    }
+  }catch(e){
+    if(err) err.textContent = e.message;
+    else toast(e.message);
+  }
+}
+
+/* Al regresar de PayPal (?rv=ok&token=ORDERID): captura y acredita. */
+async function handleRVReturn(){
+  const q = new URLSearchParams(location.search);
+  if(q.get("rv") === "cancel"){
+    toast("Pago cancelado.");
+    history.replaceState(null, "", location.pathname + location.hash);
+    return;
+  }
+  if(q.get("rv") !== "ok") return;
+  const orderID = q.get("token");
+  history.replaceState(null, "", location.pathname + location.hash);
+  if(!orderID){ toast("No se encontró la orden de PayPal."); return; }
+  toast("Confirmando tu pago… 💰");
+  try{
+    const r = await fetch("/api/rv/capture-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ orderID }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || "No se pudo confirmar el pago");
+    toast(`¡${j.rvAgregados} RV agregados! 💰 Tienes ${j.rv} RV.`);
+    loadRVBalance();
+    if(j.yaAcreditado) toast("Estos RV ya estaban en tu cuenta 💰");
+  }catch(e){
+    toast("Error: " + e.message);
+  }
+}
 function esc(s){ return String(s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 /* ---------- auth (placeholder) ----------
@@ -817,6 +1007,8 @@ async function renderComunidad(){
   list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando comentarios…</p>`;
   // Los temas se cargan en paralelo (solo visibles con plan).
   loadTopics().catch(()=>{});
+  // Saldo de RV en la cabecera del chat (solo con plan).
+  loadRVBalance().catch(()=>{});
   // El botón de foto solo para usuarios con plan.
   const photoBtn = $("#photo-btn");
   if(photoBtn) photoBtn.style.display = isPaid() ? "" : "none";
@@ -824,6 +1016,8 @@ async function renderComunidad(){
     const r = await fetch("/api/community", { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
+    // Si el usuario está muteado por spam, deshabilitar el compositor (solo lectura).
+    if(j.muted) disableCommunityComposer();
     const items = j.comentarios || [];
     // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
     communityUsers = {};
@@ -856,11 +1050,15 @@ async function renderComunidad(){
       // Tooltip al pasar el mouse: "💬 Chat privado" solo para plan anual.
       const tipText = isAnnual() ? "💬 Chat privado" : (planType() === "monthly" ? "Actualiza a plan anual 💎" : "");
       const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
+      // Indicador sutil de expiración del mensaje (según el plan del autor).
+      const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
+        ? `<span class="msg-expiry" title="Este mensaje se elimina automáticamente">⏳ ${Number(c.expira_en_horas) < 1 ? "menos de 1h" : Math.round(c.expira_en_horas) + "h"}</span>`
+        : "";
       return `
       <div class="comment-card">
         <div class="comment-avatar"${clickAttr}>${avatar}</div>
         <div class="comment-body">
-          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b><span>${esc(c.fecha)}</span></div>
+          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span></div>
           ${body}
         </div>
       </div>`;}).join("") ||
@@ -885,10 +1083,15 @@ async function postCommunity(){
       body: JSON.stringify(body)
     });
     const j = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(!r.ok){
+      if(handleSpamError(j)) return;
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
     if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
     if(box) box.value = "";
-    toast("¡Publicado! Gracias por compartir 💛");
+    hideRVBanner();
+    if(typeof j.rv === "number") loadRVBalance();
+    toast(j.promo ? "¡Publicado con RV! 📢 Gracias por compartir 💛" : "¡Publicado! Gracias por compartir 💛");
     renderComunidad();
   }catch(e){
     toast(e.message);
@@ -1084,7 +1287,10 @@ async function postChatPhoto(dataUrl){
       body: JSON.stringify(body)
     });
     const j = await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(!r.ok){
+      if(handleSpamError(j)) return;
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
     if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
     if(box) box.value = "";
     toast("¡Foto enviada! Se eliminará en 30 segundos ⏳");
@@ -1327,7 +1533,8 @@ async function sendDm(){
     const j = await r.json().catch(() => ({}));
     if(!r.ok){
       if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(); return; }
-      throw new Error(j.error || j.message || ("HTTP " + r.status));
+      if(handleSpamError(j)) return;
+      throw new Error(j.message || j.error || ("HTTP " + r.status));
     }
     if(inp) inp.value = "";
     playDing();
@@ -1534,6 +1741,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   });
   // PayPal return (?paypal=ok|cancel) + sync paid status with backend
   handlePayPalReturn();
+  // Retorno de compra de RV (?rv=ok&token=ORDERID)
+  handleRVReturn().catch(()=>{});
   refreshPaidStatus();
   // reCAPTCHA v2 en el formulario de registro (si hay site key configurada)
   initRecaptcha();

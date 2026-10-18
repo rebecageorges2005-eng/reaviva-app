@@ -182,7 +182,7 @@ async function render(){
       '<div id="growth-chart" class="chart"></div>'+
       '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
-      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="6">Cargando…</td></tr></tbody></table>'+
+      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
       '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
@@ -226,7 +226,7 @@ async function loadUsers(){
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
     $("#users-body").innerHTML=usersCache.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv||0)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
     }).join("")||'<tr><td colspan="6">Sin usuarios</td></tr>';
     var sel=$("#msg-user");
     sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
@@ -268,7 +268,8 @@ function renderUserModal(){
     '<div class="modal-head">'+avatarHtml+
     '<div class="who"><b>'+esc(u.nombre)+'</b><small>'+esc(u.email)+'</small><br>'+
     (u.conPlan?'<span class="badge ok">💳 CON PLAN</span>':'<span class="badge warn">SIN PLAN</span>')+' '+
-    (u.emailVerificado?'<span class="badge ok">✅ verificado</span>':'<span class="badge warn">⚠️ sin confirmar</span>')+
+    (u.emailVerificado?'<span class="badge ok">✅ verificado</span>':'<span class="badge warn">⚠️ sin confirmar</span>')+' '+
+    (u.chatMuted?'<span class="badge" style="background:#fee2e2;color:#991b1b">🚩 CHAT DESHABILITADO</span>':'')+
     '</div>'+
     '<button class="btn btn-ghost btn-sm" onclick="closeUserModal()">✕ Cerrar</button></div>';
   var tabs=[["perfil","📋 Perfil"],["progreso","📊 Progreso"],["diario","📝 Diario"],["comunidad","💬 Comunidad"],["chat","⏱️ Chat"],["mensajes","✉️ Mensajes"]];
@@ -290,7 +291,22 @@ function userTabContent(u){
     '<p><b>📧 Correo:</b> '+(u.emailVerificado?'✅ verificado':'⚠️ sin confirmar')+'</p>'+
     (!u.emailVerificado&&u.verificationLink?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span></div>':'')+
     (!u.emailVerificado&&!u.esAdmin?'<div style="margin:10px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
-    '<div style="margin-top:14px"><button class="btn btn-sm" onclick="messageUser('+u.id+');closeUserModal()">✉️ Enviar mensaje (sección de mensajes)</button></div>';
+    '<div style="margin-top:14px"><button class="btn btn-sm" onclick="messageUser('+u.id+');closeUserModal()">✉️ Enviar mensaje (sección de mensajes)</button></div>'+
+    '<div style="margin-top:16px;border-top:1px solid var(--border,#eee);padding-top:12px">'+
+    '<h4>💰 Saldo RV</h4>'+
+    '<p><b>RV:</b> <span style="font-size:1.2rem;font-weight:800;color:#92400e">💰 '+(u.rv||0)+'</span>'+(u.rvBloqueImagenes?' · 📷 Bloque de imágenes: <b>'+u.rvBloqueImagenes+'</b> envíos restantes':'')+'</p>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">'+
+    '<input id="rv-adjust" type="number" placeholder="+/- RV" style="width:110px;padding:8px;border:1px solid var(--border,#ddd);border-radius:8px">'+
+    '<button class="btn btn-sm" onclick="adjustRV('+u.id+')">Ajustar RV</button>'+
+    '<span id="rv-adjust-msg" style="font-size:.8rem"></span></div>'+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft)">10 RV = 5 links · 10 RV = 8 imágenes promocionales</p>'+
+    '</div>'+
+    '<div style="margin-top:16px;border-top:1px solid var(--border,#eee);padding-top:12px">'+
+    '<h4>🚩 Anti-spam del chat</h4>'+
+    '<p><b>Estado del chat:</b> '+(u.chatMuted?'<span class="badge" style="background:#fee2e2;color:#991b1b">🚩 DESHABILITADO (solo lectura)</span>':'<span class="badge ok">✅ Activo</span>')+'</p>'+
+    '<p style="font-size:.85rem;color:var(--cocoa-soft)">Strikes hoy: <b>'+(u.chatStrikes||0)+'</b>/3 · Veces muteado: <b>'+(u.chatMutes||0)+'</b></p>'+
+    (u.chatMuted?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="unmuteUser('+u.id+')">🔊 Reactivar chat</button></div>':'')+
+    '</div>';
   }
   if(userModalTab==="progreso"){
     var p=u.programa||{diasCompletados:[],totalCompletados:0,diaActual:1,racha:0};
@@ -324,6 +340,12 @@ function userTabContent(u){
     if(!(c.temas||[]).length) html+='<p style="color:var(--cocoa-soft)">No creó temas.</p>';
     html+=(c.temas||[]).map(function(t){
       return '<div class="cmsg"><div class="cd">'+esc(t.creado)+(t.expirado?' · ⏰ expirado':' · 🟢 activo')+'</div>#'+esc(t.nombre)+'</div>';
+    }).join("");
+    var viols=u.violaciones||[];
+    html+='<h4 style="margin-top:16px">🚩 Intentos bloqueados por anti-spam ('+viols.length+')</h4>';
+    if(!viols.length) html+='<p style="color:var(--cocoa-soft)">Sin infracciones.</p>';
+    html+=viols.map(function(v){
+      return '<div class="cmsg" style="border-left:3px solid #dc2626"><div class="cd">'+esc(v.fecha)+' · <b>'+esc(v.tipo)+'</b>'+(v.detalle?' ('+esc(v.detalle)+')':'')+'</div>'+esc(v.intento)+'</div>';
     }).join("");
     return html;
   }
@@ -400,6 +422,31 @@ async function verifyUser(id){
     showUser(id);
   }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
+/* Reactiva el chat de un usuario muteado por el anti-spam. */
+async function unmuteUser(id){
+  if(!confirm("¿Reactivar la capacidad de escribir en el chat de este usuario? Sus strikes se reiniciarán.")) return;
+  try{
+    await api("POST","/api/admin/users/"+id+"/unmute");
+    await loadUsers();
+    closeUserModal();
+    showUser(id);
+  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+
+/* ---------- RV: ajuste manual de saldo (soporte) ---------- */
+async function adjustRV(id){
+  var input=$("#rv-adjust"), msg=$("#rv-adjust-msg");
+  var amount=Number(input&&input.value);
+  if(!Number.isFinite(amount)||amount===0){ if(msg)msg.textContent="Escribe un monto (+/-)."; return; }
+  if(!confirm("¿Ajustar "+amount+" RV al saldo de este usuario?")) return;
+  try{
+    var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:Math.trunc(amount)});
+    if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
+    await loadUsers();
+    closeUserModal();
+    showUser(id);
+  }catch(e){ if(msg){msg.textContent="Error: "+e.message;msg.style.color="#a33";} }
+}
 
 /* ---------- mensajes ---------- */
 async function sendMessage(){
@@ -435,6 +482,18 @@ async function loadCommunity(){
         : '<button class="btn btn-danger btn-sm" onclick="toggleComment('+c.id+',true)">🚫 Ocultar</button>')+
       '</div></div>';
     }).join("")||'<p style="color:var(--cocoa-soft)">Sin comentarios aún.</p>';
+    /* Infracciones del anti-spam (intentos bloqueados). */
+    try{
+      var v=await api("GET","/api/admin/chat-violations");
+      var vh='<h3 style="margin-top:20px">🚩 Intentos bloqueados por anti-spam</h3>';
+      vh+=(v.infracciones||[]).map(function(x){
+        return '<div class="block cmt"><div class="who">🚩 '+esc(x.usuario)+' · <b>'+esc(x.tipo)+'</b>'+(x.detalle?' ('+esc(x.detalle)+')':'')+' · '+esc(x.fecha)+'</div>'+
+        '<p>'+esc(x.intento)+'</p><div class="actions">'+
+        '<button class="btn btn-sm" onclick="showUser('+x.userId+')">👤 Ver usuario</button>'+
+        '</div></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Sin infracciones.</p>';
+      $("#community-list").innerHTML+=vh;
+    }catch(e2){ /* sin infracciones visibles */ }
   }catch(e){ if(e.message==="AUTH") authFail(); }
 }
 async function toggleComment(id,hide){
