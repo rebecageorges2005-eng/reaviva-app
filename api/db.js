@@ -600,3 +600,14 @@ try {
 } catch (e) {
   console.error("[db] migración online_users:", e.message);
 }
+
+/* Migración: referidos — quién invitó a cada usuario (columna users.referred_by) */
+try {
+  const colsRef = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!colsRef.includes("referred_by")) {
+    db.exec("ALTER TABLE users ADD COLUMN referred_by INTEGER");
+    console.log("[db] migración: users.referred_by agregada");
+  }
+} catch (e) {
+  console.error("[db] migración referred_by:", e.message);
+}
