@@ -94,12 +94,7 @@ function canAccess(d){
   return d <= TRIAL_DAYS || isPaid();
 }
 
-/* ---------- admin login (code-based, discrete link on login screen) ---------- */
-function toggleAdminLogin(ev){
-  ev.preventDefault();
-  const box = $("#admin-login-box");
-  box.style.display = box.style.display === "none" ? "" : "none";
-}
+/* ---------- admin login (URL secreta /admin/ingzoe) ---------- */
 async function doAdminLogin(ev){
   ev.preventDefault();
   const code = $("#admin-code").value.trim();
@@ -126,10 +121,11 @@ async function doAdminLogin(ev){
 
 /* ---------- views ---------- */
 function showView(name){
-  ["landing","auth","app"].forEach(v => $("#view-"+v).style.display = v===name ? "" : "none");
+  ["landing","auth","app","admin-login"].forEach(v => $("#view-"+v).style.display = v===name ? "" : "none");
   if(name==="landing") $("#view-landing").style.display = "";
   if(name==="auth")    $("#view-auth").style.display = "";
   if(name==="app")     $("#view-app").style.display = "";
+  if(name==="admin-login") $("#view-admin-login").style.display = "";
   window.scrollTo(0,0);
 }
 function enterApp(){
@@ -465,7 +461,7 @@ function openDay(d){
       <div class="part">${esc(p.part)}</div>
       <h2>Día ${p.day} · ${esc(p.title)}</h2>
     </div>
-    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
+    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(p.reflexion)}</p></div>
     <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(p.ejercicio)}</p></div>
@@ -628,6 +624,11 @@ document.addEventListener("DOMContentLoaded", ()=>{
   // PayPal return (?paypal=ok|cancel) + sync paid status with backend
   handlePayPalReturn();
   refreshPaidStatus();
+  // URL secreta de admin: /admin/ingzoe
+  if(location.pathname === "/admin/ingzoe"){
+    if(currentUser() && isAdmin()) enterApp(); else showView("admin-login");
+    return;
+  }
   // deep-link: #app
   if(location.hash === "#app" && currentUser()) enterApp();
 });
