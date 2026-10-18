@@ -313,3 +313,111 @@ try {
 }
 
 module.exports = db;
+
+/* --- Sistema anti-spam: strikes por compartir correos/teléfonos/redes ---
+ * users.chat_strikes: intentos bloqueados hoy (se reinicia cada día).
+ * users.chat_strikes_date: fecha (YYYY-MM-DD) del último strike.
+ * users.chat_muted: 1 = no puede escribir en el chat (solo lectura).
+ * users.chat_mutes: veces que fue muteado (reincidentes).
+ * chat_violations: registro de intentos bloqueados para revisión del admin. */
+try {
+  const cols10 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  const add = (col, def) => {
+    if (!cols10.includes(col)) {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+      console.log(`[db] migración: columna users.${col} agregada`);
+      cols10.push(col);
+    }
+  };
+  add("chat_strikes", "INTEGER NOT NULL DEFAULT 0");
+  add("chat_strikes_date", "TEXT");
+  add("chat_muted", "INTEGER NOT NULL DEFAULT 0");
+  add("chat_mutes", "INTEGER NOT NULL DEFAULT 0");
+} catch (e) {
+  console.error("[db] migración chat_strikes:", e.message);
+}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_violations (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id        INTEGER NOT NULL,
+      attempted_text TEXT NOT NULL,
+      violation_type TEXT NOT NULL,   -- correo | telefono | red social
+      detail         TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_viol_user ON chat_violations(user_id, created_at);
+  `);
+  console.log("[db] migración: tabla chat_violations lista");
+} catch (e) {
+  console.error("[db] migración chat_violations:", e.message);
+}
+
+/* --- Migración: sistema de créditos para mensajes promocionales ---
+ * users.credits: saldo de créditos (1 crédito = 1 mensaje promocional
+ * con enlaces/redes sociales/publicidad en el chat grupal).
+ * credit_purchases: historial de compras de paquetes vía PayPal Orders.
+ * credit_spending: registro de créditos gastados (auditoría).
+ * community_comments.is_promo: marca mensajes publicados con crédito (📢). */
+try {
+  const cols11 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols11.includes("credits")) {
+    db.exec("ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna users.credits agregada");
+  }
+} catch (e) {
+  console.error("[db] migración credits:", e.message);
+}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_purchases (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id        INTEGER NOT NULL,
+      pack_credits   INTEGER NOT NULL,
+      amount_usd     TEXT NOT NULL,
+      paypal_order_id TEXT NOT NULL UNIQUE,
+      status         TEXT NOT NULL DEFAULT 'completed',
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cp_user ON credit_purchases(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS credit_spending (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      credits_used INTEGER NOT NULL DEFAULT 1,
+      reason       TEXT NOT NULL DEFAULT 'promo_message',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cs_user ON credit_spending(user_id, created_at);
+  `);
+  console.log("[db] migración: tablas credit_purchases y credit_spending listas");
+} catch (e) {
+  console.error("[db] migración credit_purchases:", e.message);
+}
+
+try {
+  const colsC = db.prepare("PRAGMA table_info(community_comments)").all().map((c) => c.name);
+  if (!colsC.includes("is_promo")) {
+    db.exec("ALTER TABLE community_comments ADD COLUMN is_promo INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna community_comments.is_promo agregada");
+  }
+} catch (e) {
+  console.error("[db] migración is_promo:", e.message);
+}
+
+/* --- Migración: bloque de imágenes promocionales ---
+ * users.img_block_remaining: envíos de imagen restantes del bloque actual.
+ * Cada bloque = 10 RV por 8 envíos de imágenes promocionales. */
+try {
+  const cols12 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols12.includes("img_block_remaining")) {
+    db.exec("ALTER TABLE users ADD COLUMN img_block_remaining INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna users.img_block_remaining agregada");
+  }
+} catch (e) {
+  console.error("[db] migración img_block_remaining:", e.message);
+}
