@@ -491,7 +491,7 @@ async function doSignup(ev){
     const r = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, recaptchaToken })
+      body: JSON.stringify({ name, email, password, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
     });
     const j = await r.json();
     if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
@@ -649,6 +649,7 @@ function switchTab(tab){
   if(tab==="progreso") renderProgreso();
   if(tab==="comunidad") renderComunidad();
   if(tab==="privados") renderDmList();
+  if(tab==="perfil") renderPerfil();
   if(tab==="admin") renderAdmin();
 }
 
@@ -713,6 +714,14 @@ async function renderAdmin(){
         <div class="stat-card live"><b>${s.onlineNow}</b><span>🟢 Conectados ahora</span></div>
         <div class="stat-card"><b>${s.signupsToday}</b><span>📝 Registros hoy</span></div>
         <div class="stat-card money"><b>$${s.mrr}</b><span>💰 Ingreso mensual est.</span></div>
+        <div class="stat-card"><b>${s.referredUsers || 0}</b><span>📤 Llegaron por referido</span></div>
+      </div>
+      <div class="admin-section">
+        <h3>📤 Top invitadores</h3>
+        <div class="table-wrap"><table class="admin-table">
+          <thead><tr><th>Usuario</th><th>Referidos</th></tr></thead>
+          <tbody>${(s.topReferrers || []).map(t => `<tr><td>${esc(t.nombre)}</td><td><b>${t.referidos}</b></td></tr>`).join("") || `<tr><td colspan="2" style="text-align:center">Aún no hay referidos</td></tr>`}</tbody>
+        </table></div>
       </div>
       <div class="admin-section">
         <div class="admin-section-head">
@@ -1081,6 +1090,26 @@ function fmtDate(k){
 }
 
 /* ---------- PROGRESO ---------- */
+/* ============================================================
+   PERFIL
+   ============================================================ */
+function renderPerfil(){
+  const u = currentUser();
+  const box = $("#perfil-content");
+  if(!box) return;
+  if(!u){ box.innerHTML = `<p style="text-align:center">Inicia sesión para ver tu perfil.</p>`; return; }
+  const nombre = esc(u.name || "Usuario");
+  const plan = planType();
+  const planLabel = plan === "annual" ? "⭐ Plan Anual" : plan === "monthly" ? "Plan Mensual" : "Sin plan";
+  box.innerHTML = `
+    <div style="text-align:center;padding:10px 0">
+      <div style="font-size:1.3rem;font-weight:700">${nombre}</div>
+      <div style="color:var(--cocoa-soft);font-size:.9rem;margin:4px 0">${planLabel}</div>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
+    <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>`;
+}
+
 function renderProgreso(){
   const done = doneDays();
   $("#prog-stats").innerHTML = `
@@ -2120,6 +2149,70 @@ document.addEventListener("DOMContentLoaded", ()=>{
   if(location.hash === "#app"){
     restoreSession().then(afterRestore);
   }
+  // Referido: si llegó con ?ref=USERID, guardarlo para el registro.
+  try{
+    const refParam = new URLSearchParams(location.search).get("ref");
+    if(refParam && /^\d+$/.test(refParam)) localStorage.setItem("reaviva_ref", refParam);
+  }catch(e){}
   // Tour de bienvenida: se muestra una vez al primer ingreso.
   setTimeout(maybeShowTour, 1500);
 });
+
+/* ============================================================
+   COMPARTIR REAVIVA
+   ============================================================ */
+const SHARE_MSG = "🌅 ¿Sientes que tu corazón necesita sanar? Descubrí Reaviva, un programa de 30 días que me está ayudando a soltar el dolor y recuperar mi paz. ¡Tienes 7 días gratis! 💛";
+
+function myShareLink(){
+  const u = currentUser();
+  const base = "https://www.reavivaapp.com/";
+  // Link personal con ref para rastrear referidos (solo si hay sesión).
+  return (u && u.id) ? base + "?ref=" + encodeURIComponent(u.id) : base;
+}
+
+function openShareModal(){
+  const link = myShareLink();
+  const txt = SHARE_MSG + " " + link;
+  const el = $("#share-text");
+  if(el) el.textContent = txt;
+  const m = $("#share-modal");
+  if(m) m.classList.add("open");
+}
+
+function closeShareModal(){
+  const m = $("#share-modal");
+  if(m) m.classList.remove("open");
+}
+
+function shareVia(canal){
+  const link = myShareLink();
+  const txt = SHARE_MSG + " " + link;
+  const msg = $("#share-copy-msg");
+  const done = (t) => { if(msg) msg.textContent = t; };
+  if(canal === "whatsapp"){
+    window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
+  }else if(canal === "facebook"){
+    window.open("https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(link) + "&quote=" + encodeURIComponent(SHARE_MSG), "_blank");
+  }else if(canal === "telegram"){
+    window.open("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent(SHARE_MSG), "_blank");
+  }else if(canal === "x"){
+    window.open("https://twitter.com/intent/tweet?text=" + encodeURIComponent(txt), "_blank");
+  }else if(canal === "copy"){
+    const copiar = async () => {
+      try{
+        await navigator.clipboard.writeText(txt);
+        done("✅ ¡Link copiado! Pégalo donde quieras 💛");
+      }catch(e){
+        // Fallback para navegadores sin clipboard API.
+        const ta = document.createElement("textarea");
+        ta.value = txt;
+        document.body.appendChild(ta);
+        ta.select();
+        try{ document.execCommand("copy"); done("✅ ¡Link copiado! Pégalo donde quieras 💛"); }
+        catch(_){ done("Copia el link manualmente: " + link); }
+        document.body.removeChild(ta);
+      }
+    };
+    copiar();
+  }
+}

@@ -546,3 +546,10 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .tour-dots{ display:flex; gap:6px; }
 .tour-dot{ width:8px; height:8px; border-radius:50%; background:var(--cocoa-soft); opacity:.4; }
 .tour-dot.active{ opacity:1; background:var(--coral); transform:scale(1.2); }
+
+/* ---------- compartir ---------- */
+.share-buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.share-btn{display:flex;align-items:center;gap:10px;justify-content:center;padding:12px;border:2px solid var(--cocoa-soft);border-radius:12px;background:#fff;font-size:.9rem;font-weight:600;color:var(--cocoa);cursor:pointer;transition:transform .1s}
+.share-btn:hover{transform:scale(1.03);border-color:var(--coral)}
+.share-btn span{font-size:1.2rem}
+.share-preview{margin:6px 0}

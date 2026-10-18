@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Reaviva — 30 días para soltar el dolor y recuperar tu paz</title>
 <meta name="description" content="Reaviva es tu compañero diario de sanación emocional: un programa guiado de 30 días, diario emocional y comunidad. Empieza gratis.">
+<!-- Open Graph / redes sociales -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Reaviva">
+<meta property="og:title" content="🌅 ¿Tu corazón necesita sanar?">
+<meta property="og:description" content="Reaviva: un programa de 30 días para soltar el dolor y recuperar tu paz. 7 días gratis, sin tarjeta.">
+<meta property="og:image" content="https://www.reavivaapp.com/share-image.png">
+<meta property="og:url" content="https://www.reavivaapp.com/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="🌅 ¿Tu corazón necesita sanar?">
+<meta name="twitter:description" content="Reaviva: un programa de 30 días para soltar el dolor y recuperar tu paz. 7 días gratis, sin tarjeta.">
+<meta name="twitter:image" content="https://www.reavivaapp.com/share-image.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -36,6 +47,7 @@
         <a class="btn btn-ghost btn-lg" href="#programa">Ver el programa</a>
       </div>
       <p class="hero-note">7 días gratis · Sin tarjeta · Cancela cuando quieras</p>
+      <p style="margin-top:14px"><button class="btn btn-ghost" onclick="openShareModal()">📤 Compartir con alguien que lo necesite</button></p>
       <div class="hero-stats">
         <div class="stat"><b>30</b><span>días guiados</span></div>
         <div class="stat"><b>6</b><span>etapas de sanación</span></div>
@@ -218,6 +230,7 @@
     <a class="logo" href="#">Reaviva<span>.</span></a>
     <span class="user-chip" id="user-chip">Hola</span>
     <div style="display:flex;gap:10px;align-items:center;margin-left:auto">
+      <button id="share-btn" class="btn btn-ghost" style="padding:8px 16px;font-size:.85rem" onclick="openShareModal()" title="Comparte Reaviva con quien lo necesite">📤 Compartir</button>
       <button id="logout-btn" class="btn btn-ghost" style="padding:8px 16px;font-size:.85rem">Salir</button>
     </div>
   </div>
@@ -380,6 +393,28 @@
     <h3 id="online-modal-title">🟢 En línea</h3>
     <div id="online-list" class="online-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>
     <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeOnlineModal()">Cerrar</button>
+  </div>
+</div>
+
+
+<!-- Compartir Reaviva -->
+<div class="modal-bg" id="share-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeShareModal()" aria-label="Cerrar">✕</button>
+    <h3>📤 Comparte Reaviva</h3>
+    <p style="color:var(--cocoa-soft);font-size:.9rem;line-height:1.6">Si Reaviva te está ayudando, compártelo con alguien que lo necesite. Un mensaje tuyo puede cambiarle el día 💛</p>
+    <div class="share-preview">
+      <img src="/share-image.png" alt="¿Tu corazón necesita sanar?" style="width:100%;border-radius:10px;margin:10px 0">
+      <p id="share-text" style="font-size:.85rem;background:var(--bg-soft);padding:12px;border-radius:10px;line-height:1.6"></p>
+    </div>
+    <div class="share-buttons">
+      <button class="share-btn" onclick="shareVia('whatsapp')" title="Compartir por WhatsApp"><span>💬</span>WhatsApp</button>
+      <button class="share-btn" onclick="shareVia('facebook')" title="Compartir en Facebook"><span>📘</span>Facebook</button>
+      <button class="share-btn" onclick="shareVia('telegram')" title="Compartir por Telegram"><span>✈️</span>Telegram</button>
+      <button class="share-btn" onclick="shareVia('x')" title="Compartir en X"><span>🐦</span>X</button>
+      <button class="share-btn" onclick="shareVia('copy')" title="Copiar enlace"><span>🔗</span>Copiar link</button>
+    </div>
+    <p id="share-copy-msg" style="font-size:.8rem;color:var(--cocoa-soft);min-height:1.2em;text-align:center"></p>
   </div>
 </div>
 
