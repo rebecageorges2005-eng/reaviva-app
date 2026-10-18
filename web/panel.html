@@ -60,7 +60,35 @@ tr.clickable:hover{background:var(--sand)}
 .okmsg{background:#e3f2e5;color:#2e7d32;border-radius:12px;padding:12px 16px;margin:12px 0;font-size:.9rem}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .toolbar select{width:auto;margin-bottom:0}
-@media(max-width:600px){th,td{padding:8px 8px;font-size:.8rem}.cards{grid-template-columns:repeat(2,1fr)}}
+/* ---------- modal de detalle de usuario ---------- */
+.modal-overlay{position:fixed;inset:0;background:rgba(74,55,40,.55);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto}
+.modal{background:var(--sand);border-radius:18px;max-width:720px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,.25);overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:12px;padding:16px 20px;background:#fff;border-bottom:1px solid var(--sand-2)}
+.modal-head .avatar{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--rose);display:flex;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0;overflow:hidden}
+.modal-head .avatar img{width:100%;height:100%;object-fit:cover}
+.modal-head .who{flex:1;min-width:0}
+.modal-head .who b{font-size:1.05rem;display:block}
+.modal-head .who small{color:var(--cocoa-soft)}
+.modal-tabs{display:flex;gap:4px;padding:10px 16px 0;background:#fff;border-bottom:1px solid var(--sand-2);overflow-x:auto}
+.modal-tab{border:none;background:none;padding:10px 14px;font-size:.85rem;font-weight:700;color:var(--cocoa-soft);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.modal-tab.active{color:var(--terra-dark);border-bottom-color:var(--terra)}
+.modal-body{padding:18px 20px;max-height:60vh;overflow-y:auto}
+.modal-body h4{margin:0 0 8px;font-size:.95rem}
+.progbar{height:14px;background:#eee;border-radius:999px;overflow:hidden;margin:8px 0}
+.progbar i{display:block;height:100%;background:linear-gradient(90deg,var(--terra),var(--terra-dark));border-radius:999px}
+.daygrid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin-top:10px}
+.daycell{background:#fff;border:1px solid #e8ddd0;border-radius:8px;text-align:center;font-size:.75rem;padding:6px 0;color:#bbb}
+.daycell.done{background:#e3f2e5;border-color:#a5d6a7;color:#2e7d32;font-weight:700}
+.jentry{background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:.85rem}
+.jentry .jd{font-size:.75rem;color:var(--cocoa-soft);margin-bottom:4px}
+.cmsg{background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:.85rem}
+.cmsg .cd{font-size:.75rem;color:var(--cocoa-soft);margin-bottom:4px}
+.chathist{display:flex;gap:8px;align-items:flex-end;height:90px;margin:10px 0}
+.chatbar{flex:1;background:var(--rose);border-radius:6px 6px 0 0;min-height:6px;position:relative}
+.chatbar:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:var(--cocoa);color:#fff;font-size:.7rem;padding:4px 8px;border-radius:6px;white-space:nowrap;z-index:5}
+.pmsg{background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:.85rem;border-left:4px solid var(--terra)}
+.pmsg .pd{font-size:.75rem;color:var(--cocoa-soft);margin-bottom:4px}
+@media(max-width:600px){th,td{padding:8px 8px;font-size:.8rem}.cards{grid-template-columns:repeat(2,1fr)}.daygrid{grid-template-columns:repeat(6,1fr)}}
 </style>
 </head>
 <body>
@@ -154,7 +182,6 @@ async function render(){
       '<div id="growth-chart" class="chart"></div>'+
       '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
-      '<div id="user-detail"></div>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="6">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
@@ -207,24 +234,143 @@ async function loadUsers(){
     }).join("");
   }catch(e){ if(e.message==="AUTH") authFail(); }
 }
+/* ---------- detalle de usuario: modal con pestañas ---------- */
+var userModalData=null;
+var userModalTab="perfil";
+function fmtSeg(s){
+  s=Math.max(0,Math.round(s||0));
+  var h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  if(h>0) return h+" h "+m+" min";
+  return m+" min";
+}
 async function showUser(id){
-  var box=$("#user-detail");
-  box.innerHTML='<div class="block"><p style="color:var(--cocoa-soft)">Cargando…</p></div>';
+  document.body.insertAdjacentHTML("beforeend",
+    '<div class="modal-overlay" id="user-modal" onclick="if(event.target===this)closeUserModal()">'+
+    '<div class="modal"><div class="center" style="padding:40px">Cargando…</div></div></div>');
   try{
     var u=await api("GET","/api/admin/users/"+id);
-    box.innerHTML='<div class="block detail"><div class="m-head"><b>'+(u.conPlan?'✅ TIENE PLAN':'⚠️ SIN PLAN')+'</b>'+
-      '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'#user-detail\').innerHTML=\'\'">Cerrar</button></div>'+
-      '<p><b>'+esc(u.nombre)+'</b> · '+esc(u.email)+'</p>'+
-      '<p style="font-size:.85rem">📧 Correo: '+(u.emailVerificado?'<span class="badge ok">✅ verificado</span>':'<span class="badge warn">⚠️ sin confirmar</span>')+'</p>'+
-      (!u.emailVerificado&&u.verificationLink?'<div style="margin:8px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span><p style="font-size:.78rem;color:var(--cocoa-soft);margin-top:4px">El envío automático no está configurado: cópialo y envíaselo por WhatsApp.</p></div>':'')+
-      (!u.emailVerificado&&!u.esAdmin?'<div style="margin:8px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
-      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Plan: '+esc(u.plan||'—')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
-      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Registrado: '+esc(u.registrado||'—')+' · Última conexión: '+esc(u.ultimaConexion||'—')+'</p>'+
-      '<p style="font-size:.85rem;color:var(--cocoa-soft)">🌍 País: '+(u.pais?flagEmoji(u.codigoPais)+' '+esc(u.pais):'—')+(u.ip?' · IP: '+esc(u.ip):'')+'</p>'+
-      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Días completados: '+(u.diasCompletados||0)+' · Entradas de diario: '+(u.entradasDiario||0)+'</p>'+
-      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="messageUser('+u.id+')">✉️ Enviar mensaje</button></div></div>';
-    box.scrollIntoView({behavior:"smooth",block:"nearest"});
-  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+    userModalData=u; userModalTab="perfil";
+    renderUserModal();
+  }catch(e){ if(e.message==="AUTH") authFail(); else { closeUserModal(); alert("Error: "+e.message); } }
+}
+function closeUserModal(){
+  var m=$("#user-modal"); if(m) m.remove();
+  userModalData=null;
+}
+function setUserTab(tab){ userModalTab=tab; renderUserModal(); }
+function renderUserModal(){
+  var u=userModalData; if(!u) return;
+  var box=$("#user-modal .modal"); if(!box) return;
+  var avatarHtml = u.foto
+    ? '<div class="avatar"><img src="'+u.foto+'" alt="foto"></div>'
+    : '<div class="avatar">👤</div>';
+  var head =
+    '<div class="modal-head">'+avatarHtml+
+    '<div class="who"><b>'+esc(u.nombre)+'</b><small>'+esc(u.email)+'</small><br>'+
+    (u.conPlan?'<span class="badge ok">💳 CON PLAN</span>':'<span class="badge warn">SIN PLAN</span>')+' '+
+    (u.emailVerificado?'<span class="badge ok">✅ verificado</span>':'<span class="badge warn">⚠️ sin confirmar</span>')+
+    '</div>'+
+    '<button class="btn btn-ghost btn-sm" onclick="closeUserModal()">✕ Cerrar</button></div>';
+  var tabs=[["perfil","📋 Perfil"],["progreso","📊 Progreso"],["diario","📝 Diario"],["comunidad","💬 Comunidad"],["chat","⏱️ Chat"],["mensajes","✉️ Mensajes"]];
+  var tabHtml='<div class="modal-tabs">'+tabs.map(function(t){
+    return '<button class="modal-tab'+(userModalTab===t[0]?" active":"")+'" onclick="setUserTab(\''+t[0]+'\')">'+t[1]+'</button>';
+  }).join("")+'</div>';
+  box.innerHTML=head+tabHtml+'<div class="modal-body">'+userTabContent(u)+'</div>';
+}
+function userTabContent(u){
+  if(userModalTab==="perfil"){
+    return '<h4>📋 Perfil</h4>'+
+    '<p><b>Nombre completo:</b> '+esc(u.nombre)+'</p>'+
+    '<p><b>Email:</b> '+esc(u.email)+'</p>'+
+    '<p><b>🌍 País:</b> '+(u.pais?flagEmoji(u.codigoPais)+' '+esc(u.pais):'—')+'</p>'+
+    '<p><b>IP:</b> '+(u.ip?esc(u.ip):'—')+'</p>'+
+    '<p><b>Registrado:</b> '+esc(u.registrado||'—')+'</p>'+
+    '<p><b>Última conexión:</b> '+(u.enLinea?'🟢 ':'')+esc(u.ultimaConexion||'—')+'</p>'+
+    '<p><b>Plan:</b> '+esc(u.plan||'—')+(u.planDetalle?' ('+esc(u.planDetalle)+')':'')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
+    '<p><b>📧 Correo:</b> '+(u.emailVerificado?'✅ verificado':'⚠️ sin confirmar')+'</p>'+
+    (!u.emailVerificado&&u.verificationLink?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span></div>':'')+
+    (!u.emailVerificado&&!u.esAdmin?'<div style="margin:10px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
+    '<div style="margin-top:14px"><button class="btn btn-sm" onclick="messageUser('+u.id+');closeUserModal()">✉️ Enviar mensaje (sección de mensajes)</button></div>';
+  }
+  if(userModalTab==="progreso"){
+    var p=u.programa||{diasCompletados:[],totalCompletados:0,diaActual:1,racha:0};
+    var pct=Math.round(p.totalCompletados/30*100);
+    var cells="";
+    for(var d=1;d<=30;d++){
+      cells+='<div class="daycell'+(p.diasCompletados.indexOf(d)>=0?" done":"")+'">'+d+'</div>';
+    }
+    return '<h4>📊 Progreso del programa</h4>'+
+    '<p><b>Día '+p.diaActual+' de 30</b> · 🔥 Racha: <b>'+p.racha+'</b> días · ✅ '+p.totalCompletados+'/30 completados</p>'+
+    '<div class="progbar"><i style="width:'+pct+'%"></i></div>'+
+    '<div class="daygrid">'+cells+'</div>'+
+    (u.inicioPrograma?'<p style="margin-top:10px;font-size:.85rem;color:var(--cocoa-soft)">Inicio del programa: '+esc(u.inicioPrograma)+'</p>':'<p style="margin-top:10px;font-size:.85rem;color:var(--cocoa-soft)">Aún no empezó el programa.</p>');
+  }
+  if(userModalTab==="diario"){
+    var dj=u.diario||{total:0,entradas:[]};
+    if(!dj.entradas.length) return '<h4>📝 Diario emocional</h4><p style="color:var(--cocoa-soft)">Sin entradas aún. Total: 0</p>';
+    return '<h4>📝 Diario emocional ('+dj.total+' entradas)</h4>'+
+    dj.entradas.map(function(e){
+      return '<div class="jentry"><div class="jd">'+esc(e.fecha)+' · ánimo: '+esc(e.animo)+'</div>'+esc(e.texto)+'</div>';
+    }).join("");
+  }
+  if(userModalTab==="comunidad"){
+    var c=u.comunidad||{total:0,mensajes:[],temas:[]};
+    var html='<h4>💬 Comunidad ('+c.total+' mensajes)</h4>';
+    if(!c.mensajes.length) html+='<p style="color:var(--cocoa-soft)">No publicó mensajes.</p>';
+    html+=c.mensajes.map(function(m){
+      return '<div class="cmsg"><div class="cd">'+esc(m.fecha)+(m.oculto?' · <b>🚫 OCULTO</b>':'')+'</div>'+esc(m.texto)+'</div>';
+    }).join("");
+    html+='<h4 style="margin-top:16px">🏷️ Temas creados ('+(c.temas||[]).length+')</h4>';
+    if(!(c.temas||[]).length) html+='<p style="color:var(--cocoa-soft)">No creó temas.</p>';
+    html+=(c.temas||[]).map(function(t){
+      return '<div class="cmsg"><div class="cd">'+esc(t.creado)+(t.expirado?' · ⏰ expirado':' · 🟢 activo')+'</div>#'+esc(t.nombre)+'</div>';
+    }).join("");
+    return html;
+  }
+  if(userModalTab==="chat"){
+    var ch=u.chat||{segundosHoy:0,historial:[]};
+    var limite="ilimitado";
+    if(!u.conPlan&&!u.esAdmin) limite="de 2 h diarias";
+    var html='<h4>⏱️ Uso del chat</h4>'+
+    '<p><b>Hoy:</b> '+fmtSeg(ch.segundosHoy)+(u.conPlan||u.esAdmin?' (plan ilimitado)':' '+limite)+'</p>';
+    if(!(ch.historial||[]).length) return html+'<p style="color:var(--cocoa-soft)">Sin historial.</p>';
+    var max=1;
+    ch.historial.forEach(function(h){ max=Math.max(max,h.segundos||0); });
+    html+='<h4 style="margin-top:12px">Últimos 7 días</h4><div class="chathist">'+
+    ch.historial.slice().reverse().map(function(h){
+      var hh=Math.max(6,Math.round((h.segundos||0)/max*84));
+      return '<div class="chatbar" style="height:'+hh+'px" data-tip="'+esc(h.fecha)+': '+fmtSeg(h.segundos)+'"></div>';
+    }).join("")+'</div>'+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft)">'+ch.historial.map(function(h){return esc(h.fecha);}).join(" · ")+'</p>';
+    return html;
+  }
+  if(userModalTab==="mensajes"){
+    var msgs=u.mensajes||[];
+    var html='<h4>✉️ Enviar mensaje privado</h4>'+
+    '<textarea id="priv-msg-text" class="field" rows="3" placeholder="Escribe un mensaje privado para '+esc(u.nombre)+'…" style="resize:vertical"></textarea>'+
+    '<button class="btn btn-sm" onclick="sendPrivateMessage('+u.id+')">Enviar mensaje privado</button>'+
+    '<div id="priv-msg-result" style="margin-top:8px"></div>'+
+    '<h4 style="margin-top:18px">Historial ('+msgs.length+')</h4>';
+    if(!msgs.length) html+='<p style="color:var(--cocoa-soft)">Aún no le enviaste mensajes privados.</p>';
+    html+=msgs.map(function(m){
+      return '<div class="pmsg"><div class="pd"><b>'+esc(m.titulo)+'</b> · '+esc(m.enviado)+(m.leido?' · ✅ leído':' · 📩 no leído')+'</div>'+esc(m.cuerpo)+'</div>';
+    }).join("");
+    return html;
+  }
+  return "";
+}
+async function sendPrivateMessage(id){
+  var ta=$("#priv-msg-text"), res=$("#priv-msg-result");
+  var text=(ta&&ta.value||"").trim();
+  if(!text){ res.innerHTML='<div class="err">Escribe el mensaje primero.</div>'; return; }
+  try{
+    await api("POST","/api/admin/users/"+id+"/message",{text:text});
+    res.innerHTML='<div class="okmsg">Mensaje privado enviado ✅</div>';
+    var u=await api("GET","/api/admin/users/"+id);
+    userModalData=u;
+    renderUserModal();
+    loadSent();
+  }catch(e){ if(e.message==="AUTH") authFail(); else res.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
 }
 function messageUser(id){
   var sel=$("#msg-user"); if(sel) sel.value=String(id);
@@ -250,6 +396,7 @@ async function verifyUser(id){
   try{
     await api("POST","/api/admin/users/"+id+"/verify");
     await loadUsers();
+    closeUserModal();
     showUser(id);
   }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
