@@ -15,6 +15,7 @@ const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
 const { temaActivoPorId } = require("./topics");
+const { getPlanType } = require("../plan");
 const {
   mutedPayload,
   detectSpam,
@@ -102,6 +103,20 @@ function validarTexto(raw) {
   return { text };
 }
 
+/* --- Expiración de mensajes por plan del autor ---
+ * Mensual → 5 horas · anual/admin → 24 horas · gratuito → 28 horas.
+ * Las fotos temporales usan su propia lógica de 30 segundos
+ * (se guardan con expires_at = NULL). Formato UTC 'YYYY-MM-DD HH:MM:SS'. */
+const EXPIRY_HOURS = { monthly: 5, annual: 24, free: 28 };
+function messageExpiresAt(user, msgType) {
+  if (msgType === "photo") return null;
+  const h = EXPIRY_HOURS[getPlanType(user)] || 28;
+  return new Date(Date.now() + h * 3600 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+}
+
 /* GET /api/community → lista pública, anónima, newest first.
  * Incluye chatTimeLeft (segundos restantes hoy; null = ilimitado).
  * Sin tiempo restante → 403 con mensaje en español.
@@ -110,13 +125,22 @@ function validarTexto(raw) {
 router.get("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
+  // Limpieza: borra mensajes de texto vencidos (las fotos usan su lógica de 30s).
+  try {
+    db.prepare(
+      "DELETE FROM community_comments WHERE msg_type != 'photo' AND expires_at IS NOT NULL AND expires_at <= datetime('now')"
+    ).run();
+  } catch (e) { /* no bloquea la lectura */ }
   const rows = db
     .prepare(
       `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data, c.is_promo,
+              CASE WHEN c.msg_type = 'photo' THEN NULL
+                   ELSE CAST((julianday(c.expires_at) - julianday('now')) * 24 AS INTEGER) END AS horas_restantes,
               u.name, u.photo, u.subscribed, u.is_admin, u.country_code
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
        WHERE c.hidden = 0
+         AND (c.msg_type = 'photo' OR c.expires_at IS NULL OR c.expires_at > datetime('now'))
        ORDER BY c.created_at DESC
        LIMIT 100`
     )
@@ -162,6 +186,7 @@ router.get("/", requireAuth, (req, res) => {
         avatar: avatarFor(c.user_id), // emoji de respaldo si no tiene foto
         msg_type: tipo,
         promo: Number(c.is_promo) === 1,
+        expira_en_horas: c.horas_restantes == null ? null : Number(c.horas_restantes),
         foto_msg: fotoMsg,
         foto_eliminada: eliminada,
         foto_segundos: fotoSegundos,
@@ -236,10 +261,11 @@ router.post("/", requireAuth, (req, res) => {
   }
 
   /* --- Filtro anti-spam: correos, teléfonos y redes sociales ---
-   * Sistema de strikes para usuarios gratuitos: 1er intento → "te quedan 2",
-   * 2do → "te queda 1", 3er intento → chat deshabilitado (solo lectura).
+   * Usuarios GRATUITOS: solo pueden enviar texto plano. Si intentan
+   * compartir enlaces, fotos, etc. → bloqueo INFORMATIVO (sin strikes):
+   * "Esta función es para miembros con plan 💎".
    * Usuarios CON PLAN: pueden gastar RV para publicar contenido promocional:
-   *   - Mensaje de texto con enlaces: 2 RV por mensaje (10 RV = 5 publicaciones).
+   *   - Mensaje de texto con enlaces: 2 RV por mensaje (10 RV = 5 links).
    *   - Imagen con contenido promocional: bloque de 10 RV = 8 envíos.
    * Las fotos normales (sin contenido promocional) siguen siendo gratis. */
   let isPromo = 0;
@@ -279,8 +305,12 @@ router.post("/", requireAuth, (req, res) => {
         }
       }
     } else {
-      const r = registerStrike(req.user.id, finalText, violacion);
-      return res.status(r.muted ? 403 : 400).json({ error: r.code, message: r.message });
+      // Gratuito: bloqueo informativo, sin strikes. Solo texto plano.
+      return res.status(403).json({
+        error: "SOLO_PLAN",
+        message:
+          "💎 Esta función es para miembros con plan. Actualiza tu plan para compartir enlaces, fotos y más.",
+      });
     }
   }
 
@@ -296,8 +326,8 @@ router.post("/", requireAuth, (req, res) => {
       .json({ error: "Publicaste muchos comentarios seguidos. Intenta en un rato 💛" });
 
   const r = db
-    .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data, is_promo) VALUES (?, ?, ?, ?, ?)")
-    .run(req.user.id, finalText, msgType, photoData, isPromo);
+    .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data, is_promo, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(req.user.id, finalText, msgType, photoData, isPromo, messageExpiresAt(req.user, msgType));
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: getRV(req.user.id) });
 });
 
