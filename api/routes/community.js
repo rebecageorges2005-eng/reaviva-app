@@ -3,10 +3,11 @@
  *   GET  /api/community  → comentarios públicos
  *   POST /api/community  → publicar comentario (con validación anti-spam)
  *
- * Regla de visualización: usuarios CON plan → INICIALES (ej. "MG") + foto de perfil;
+ * Regla de visualización: usuarios CON plan → INICIALES (ej. "MG · MX") + foto de perfil;
  * usuarios SIN plan → "Guest" + foto de perfil. NUNCA se exponen nombres reales,
- * user_id ni IP. El admin ve la identidad real en /api/admin/community
- * (routes/admin.js), que no cambia.
+ * email ni IP. El uid del autor se incluye para permitir mensajes privados
+ * (solo usuarios autenticados; no revela identidad). El admin ve la identidad
+ * real en /api/admin/community (routes/admin.js), que no cambia.
  */
 "use strict";
 
@@ -14,6 +15,14 @@ const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
 const { temaActivoPorId } = require("./topics");
+const {
+  mutedPayload,
+  detectSpam,
+  registerStrike,
+  trySpendRV,
+  trySpendImageSend,
+  getRV,
+} = require("../spam");
 
 const router = express.Router();
 
@@ -48,10 +57,9 @@ function fechaCorta(iso) {
   return `${dia} ${mes}, ${hh}:${mm}`;
 }
 
-/* --- Validación: bloquear correos y números de teléfono ---
- * Se hace SIEMPRE en el servidor; el cliente nunca es de fiar. */
-const EMAIL_RE = /\S+@\S+\.\S+/;
-const PHONE_RE = /(\d[\s\-\.\(\)]*){7,}/; // 7+ dígitos, con espacios/guiones/paréntesis
+/* --- Validación básica de texto ---
+ * Los correos/teléfonos/redes se detectan en el filtro anti-spam
+ * (api/spam.js) con sistema de strikes. Se hace SIEMPRE en el servidor. */
 const MAX_CHARS = 500;
 const RATE_PER_HOUR = 10;
 
@@ -89,10 +97,8 @@ function validarTexto(raw) {
   if (!text) return { error: "Escribe algo para compartir 💛" };
   if (text.length > MAX_CHARS)
     return { error: `Máximo ${MAX_CHARS} caracteres (tu mensaje tiene ${text.length})` };
-  if (EMAIL_RE.test(text))
-    return { error: "No puedes compartir correos en la comunidad 💛" };
-  if (PHONE_RE.test(text))
-    return { error: "No puedes compartir números de teléfono en la comunidad 💛" };
+  // Nota: correos/teléfonos/redes se detectan en el filtro anti-spam
+  // (api/spam.js) con sistema de strikes, no aquí.
   return { text };
 }
 
@@ -106,7 +112,7 @@ router.get("/", requireAuth, (req, res) => {
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
   const rows = db
     .prepare(
-      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data,
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data, c.is_promo,
               u.name, u.photo, u.subscribed, u.is_admin, u.country_code
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
@@ -117,9 +123,13 @@ router.get("/", requireAuth, (req, res) => {
     .all();
   res.json({
     chatTimeLeft: acc.left,
+    muted: mutedPayload(req.user.id) !== null,
+    rv: getRV(req.user.id),
     comentarios: rows.map((c) => {
       // Regla de visualización: con plan → INICIALES nombre + país (ej. "MG · MX") + foto;
-      // sin plan → "Guest" + foto. NUNCA: nombres reales, email, ip, user_id.
+      // sin plan → "Guest" + foto. NUNCA: nombres reales, email o IP.
+      // El uid (id interno del autor) se expone solo a usuarios autenticados
+      // para permitir abrir mensajes privados al hacer clic; no revela identidad.
       const paid = c.subscribed === 1 || c.is_admin === 1;
       const pais = String(c.country_code || "").toUpperCase();
       const nombre = paid
@@ -144,12 +154,14 @@ router.get("/", requireAuth, (req, res) => {
       }
       return {
         id: c.id,
+        uid: c.user_id,
         texto,
         fecha: fechaCorta(c.created_at),
         nombre,
         foto: c.photo || null,
         avatar: avatarFor(c.user_id), // emoji de respaldo si no tiene foto
         msg_type: tipo,
+        promo: Number(c.is_promo) === 1,
         foto_msg: fotoMsg,
         foto_eliminada: eliminada,
         foto_segundos: fotoSegundos,
@@ -223,6 +235,55 @@ router.post("/", requireAuth, (req, res) => {
     finalText = prefix.trim();
   }
 
+  /* --- Filtro anti-spam: correos, teléfonos y redes sociales ---
+   * Sistema de strikes para usuarios gratuitos: 1er intento → "te quedan 2",
+   * 2do → "te queda 1", 3er intento → chat deshabilitado (solo lectura).
+   * Usuarios CON PLAN: pueden gastar RV para publicar contenido promocional:
+   *   - Mensaje de texto con enlaces: 2 RV por mensaje (10 RV = 5 publicaciones).
+   *   - Imagen con contenido promocional: bloque de 10 RV = 8 envíos.
+   * Las fotos normales (sin contenido promocional) siguen siendo gratis. */
+  let isPromo = 0;
+  const muteado = mutedPayload(req.user.id);
+  if (muteado)
+    return res.status(403).json({ error: muteado.code, message: muteado.message });
+  const violacion = detectSpam(finalText);
+  if (violacion) {
+    const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
+    if (conPlan) {
+      if (msgType === "photo") {
+        // Imagen promocional: bloque de 10 RV = 8 envíos.
+        const r = trySpendImageSend(req.user.id);
+        if (r.ok) {
+          isPromo = 1;
+        } else {
+          return res.status(402).json({
+            error: "NO_RV",
+            tipo: "imagen",
+            message:
+              "💰 Necesitas RV para compartir imágenes promocionales. Recarga aquí (10 RV = 8 imágenes).",
+            needsRecharge: true,
+          });
+        }
+      } else {
+        // Mensaje de texto promocional: 2 RV por mensaje.
+        if (trySpendRV(req.user.id)) {
+          isPromo = 1;
+        } else {
+          return res.status(402).json({
+            error: "NO_RV",
+            tipo: "texto",
+            message:
+              "💰 Necesitas RV para compartir enlaces. Recarga aquí (10 RV = 5 publicaciones).",
+            needsRecharge: true,
+          });
+        }
+      }
+    } else {
+      const r = registerStrike(req.user.id, finalText, violacion);
+      return res.status(r.muted ? 403 : 400).json({ error: r.code, message: r.message });
+    }
+  }
+
   const recent = db
     .prepare(
       `SELECT COUNT(*) AS n FROM community_comments
@@ -235,9 +296,9 @@ router.post("/", requireAuth, (req, res) => {
       .json({ error: "Publicaste muchos comentarios seguidos. Intenta en un rato 💛" });
 
   const r = db
-    .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data) VALUES (?, ?, ?, ?)")
-    .run(req.user.id, finalText, msgType, photoData);
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid) });
+    .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data, is_promo) VALUES (?, ?, ?, ?, ?)")
+    .run(req.user.id, finalText, msgType, photoData, isPromo);
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: getRV(req.user.id) });
 });
 
 /* POST /api/community/heartbeat → el frontend lo llama cada 60s mientras

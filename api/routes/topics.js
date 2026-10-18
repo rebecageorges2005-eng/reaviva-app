@@ -15,6 +15,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
+const { detectSpam } = require("../spam");
 
 const router = express.Router();
 
@@ -105,6 +106,14 @@ router.post("/", requireAuth, (req, res) => {
 
   const v = validarNombreTema(req.body && req.body.name);
   if (v.error) return res.status(400).json({ error: v.error });
+
+  /* Anti-spam: el nombre del tema no puede contener correos, teléfonos
+   * ni redes sociales. Se bloquea sin strike. */
+  const spam = detectSpam(v.name);
+  if (spam)
+    return res
+      .status(400)
+      .json({ error: "🚩 El nombre del tema no puede contener " + spam.detalle + "." });
 
   // Límite: 5 temas por usuario por día.
   const hoy = db

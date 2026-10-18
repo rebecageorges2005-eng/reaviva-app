@@ -8,6 +8,8 @@
  *   GET  /api/admin/users/:id        → detalle de un usuario
  *   GET  /api/admin/messages         → mensajes enviados por el admin
  *   POST /api/admin/messages         → enviar mensaje a un usuario o a todos
+ *   POST /api/admin/users/:id/unmute → reactiva el chat de un usuario muteado
+ *   GET  /api/admin/chat-violations   → intentos bloqueados por anti-spam
  */
 "use strict";
 
@@ -199,6 +201,7 @@ router.get("/users", requireAdmin, (req, res) => {
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
+              u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes, u.credits,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -231,6 +234,10 @@ router.get("/users", requireAdmin, (req, res) => {
       verificationLink: (!emailOk && u.email_verified !== 1 && u.verification_token)
         ? verificationUrl(u.verification_token)
         : null,
+      chatMuted: Number(u.chat_muted || 0) === 1,
+      chatStrikes: Number(u.chat_strikes || 0),
+      chatMutes: Number(u.chat_mutes || 0),
+      rv: Math.max(0, Number(u.credits || 0)),
     })),
   });
 });
@@ -267,6 +274,8 @@ router.get("/users/:id", requireAdmin, (req, res) => {
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.program_start, u.ip, u.country, u.country_code, u.photo,
               u.email_verified, u.verification_token,
+              u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
+              u.credits, u.img_block_remaining,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -310,6 +319,13 @@ router.get("/users/:id", requireAdmin, (req, res) => {
   const messagesRows = db
     .prepare(
       `SELECT id, title, body, created_at, read_at FROM admin_messages
+       WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
+    )
+    .all(id);
+
+  const violationsRows = db
+    .prepare(
+      `SELECT attempted_text, violation_type, detail, created_at FROM chat_violations
        WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
     )
     .all(id);
@@ -371,6 +387,12 @@ router.get("/users/:id", requireAdmin, (req, res) => {
         segundos: h.seconds_used,
       })),
     },
+    violaciones: violationsRows.map((v) => ({
+      intento: v.attempted_text,
+      tipo: v.violation_type,
+      detalle: v.detail,
+      fecha: fmtDateTime(v.created_at),
+    })),
     mensajes: messagesRows.map((m) => ({
       id: m.id,
       titulo: m.title,
@@ -385,7 +407,55 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     verificationLink: (!emailOk && u.email_verified !== 1 && u.verification_token)
       ? verificationUrl(u.verification_token)
       : null,
+    chatMuted: Number(u.chat_muted || 0) === 1,
+    chatStrikes: Number(u.chat_strikes || 0),
+    chatMutes: Number(u.chat_mutes || 0),
+    chatStrikesFecha: u.chat_strikes_date || null,
+    rv: Math.max(0, Number(u.credits || 0)),
+    rvBloqueImagenes: Math.max(0, Number(u.img_block_remaining || 0)),
   });
+});
+
+/* ---------- GET /api/admin/credit-purchases ----------
+ * Lista todas las compras de RV (para el admin). */
+router.get("/credit-purchases", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT p.id, p.user_id, u.email, u.name, p.pack_credits AS rv, p.amount_usd AS monto,
+              p.paypal_order_id AS orden, p.status AS estado, p.created_at
+       FROM credit_purchases p
+       JOIN users u ON u.id = p.user_id
+       ORDER BY p.created_at DESC LIMIT 200`
+    )
+    .all();
+  res.json({
+    compras: rows.map((r) => ({
+      id: r.id,
+      usuario: r.name,
+      email: r.email,
+      rv: Number(r.rv),
+      monto: r.monto,
+      orden: r.orden,
+      estado: r.estado,
+      fecha: fmtDateTime(r.created_at),
+    })),
+  });
+});
+
+/* ---------- POST /api/admin/users/:id/credits ----------
+ * Ajusta manualmente el saldo de RV de un usuario (soporte).
+ * Body: { amount } — puede ser positivo (agregar) o negativo (quitar). */
+router.post("/users/:id/credits", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const amount = Number(req.body?.amount);
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100000)
+    return res.status(400).json({ error: "Monto inválido" });
+  const u = db.prepare("SELECT id, credits FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  const nuevo = Math.max(0, (Number(u.credits) || 0) + Math.trunc(amount));
+  db.prepare("UPDATE users SET credits = ? WHERE id = ?").run(nuevo, id);
+  res.json({ ok: true, rv: nuevo });
 });
 
 /* ---------- POST /api/admin/users/:id/verify ----------
@@ -419,6 +489,48 @@ router.post("/users/:id/message", requireAdmin, (req, res) => {
     .prepare("INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)")
     .run(u.id, u.email, title, text);
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), para: u.email });
+});
+
+/* ---------- POST /api/admin/users/:id/unmute ----------
+ * Reactiva la capacidad de escribir en el chat de un usuario muteado
+ * por el sistema anti-spam. Reinicia sus strikes. */
+router.post("/users/:id/unmute", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email, chat_muted FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  db.prepare(
+    "UPDATE users SET chat_muted = 0, chat_strikes = 0, chat_strikes_date = NULL WHERE id = ?"
+  ).run(id);
+  res.json({ ok: true, reactivado: true, email: u.email });
+});
+
+/* ---------- GET /api/admin/chat-violations ----------
+ * Lista de intentos bloqueados por el filtro anti-spam (los más recientes).
+ * Muestra quién intentó qué y cuándo, para revisión del administrador. */
+router.get("/chat-violations", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT v.id, v.user_id, v.attempted_text, v.violation_type, v.detail, v.created_at,
+              u.name, u.email
+       FROM chat_violations v
+       LEFT JOIN users u ON u.id = v.user_id
+       ORDER BY v.created_at DESC
+       LIMIT 100`
+    )
+    .all();
+  res.json({
+    infracciones: rows.map((v) => ({
+      id: v.id,
+      userId: v.user_id,
+      usuario: v.name || v.email || ("#" + v.user_id),
+      email: v.email || null,
+      intento: v.attempted_text,
+      tipo: v.violation_type,
+      detalle: v.detail,
+      fecha: v.created_at,
+    })),
+  });
 });
 
 /* ---------- GET /api/admin/messages ---------- */

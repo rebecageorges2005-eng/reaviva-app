@@ -19,6 +19,7 @@ const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
 const { getPlanType, displayProfile } = require("../plan");
+const { checkMessage } = require("../spam");
 
 const router = express.Router();
 const DM_MAX_CHARS = 1000;
@@ -74,6 +75,9 @@ router.post("/", requireAuth, (req, res) => {
     return res.status(429).json({ error: "Llegaste al límite de mensajes de hoy. Intenta mañana 💛" });
   }
   cleanupExpired();
+  /* Filtro anti-spam (mismo sistema de strikes que el chat grupal). */
+  const spam = checkMessage(req.user.id, text);
+  if (spam) return res.status(spam.status).json({ error: spam.code, message: spam.message });
   const info = db
     .prepare(
       `INSERT INTO private_messages (from_user_id, to_user_id, text, expires_at)
