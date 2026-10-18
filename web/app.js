@@ -149,20 +149,58 @@ function hideRVBanner(){
   if(b) b.style.display = "none";
 }
 
-/* Saldo de RV en la cabecera del chat (solo usuarios con plan). */
+/* --- Usuarios en línea 🟢🔴 ---
+ * Botón en la cabecera del chat: verde con el conteo si hay gente en línea,
+ * rojo si no hay nadie. Al hacer clic muestra la lista (iniciales + país,
+ * sin nombres reales). */
+function updateOnlineBtn(count){
+  const btn = $("#online-btn");
+  if(!btn) return;
+  const n = Number(count) || 0;
+  btn.classList.toggle("online-green", n > 0);
+  btn.classList.toggle("online-red", n === 0);
+  btn.innerHTML = n > 0 ? `🟢 ${n} en línea` : `🔴 0 en línea`;
+  btn.title = n > 0 ? `${n} persona${n === 1 ? "" : "s"} en el chat ahora — clic para ver` : "Nadie en línea ahora mismo";
+}
+async function showOnlineList(){
+  const modal = $("#online-modal");
+  const list = $("#online-list");
+  const title = $("#online-modal-title");
+  if(!modal || !list) return;
+  list.innerHTML = `<p style="color:var(--cocoa-soft)">Cargando…</p>`;
+  modal.classList.add("open");
+  try{
+    const r = await fetch("/api/community/online", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const usuarios = j.usuarios || [];
+    if(title) title.textContent = usuarios.length > 0 ? `🟢 ${usuarios.length} en línea` : `🔴 Nadie en línea`;
+    list.innerHTML = usuarios.length ? usuarios.map(u => {
+      const av = (u.foto && String(u.foto).startsWith("data:image/"))
+        ? `<img src="${esc(u.foto)}" class="online-avatar-img" alt="">`
+        : esc(u.avatar || "💛");
+      return `<div class="online-user"><span class="online-avatar">${av}</span><b>${esc(u.nombre)}</b><span class="online-dot">🟢</span></div>`;
+    }).join("") : `<p style="text-align:center;color:var(--cocoa-soft)">No hay nadie en línea ahora mismo.<br>¡Vuelve en un rato! 💛</p>`;
+  }catch(e){
+    list.innerHTML = `<p style="text-align:center;color:#a33">No se pudo cargar la lista</p>`;
+  }
+}
+function closeOnlineModal(){
+  const modal = $("#online-modal");
+  if(modal) modal.classList.remove("open");
+}
+
+/* Saldo de RV en la cabecera del chat (todos pueden comprar y usar RV).
+ * Sin plan: el botón está habilitado para comprar RV (tasa 10 RV = 3 links).
+ * Con plan: tasa 10 RV = 5 links. */
 async function loadRVBalance(){
   const btn = $("#rv-btn");
   if(!btn) return;
-  if(!isPaid()){
-    // Sin plan: mostrar el botón bloqueado (visible pero deshabilitado).
-    btn.style.display = "";
-    btn.classList.add("locked-feature");
-    btn.onclick = function(){ openUpgradeModal("Actualiza tu plan 💎 para compartir enlaces y recargar RV"); };
-    const bal = $("#rv-balance");
-    if(bal) bal.textContent = "0";
-    setLockedTip(btn, "Actualiza tu plan 💎 para compartir enlaces");
-    return;
-  }
+  // Todos ven el botón habilitado: los gratuitos también pueden comprar RV.
+  btn.style.display = "";
+  btn.classList.remove("locked-feature");
+  btn.onclick = function(){ openRVModal(); };
+  clearLockedTip(btn);
   btn.style.display = "";
   btn.classList.remove("locked-feature");
   btn.onclick = function(){ openRVModal(); };
@@ -1097,6 +1135,8 @@ async function renderComunidad(){
     const j = await r.json();
     // Si el usuario está muteado por spam, deshabilitar el compositor (solo lectura).
     if(j.muted) disableCommunityComposer();
+    // Botón de usuarios en línea 🟢🔴.
+    if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
     const items = j.comentarios || [];
     // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
     communityUsers = {};
@@ -1457,13 +1497,19 @@ function startChatPoll(){
   // Registrar los IDs actuales como vistos (sin sonido inicial).
   fetch("/api/community", { headers: authHeaders() })
     .then(r => r.ok ? r.json() : null)
-    .then(j => { if(j && j.comentarios) j.comentarios.forEach(c => seenMsgIds.add(c.id)); })
+    .then(j => {
+      if(!j) return;
+      if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
+      if(j.comentarios) j.comentarios.forEach(c => seenMsgIds.add(c.id));
+    })
     .catch(()=>{});
   chatPollTimer = setInterval(async () => {
     try{
       const r = await fetch("/api/community", { headers: authHeaders() });
       if(!r.ok) return;
       const j = await r.json();
+      // Actualizar el botón de en línea en cada ciclo 🟢🔴.
+      if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
       const nuevos = (j.comentarios || []).filter(c => !seenMsgIds.has(c.id));
       if(nuevos.length){
         nuevos.forEach(c => seenMsgIds.add(c.id));
@@ -1814,6 +1860,75 @@ async function handlePayPalReturn(){
 }
 
 /* ---------- init ---------- */
+
+/* ============ TOUR DE BIENVENIDA (se muestra una vez) ============ */
+const TOUR_STEPS = [
+  {
+    emoji: "🎉",
+    titulo: "¡Bienvenido a Reaviva!",
+    texto: "Tu espacio de sanación emocional. Te mostramos lo esencial en unos segundos."
+  },
+  {
+    emoji: "📅",
+    titulo: "Tu programa de 30 días",
+    texto: "Cada día tienes una reflexión, un ejercicio y un audio para sanar tu corazón. Completa un día a la vez, a tu ritmo."
+  },
+  {
+    emoji: "💬",
+    titulo: "Chat de la comunidad",
+    texto: "Conversa con otros en proceso de sanación. Todos aparecen con iniciales y país: tu identidad está protegida."
+  },
+  {
+    emoji: "💰",
+    titulo: "Moneda RV",
+    texto: "Con RV puedes compartir enlaces y fotos en el chat. Recarga desde $12 tocando el botón 💰. Al registrarte con plan mensual recibes 50 RV, con plan anual 200 RV."
+  },
+  {
+    emoji: "⭐",
+    titulo: "Tu perfil y planes",
+    texto: "En tu perfil ves tu progreso, tu país y tu plan. Actualiza a un plan para desbloquear fotos, temas, mensajes privados ¡y más!"
+  }
+];
+let tourStep = 0;
+
+function maybeShowTour(){
+  try{
+    if(localStorage.getItem("reaviva_tour_done")) return;
+  }catch(e){ return; }
+  tourStep = 0;
+  renderTourStep();
+  const m = document.getElementById("tour-modal");
+  if(m) m.style.display = "flex";
+}
+
+function renderTourStep(){
+  const s = TOUR_STEPS[tourStep];
+  const c = document.getElementById("tour-content");
+  if(c) c.innerHTML = `<div class="tour-emoji">${s.emoji}</div><h3>${s.titulo}</h3><p>${s.texto}</p>`;
+  const dots = document.getElementById("tour-dots");
+  if(dots) dots.innerHTML = TOUR_STEPS.map((_, i) =>
+    `<span class="tour-dot${i === tourStep ? " active" : ""}"></span>`).join("");
+  const next = document.getElementById("tour-next");
+  if(next) next.textContent = tourStep === TOUR_STEPS.length - 1 ? "¡Empezar! 💛" : "Siguiente →";
+}
+
+function nextTourStep(){
+  if(tourStep < TOUR_STEPS.length - 1){
+    tourStep++;
+    renderTourStep();
+  }else{
+    finishTour();
+  }
+}
+
+function skipTour(){ finishTour(); }
+
+function finishTour(){
+  try{ localStorage.setItem("reaviva_tour_done", "1"); }catch(e){}
+  const m = document.getElementById("tour-modal");
+  if(m) m.style.display = "none";
+}
+
 document.addEventListener("DOMContentLoaded", ()=>{
   // landing CTAs
   $$("[data-go-app]").forEach(b=>b.addEventListener("click", async ()=>{
@@ -1844,4 +1959,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
   if(location.hash === "#app"){
     restoreSession().then(afterRestore);
   }
+  // Tour de bienvenida: se muestra una vez al primer ingreso.
+  setTimeout(maybeShowTour, 1500);
 });
