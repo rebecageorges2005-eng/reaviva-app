@@ -104,6 +104,9 @@ function fechaCorta(iso) {
 }
 
 /* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */router.post("/", requireAuth, (req, res) => {
+  // Bandera roja: cuenta deshabilitada para chatear.
+  if (req.user.chat_disabled === 1)
+    return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
   const plan = getPlanType(req.user);
   const isMonthly = plan === "monthly";
   const isAnnual = plan === "annual"; // el admin cuenta como annual
@@ -151,6 +154,9 @@ const VOICE_MAX_BYTES = 2 * 1024 * 1024;
  * audio: data URL base64 (data:audio/...;base64,...).
  * Permitido: plan anual y mensual. Gratuitos → 403. */
 router.post("/voice", requireAuth, (req, res) => {
+  // Bandera roja: cuenta deshabilitada para chatear.
+  if (req.user.chat_disabled === 1)
+    return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
   const plan = getPlanType(req.user);
   if (plan !== "annual" && plan !== "monthly") {
     return res.status(403).json({ error: "Los mensajes de voz son para miembros con plan 💎" });
@@ -197,6 +203,9 @@ const FILE_TIPOS_PERMITIDOS = {
  * file: data URL base64. Solo plan anual. Máx 10MB.
  * Permitidos: PDF, DOC, DOCX, TXT. */
 router.post("/file", requireAuth, (req, res) => {
+  // Bandera roja: cuenta deshabilitada para chatear.
+  if (req.user.chat_disabled === 1)
+    return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
   const plan = getPlanType(req.user);
   if (plan !== "annual") {
     return res.status(403).json({

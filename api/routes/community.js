@@ -335,6 +335,9 @@ function validarFoto(raw) {
  * Acepta photo opcional (base64 data URL): solo usuarios con plan. La foto
  * es temporal: se elimina a los 30 segundos. */
 router.post("/", requireAuth, (req, res) => {
+  // Bandera roja: cuenta deshabilitada para chatear/publicar.
+  if (req.user.chat_disabled === 1)
+    return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
   // Presencia: el usuario está activo en el chat.

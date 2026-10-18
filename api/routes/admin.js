@@ -814,4 +814,55 @@ router.get("/backup-email", requireAdmin, (req, res) => {
   res.json({ backup_email: row?.backup_email || null });
 });
 
+/* ---------- Banderas de advertencia (moderación comunitaria) ----------
+ * GET  /api/admin/flagged → usuarios con bandera roja (level 4) pendientes
+ *        de decisión: reactivar o denegar la rehabilitación.
+ * POST /api/admin/users/:id/reactivate → borra sus flags (level → 0),
+ *        chat_disabled=0, notifica al usuario.
+ * POST /api/admin/users/:id/deny-reactivation → mantiene deshabilitado,
+ *        notifica al usuario que su solicitud fue denegada. */
+router.get("/flagged", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT u.id, u.name, u.email, u.chat_disabled,
+              (SELECT COUNT(*) FROM user_flags f WHERE f.target_user_id = u.id) AS flags,
+              (SELECT MAX(f.created_at) FROM user_flags f WHERE f.target_user_id = u.id) AS ultimo
+       FROM users u
+       WHERE (SELECT COUNT(*) FROM user_flags f WHERE f.target_user_id = u.id) >= 4
+       ORDER BY ultimo DESC`
+    )
+    .all();
+  res.json({ flagged: rows });
+});
+
+router.post("/users/:id/reactivate", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  db.prepare("DELETE FROM user_flags WHERE target_user_id = ?").run(id);
+  db.prepare("UPDATE users SET chat_disabled = 0 WHERE id = ?").run(id);
+  try {
+    db.prepare(
+      "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
+    ).run(id, u.email, "✅ Tu cuenta fue rehabilitada",
+      "El administrador revisó tu caso y rehabilitó tu cuenta. Ya puedes volver a chatear y publicar. Por favor mantén un buen comportamiento en la comunidad. 💛");
+  } catch (e) { /* no bloquea */ }
+  res.json({ ok: true, reactivado: true, email: u.email });
+});
+
+router.post("/users/:id/deny-reactivation", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  try {
+    db.prepare(
+      "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
+    ).run(id, u.email, "⛔ Rehabilitación denegada",
+      "El administrador revisó tu caso y decidió no rehabilitar tu cuenta por ahora. Tu permiso para chatear sigue deshabilitado.");
+  } catch (e) { /* no bloquea */ }
+  res.json({ ok: true, denegado: true, email: u.email });
+});
+
 module.exports = { router, requireAdmin };

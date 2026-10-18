@@ -83,6 +83,21 @@ function verifyToken(token) {
   }
 }
 
+/* Edad en años cumplidos para "YYYY-MM-DD". -1 si la fecha es inválida. */
+function calcAge(bd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(bd || ""));
+  if (!m) return -1;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return -1;
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return -1;
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  const md = (today.getMonth() + 1) - mo;
+  if (md < 0 || (md === 0 && today.getDate() < d)) age--;
+  return age;
+}
+
 /* Genera un token único para el link de verificación.
  * Los tokens no expiran (documentado): el link funciona hasta que se usa. */
 function newVerificationToken() {
@@ -247,6 +262,14 @@ router.post("/signup", signupLimiter, async (req, res) => {
   if (password.length < 6)
     return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
 
+  // Fecha de nacimiento: formato YYYY-MM-DD válido y 18+ años.
+  const birthdate = String(req.body?.birthdate || "").trim();
+  const age = calcAge(birthdate);
+  if (age < 0)
+    return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+  if (age < 18)
+    return res.status(400).json({ error: "Debes tener al menos 18 años para registrarte." });
+
   const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (exists) return res.status(409).json({ error: "Ese correo ya está registrado" });
 
@@ -268,8 +291,8 @@ router.post("/signup", signupLimiter, async (req, res) => {
     if (refUser) referredBy = refId;
   }
   const info = db
-    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by) VALUES (?, ?, ?, 0, ?, ?)")
-    .run(email, name, hash, token, referredBy);
+    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate) VALUES (?, ?, ?, 0, ?, ?, ?)")
+    .run(email, name, hash, token, referredBy, birthdate);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
