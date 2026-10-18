@@ -148,10 +148,19 @@ async function loadRVBalance(){
   const btn = $("#rv-btn");
   if(!btn) return;
   if(!isPaid()){
-    btn.style.display = "none";
+    // Sin plan: mostrar el botón bloqueado (visible pero deshabilitado).
+    btn.style.display = "";
+    btn.classList.add("locked-feature");
+    btn.onclick = function(){ openUpgradeModal("Actualiza tu plan 💎 para compartir enlaces y recargar RV"); };
+    const bal = $("#rv-balance");
+    if(bal) bal.textContent = "0";
+    setLockedTip(btn, "Actualiza tu plan 💎 para compartir enlaces");
     return;
   }
   btn.style.display = "";
+  btn.classList.remove("locked-feature");
+  btn.onclick = function(){ openRVModal(); };
+  clearLockedTip(btn);
   try{
     const r = await fetch("/api/rv/balance", { headers: authHeaders() });
     if(!r.ok) return;
@@ -159,6 +168,41 @@ async function loadRVBalance(){
     const bal = $("#rv-balance");
     if(bal) bal.textContent = Number(j.rv) || 0;
   }catch(e){ /* sin conexión */ }
+}
+
+/* Envuelve un botón en .locked-wrap con tooltip "Actualiza tu plan 💎".
+ * Al hacer clic abre el modal de actualización. */
+function setLockedTip(btn, mensaje){
+  if(!btn) return;
+  if(btn.parentElement && btn.parentElement.classList.contains("locked-wrap")){
+    const tip = btn.parentElement.querySelector(".locked-tip");
+    if(tip) tip.textContent = mensaje;
+    return;
+  }
+  const wrap = document.createElement("span");
+  wrap.className = "locked-wrap";
+  btn.parentNode.insertBefore(wrap, btn);
+  wrap.appendChild(btn);
+  const badge = document.createElement("span");
+  badge.className = "lock-badge";
+  badge.textContent = "🔒";
+  btn.appendChild(badge);
+  const tip = document.createElement("span");
+  tip.className = "locked-tip";
+  tip.textContent = mensaje;
+  wrap.appendChild(tip);
+}
+/* Quita el envoltorio de candado y restaura el botón. */
+function clearLockedTip(btn){
+  if(!btn) return;
+  const wrap = btn.parentElement;
+  if(wrap && wrap.classList.contains("locked-wrap")){
+    const badge = btn.querySelector(".lock-badge");
+    if(badge) badge.remove();
+    wrap.parentNode.insertBefore(btn, wrap);
+    wrap.remove();
+  }
+  btn.classList.remove("locked-feature");
 }
 
 /* Modal de recarga de RV. */
@@ -1027,9 +1071,20 @@ async function renderComunidad(){
   loadTopics().catch(()=>{});
   // Saldo de RV en la cabecera del chat (solo con plan).
   loadRVBalance().catch(()=>{});
-  // El botón de foto solo para usuarios con plan.
+  // El botón de foto: habilitado con plan, bloqueado (visible) sin plan.
   const photoBtn = $("#photo-btn");
-  if(photoBtn) photoBtn.style.display = isPaid() ? "" : "none";
+  if(photoBtn){
+    if(isPaid()){
+      photoBtn.style.display = "";
+      clearLockedTip(photoBtn);
+      photoBtn.onclick = function(){ pickChatPhoto(); };
+    }else{
+      photoBtn.style.display = "";
+      photoBtn.classList.add("locked-feature");
+      photoBtn.onclick = function(){ openUpgradeModal("Actualiza tu plan 💎 para enviar fotos"); };
+      setLockedTip(photoBtn, "Actualiza tu plan 💎 para enviar fotos");
+    }
+  }
   try{
     const r = await fetch("/api/community", { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
@@ -1140,11 +1195,22 @@ async function loadTopics(){
   const bar = $("#topics-bar");
   const scroll = $("#topics-scroll");
   if(!bar || !scroll) return;
-  // La barra de temas solo se muestra a usuarios con plan.
+  const topicBtn = $("#topic-add-btn");
+  // Sin plan: la barra se muestra con el botón bloqueado (visible pero deshabilitado).
   if(!isPaid()){
-    bar.style.display = "none";
+    bar.style.display = "flex";
+    scroll.innerHTML = `<span class="topics-empty">Los temas son para miembros con plan 💎</span>`;
+    if(topicBtn){
+      topicBtn.classList.add("locked-feature");
+      topicBtn.onclick = function(){ openUpgradeModal("Actualiza tu plan 💎 para crear temas"); };
+      setLockedTip(topicBtn, "Actualiza tu plan 💎 para crear temas");
+    }
     selectedTopicId = null;
     return;
+  }
+  if(topicBtn){
+    clearLockedTip(topicBtn);
+    topicBtn.onclick = function(){ openTopicModal(); };
   }
   bar.style.display = "flex";
   try{

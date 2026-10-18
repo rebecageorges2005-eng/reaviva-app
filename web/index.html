@@ -284,7 +284,7 @@
       <div class="greet" style="display:flex;align-items:center;justify-content:space-between">
         <span>💬 Comunidad</span>
         <button id="chat-sound-btn" class="sound-toggle" onclick="toggleChatSound()" title="Activar/silenciar sonido">🔔</button>
-        <button id="rv-btn" class="rv-btn" onclick="openRVModal()" title="Mis RV — recargar" style="display:none">💰 <span id="rv-balance">0</span> RV</button>
+        <button id="rv-btn" class="rv-btn" title="Mis RV — recargar" style="display:none">💰 <span id="rv-balance">0</span> RV</button>
       </div>
       <div id="rv-error" class="rv-error" style="display:none"></div>
       <p class="greet-sub">Un espacio seguro. Todos somos anónimos aquí 💛</p>
@@ -292,7 +292,7 @@
       <!-- Temas temporales (solo con plan) -->
       <div id="topics-bar" class="topics-bar" style="display:none">
         <div class="topics-scroll" id="topics-scroll"></div>
-        <button id="topic-add-btn" class="topic-add-btn" onclick="openTopicModal()" title="Crear un tema (dura 2 horas)">＋ Tema</button>
+        <button id="topic-add-btn" class="topic-add-btn" title="Crear un tema (dura 2 horas)">＋ Tema</button>
       </div>
       <div id="community-wrap">
         <div class="community-composer">
@@ -300,7 +300,7 @@
             placeholder="Comparte algo con la comunidad… (sin correos ni teléfonos)"></textarea>
           <div class="composer-actions">
             <button type="button" id="emoji-btn" class="composer-icon-btn" onclick="toggleEmojiPanel()" title="Emojis">😊</button>
-            <button type="button" id="photo-btn" class="composer-icon-btn" onclick="pickChatPhoto()" title="Enviar foto temporal (30s)" style="display:none">📷</button>
+            <button type="button" id="photo-btn" class="composer-icon-btn" title="Enviar foto temporal (30s)" style="display:none">📷</button>
             <input type="file" id="chat-photo-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" onchange="sendChatPhoto(this)">
           </div>
           <div id="emoji-panel" class="emoji-panel" style="display:none"></div>

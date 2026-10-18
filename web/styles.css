@@ -417,6 +417,23 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .composer-icon-btn{background:var(--sand-2);border:1.5px solid #eadfd3;border-radius:12px;
   font-size:1.2rem;padding:6px 12px;cursor:pointer;transition:all .15s}
 .composer-icon-btn:hover{border-color:var(--terra);transform:scale(1.05)}
+
+/* --- Funciones bloqueadas para usuarios sin plan (candado) --- */
+.locked-wrap{position:relative;display:inline-block}
+.locked-feature{opacity:.45;filter:grayscale(60%);cursor:not-allowed !important;position:relative}
+.locked-feature .lock-badge{position:absolute;top:-6px;right:-6px;font-size:.85rem;
+  background:#fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.25);
+  width:20px;height:20px;display:flex;align-items:center;justify-content:center;line-height:1}
+/* Tooltip "Actualiza tu plan" al pasar el mouse */
+.locked-wrap .locked-tip{visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 8px);left:50%;
+  transform:translateX(-50%);background:#2b2118;color:#fff;font-size:.78rem;font-weight:600;
+  padding:7px 12px;border-radius:10px;white-space:nowrap;z-index:50;transition:opacity .15s;
+  box-shadow:0 4px 12px rgba(0,0,0,.3);pointer-events:none}
+.locked-wrap .locked-tip::after{content:"";position:absolute;top:100%;left:50%;margin-left:-5px;
+  border-width:5px;border-style:solid;border-color:#2b2118 transparent transparent transparent}
+.locked-wrap:hover .locked-tip{visibility:visible;opacity:1}
+/* Variante para el botón RV en la cabecera */
+.rv-btn.locked-feature{background:#d6c9b8;color:#8a7a63;box-shadow:none}
 .emoji-panel{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;background:#fff;
   border:1px solid #eadfd3;border-radius:12px;padding:10px;margin-bottom:8px;max-height:180px;overflow-y:auto}
 .emoji-btn{background:none;border:none;font-size:1.4rem;padding:6px;cursor:pointer;border-radius:8px}
