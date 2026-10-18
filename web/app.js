@@ -352,6 +352,7 @@ function switchAuthMode(mode, fromHash){
   $("#form-signup").style.display = mode === "signup" ? "" : "none";
   $("#login-err").textContent = "";
   $("#signup-err").textContent = "";
+  if(mode === "signup") populateBirthdateSelects();
   if(!fromHash) syncHash();
 }
 
@@ -574,6 +575,47 @@ function getRecaptchaToken(){
   return null;
 }
 
+/* ---------- fecha de nacimiento en el registro (18+) ---------- */
+/* Pobla los selects de día/mes/año. Meses con el nombre localizado del navegador. */
+function populateBirthdateSelects(){
+  const d = $("#signup-day"), m = $("#signup-month"), y = $("#signup-year");
+  if(!d || !m || !y || d.options.length > 1) return; // ya poblados
+  const lang = (typeof getLang === "function" ? getLang() : "es");
+  for(let i = 1; i <= 31; i++){
+    const o = document.createElement("option");
+    o.value = i; o.textContent = i;
+    d.appendChild(o);
+  }
+  for(let i = 0; i < 12; i++){
+    const o = document.createElement("option");
+    o.value = i + 1;
+    let name = String(i + 1);
+    try{ name = new Date(2000, i, 1).toLocaleString(lang, { month: "long" }); }catch(e){}
+    o.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    m.appendChild(o);
+  }
+  const thisYear = new Date().getFullYear();
+  for(let yr = thisYear - 18; yr >= thisYear - 100; yr--){
+    const o = document.createElement("option");
+    o.value = yr; o.textContent = yr;
+    y.appendChild(o);
+  }
+}
+
+/* Edad en años cumplidos para una fecha YYYY-MM-DD. -1 si inválida. */
+function calcAgeFromBirthdate(bd){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(bd || ""));
+  if(!m) return -1;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  if(dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return -1;
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  const md = (today.getMonth() + 1) - mo;
+  if(md < 0 || (md === 0 && today.getDate() < d)) age--;
+  return age;
+}
+
 async function doSignup(ev){
   ev.preventDefault();
   const name = $("#signup-name").value.trim();
@@ -586,6 +628,21 @@ async function doSignup(ev){
   if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
   if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
   if(password !== password2){ errBox.textContent = "Las contraseñas no coinciden."; return; }
+  // Fecha de nacimiento: debe ser válida y 18+ años.
+  populateBirthdateSelects();
+  const bdDay = $("#signup-day") ? $("#signup-day").value : "";
+  const bdMonth = $("#signup-month") ? $("#signup-month").value : "";
+  const bdYear = $("#signup-year") ? $("#signup-year").value : "";
+  let birthdate = null;
+  if(bdDay && bdMonth && bdYear){
+    birthdate = `${bdYear}-${String(bdMonth).padStart(2, "0")}-${String(bdDay).padStart(2, "0")}`;
+  }
+  if(!birthdate || calcAgeFromBirthdate(birthdate) < 0){
+    errBox.textContent = t("auth.birthdate_invalid"); return;
+  }
+  if(calcAgeFromBirthdate(birthdate) < 18){
+    errBox.textContent = t("auth.under18"); return;
+  }
   // Si el captcha está visible, exigir que lo marquen.
   let recaptchaToken = null;
   if(recaptchaWidgetId !== null){
@@ -597,7 +654,7 @@ async function doSignup(ev){
     const r = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
+      body: JSON.stringify({ name, email, password, birthdate, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
     });
     const j = await r.json();
     if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
@@ -832,8 +889,9 @@ function enterApp(initialTab){
 function switchTab(tab, fromHash){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id==="panel-"+tab));
-  // El sondeo de mensajes nuevos solo corre con el chat abierto.
-  if(tab === "comunidad") startChatPoll(); else stopChatPoll();
+  // El sondeo de mensajes nuevos corre con el chat abierto: pestaña de comunidad
+  // O ventanita flotante del chat grupal (persiste al cambiar de pestaña).
+  if(tab === "comunidad" || (typeof groupWinOpen === "function" && groupWinOpen())) startChatPoll(); else stopChatPoll();
   if(tab==="hoy") renderHoy();
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
@@ -1377,6 +1435,63 @@ function renderProgreso(){
 /* ============================================================
    COMUNIDAD ANÓNIMA 💬
    ============================================================ */
+/* HTML de un mensaje del chat grupal.
+ * Se reutiliza en la vista completa (#panel-comunidad) y en la ventanita flotante.
+ * Efecto lateral: actualiza communityUsers para abrir DMs al hacer clic en un usuario. */
+function communityMsgHtml(c){
+  // Mensaje de sistema (ej. "👑 El administrador se ha conectado"):
+  // banner centrado, sin avatar ni acciones.
+  if(c.msg_type === "system"){
+    return `<div class="system-msg"><span>${esc(c.texto)}</span></div>`;
+  }
+  if(c.uid) communityUsers[c.uid] = { nombre: c.nombre, foto: c.foto, avatar: c.avatar };
+  // Sin plan → "Guest" + foto; con plan → nombre real + foto.
+  // La foto viene validada del servidor (data:image/...); esc() la protege.
+  const avatar = (c.foto && String(c.foto).startsWith("data:image/"))
+    ? `<img src="${esc(c.foto)}" class="comment-photo" alt="">`
+    : esc(c.avatar || "💛");
+  // Si el mensaje empieza con #Tema, se resalta en color acento.
+  const [tag, resto] = splitTopicTag(c.texto);
+  let body;
+  if(c.msg_type === "photo" && !c.foto_eliminada && c.foto_msg && String(c.foto_msg).startsWith("data:image/")){
+    const caption = tag
+      ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
+      : (resto ? `<p>${esc(resto)}</p>` : "");
+    body = `<div class="chat-photo-wrap" data-photo-msg="${c.id}">
+              <img src="${esc(c.foto_msg)}" class="chat-photo" alt="Foto temporal">
+              <span class="chat-photo-timer">⏳ ${c.foto_segundos || 30}s</span>
+            </div>${caption}`;
+    // Armar la cuenta regresiva para eliminarla visualmente a tiempo.
+    setTimeout(()=>armPhotoCountdown(c.id, c.foto_segundos || 30), 0);
+  }else{
+    body = tag
+      ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
+      : `<p>${esc(c.texto)}</p>`;
+  }
+  // Avatar y nombre clicables → mensaje privado (usuarios con plan).
+  // Tooltip al pasar el mouse: "💬 Chat privado".
+  const tipText = planType() === "free" ? "" : "💬 Chat privado";
+  const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
+  // Indicador sutil de expiración del mensaje (según el plan del autor).
+  const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
+    ? `<span class="msg-expiry" title="Este mensaje se elimina automáticamente">⏳ ${Number(c.expira_en_horas) < 1 ? "menos de 1h" : Math.round(c.expira_en_horas) + "h"}</span>`
+    : "";
+  // Icono 👁️ para ocultar la publicación (solo usuarios con plan).
+  // El ocultamiento es personal: el mensaje sigue visible para los demás.
+  const hideBtn = isPaid()
+    ? `<button class="hide-msg-btn" title="Ocultar esta publicación" onclick="hideCommunityMsg(event, ${Number(c.id)})">👁️</button>`
+    : "";
+  return `
+  <div class="comment-card" data-msg-id="${Number(c.id)}">
+    <div class="comment-avatar"${clickAttr}>${avatar}</div>
+    <div class="comment-body">
+      <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${flagHtml(c.uid)}${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${c.repost ? `<span class="repost-badge" title="Republicación automática">🔁</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span>${hideBtn}</div>
+      ${body}
+      ${reactionHtml(c.id, "community", c.likes, c.dislikes, c.mi_reaccion)}
+    </div>
+  </div>`;
+}
+
 async function renderComunidad(){
   const list = $("#community-list");
   list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando comentarios…</p>`;
@@ -1412,61 +1527,12 @@ async function renderComunidad(){
     const items = j.comentarios || [];
     // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
     communityUsers = {};
-    list.innerHTML = items.map(c=>{
-      // Mensaje de sistema (ej. "👑 El administrador se ha conectado"):
-      // banner centrado, sin avatar ni acciones.
-      if(c.msg_type === "system"){
-        return `<div class="system-msg"><span>${esc(c.texto)}</span></div>`;
-      }
-      if(c.uid) communityUsers[c.uid] = { nombre: c.nombre, foto: c.foto, avatar: c.avatar };
-      // Sin plan → "Guest" + foto; con plan → nombre real + foto.
-      // La foto viene validada del servidor (data:image/...); esc() la protege.
-      const avatar = (c.foto && String(c.foto).startsWith("data:image/"))
-        ? `<img src="${esc(c.foto)}" class="comment-photo" alt="">`
-        : esc(c.avatar || "💛");
-      // Si el mensaje empieza con #Tema, se resalta en color acento.
-      const [tag, resto] = splitTopicTag(c.texto);
-      let body;
-      if(c.msg_type === "photo" && !c.foto_eliminada && c.foto_msg && String(c.foto_msg).startsWith("data:image/")){
-        const caption = tag
-          ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
-          : (resto ? `<p>${esc(resto)}</p>` : "");
-        body = `<div class="chat-photo-wrap" data-photo-msg="${c.id}">
-                  <img src="${esc(c.foto_msg)}" class="chat-photo" alt="Foto temporal">
-                  <span class="chat-photo-timer">⏳ ${c.foto_segundos || 30}s</span>
-                </div>${caption}`;
-        // Armar la cuenta regresiva para eliminarla visualmente a tiempo.
-        setTimeout(()=>armPhotoCountdown(c.id, c.foto_segundos || 30), 0);
-      }else{
-        body = tag
-          ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
-          : `<p>${esc(c.texto)}</p>`;
-      }
-      // Avatar y nombre clicables → mensaje privado (usuarios con plan).
-      // Tooltip al pasar el mouse: "💬 Chat privado".
-      const tipText = planType() === "free" ? "" : "💬 Chat privado";
-      const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
-      // Indicador sutil de expiración del mensaje (según el plan del autor).
-      const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
-        ? `<span class="msg-expiry" title="Este mensaje se elimina automáticamente">⏳ ${Number(c.expira_en_horas) < 1 ? "menos de 1h" : Math.round(c.expira_en_horas) + "h"}</span>`
-        : "";
-      // Icono 👁️ para ocultar la publicación (solo usuarios con plan).
-      // El ocultamiento es personal: el mensaje sigue visible para los demás.
-      const hideBtn = isPaid()
-        ? `<button class="hide-msg-btn" title="Ocultar esta publicación" onclick="hideCommunityMsg(event, ${Number(c.id)})">👁️</button>`
-        : "";
-      return `
-      <div class="comment-card" data-msg-id="${Number(c.id)}">
-        <div class="comment-avatar"${clickAttr}>${avatar}</div>
-        <div class="comment-body">
-          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${c.repost ? `<span class="repost-badge" title="Republicación automática">🔁</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span>${hideBtn}</div>
-          ${body}
-          ${reactionHtml(c.id, "community", c.likes, c.dislikes, c.mi_reaccion)}
-        </div>
-      </div>`;}).join("") ||
+    list.innerHTML = items.map(c=>communityMsgHtml(c)).join("") ||
       `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
        <p><b>Sé la primera persona en compartir</b></p>
        <p style="font-size:.85rem;color:var(--cocoa-soft)">Tu historia puede ayudar a alguien que lo necesita.</p></div>`;
+    // Banderitas 🚩: cargar niveles de los usuarios visibles y pintar cada bandera.
+    refreshFlagLevels(Object.keys(communityUsers).map(Number)).catch(()=>{});
   }catch(e){
     list.innerHTML = `<p style="text-align:center;color:#a33">Error cargando la comunidad</p>`;
   }
@@ -1549,6 +1615,69 @@ async function doToggleReaction(msgId, msgType, reaction, root){
     // Revierte la UI optimista si falló.
     if(box && prevState != null) box.innerHTML = prevState;
     toast(e.message || "No se pudo registrar tu reacción.");
+  }
+}
+
+/* ---------- banderas de advertencia 🚩 (moderación comunitaria) ----------
+ * Junto a cada nombre: banderita blanca pequeña. Hover → tooltip explicativo.
+ * Click → confirm() → POST /api/flags. Nivel = nº de usuarios distintos que
+ * banderearon: 1=azul, 2=amarilla, 3=negra, 4=roja (deshabilita el chat). */
+const FLAG_COLORS = ["#ffffff", "#2b7fff", "#e6a800", "#1a1a1a", "#e02424"];
+let flagLevels = {}; // uid -> level (0..4)
+
+function flagStyleFor(level){
+  level = Math.min(4, Math.max(0, Number(level) || 0));
+  const shadow = (level === 0 || level === 2) ? ";text-shadow:0 0 2px rgba(0,0,0,.5)" : "";
+  return `color:${FLAG_COLORS[level]}${shadow}`;
+}
+
+/* HTML de la banderita junto a un nombre. Vacío para uno mismo. */
+function flagHtml(uid){
+  uid = Number(uid);
+  if(!uid) return "";
+  const me = currentUser();
+  if(me && Number(me.id) === uid) return "";
+  const level = flagLevels[uid] || 0;
+  return `<span class="flag-btn" data-flag-uid="${uid}" title="${esc(t("flag.tip"))}" ` +
+    `style="${flagStyleFor(level)};cursor:pointer" onclick="flagUser(event, ${uid})">⚑</span>`;
+}
+
+/* Carga los niveles de los uids visibles y repinta las banderitas. */
+async function refreshFlagLevels(uids){
+  uids = [...new Set((uids || []).map(Number).filter(n => n > 0))].slice(0, 100);
+  if(!uids.length) return;
+  try{
+    const r = await fetch("/api/flags/levels?ids=" + uids.join(","), { headers: authHeaders() });
+    const j = await r.json();
+    if(j && j.levels) Object.assign(flagLevels, j.levels);
+    document.querySelectorAll("[data-flag-uid]").forEach(el => {
+      const id = Number(el.dataset.flagUid);
+      el.setAttribute("style", flagStyleFor(flagLevels[id] || 0) + ";cursor:pointer");
+    });
+  }catch(e){ /* las banderas quedan blancas por defecto */ }
+}
+
+async function flagUser(ev, uid){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  uid = Number(uid);
+  const me = currentUser();
+  if(me && Number(me.id) === uid){ toast(t("flag.self")); return; }
+  if(!confirm(t("flag.confirm"))) return;
+  try{
+    const r = await fetch("/api/flags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ target_user_id: uid })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    flagLevels[uid] = j.level;
+    document.querySelectorAll(`[data-flag-uid="${uid}"]`).forEach(el => {
+      el.setAttribute("style", flagStyleFor(j.level) + ";cursor:pointer");
+    });
+    toast(t("flag.sent"));
+  }catch(e){
+    toast(e.message);
   }
 }
 
@@ -1959,7 +2088,9 @@ function startChatPoll(){
         nuevos.forEach(c => seenMsgIds.add(c.id));
         // Suena solo por mensajes de OTROS usuarios.
         if(nuevos.some(c => !myMsgIds.has(c.id))) playDing();
-        renderComunidad();
+        // Refrescar la ventanita flotante si está abierta; si no, la vista completa.
+        if(typeof groupWinOpen === "function" && groupWinOpen()) paintGroupWinMessages(j);
+        else renderComunidad();
       }
     }catch(e){ /* reintentar en el próximo ciclo */ }
   }, 30000); // 30s: suficiente para mensajes y presencia en línea
@@ -2104,7 +2235,7 @@ async function openDmWindow(uid, target){
   el.innerHTML = `
     <div class="dm-win-head" onclick="toggleMinDmWindow(${uid})">
       <div class="comment-avatar">${dmAvatarHtml(target)}</div>
-      <div class="dm-win-title"><b>${esc(target.nombre)}</b><br><small class="dm-win-countdown">⏳ 48h</small></div>
+      <div class="dm-win-title"><b>${esc(target.nombre)}</b>${flagHtml(uid)}<br><small class="dm-win-countdown">⏳ 48h</small></div>
       <span class="dm-win-unread" style="display:none"></span>
       <button class="dm-win-headbtn" title="📸" aria-label="Álbumes"
         onclick="event.stopPropagation();viewUserAlbums(${uid})">📸</button>
@@ -2195,6 +2326,159 @@ function closeDmWindow(uid){
   dmWinOrder = dmWinOrder.filter(id => id !== uid);
 }
 
+/* ============================================================
+   VENTANA FLOTANTE DEL CHAT GRUPAL (estilo Facebook) 💬
+   - El botón "💬 Comunidad" abre esta ventanita en vez de una vista completa.
+   - Vive en #dm-windows (fuera del sistema de vistas): sigue abierta y visible
+     al cambiar de pestaña (inicio, programa, diario, progreso, perfil…).
+   - Límite total: 1 grupal + 3 privadas = 4 ventanas como máximo.
+   - Botones: minimizar (—), cerrar (✕) y ⛶ (abre la vista completa con fotos/temas/RV).
+   - El sondeo de mensajes sigue activo mientras la ventana esté abierta.
+   ============================================================ */
+let groupWin = null; // { el, minimized } — solo una ventana grupal a la vez
+
+function groupWinOpen(){
+  return !!(groupWin && groupWin.el && groupWin.el.isConnected);
+}
+
+/* Punto de entrada del botón "💬 Comunidad" en la barra de navegación. */
+function openGroupChat(){
+  openGroupChatWindow();
+}
+
+function openGroupChatWindow(){
+  if(groupWinOpen()){
+    if(groupWin.minimized) restoreGroupChatWindow();
+    else focusGroupChatWindow();
+    loadGroupWinMessages();
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "dm-win group-win";
+  el.innerHTML = `
+    <div class="dm-win-head" onclick="toggleMinGroupChatWindow()">
+      <div class="comment-avatar">💬</div>
+      <div class="dm-win-title"><b>${esc(t("chat.group_win"))}</b><br><small class="group-win-online">🟢 …</small></div>
+      <button class="dm-win-headbtn" title="⛶" aria-label="Vista completa"
+        onclick="event.stopPropagation();expandGroupChatWindow()">⛶</button>
+      <button class="dm-win-headbtn" title="${esc(t("dm.win_min"))}" aria-label="${esc(t("dm.win_min"))}"
+        onclick="event.stopPropagation();minimizeGroupChatWindow()">—</button>
+      <button class="dm-win-headbtn" title="${esc(t("dm.win_close"))}" aria-label="${esc(t("dm.win_close"))}"
+        onclick="event.stopPropagation();closeGroupChatWindow()">✕</button>
+    </div>
+    <div class="dm-win-body">
+      <div class="dm-win-msgs group-win-msgs"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
+      <div class="dm-win-composer">
+        <input class="field group-win-input" maxlength="500" placeholder="${esc(t("chat.ph"))}"
+          onkeydown="if(event.key==='Enter')sendGroupWin()">
+        <button class="dm-win-send" onclick="sendGroupWin()" aria-label="${esc(t("chat.send"))}">➤</button>
+      </div>
+    </div>`;
+  dmWinBox().appendChild(el);
+  groupWin = { el, minimized: false };
+  startChatPoll(); // el sondeo sigue activo mientras la ventana esté abierta
+  loadGroupWinMessages();
+}
+
+function focusGroupChatWindow(){
+  if(!groupWinOpen()) return;
+  dmWinBox().appendChild(groupWin.el); // la trae al frente
+  const inp = groupWin.el.querySelector(".group-win-input");
+  if(inp && !groupWin.minimized) inp.focus();
+}
+
+function toggleMinGroupChatWindow(){
+  if(!groupWin) return;
+  if(groupWin.minimized) restoreGroupChatWindow(); else minimizeGroupChatWindow();
+}
+
+function minimizeGroupChatWindow(){
+  if(!groupWin || groupWin.minimized) return;
+  groupWin.minimized = true;
+  groupWin.el.classList.add("minimized");
+}
+
+function restoreGroupChatWindow(){
+  if(!groupWin || !groupWin.minimized) return;
+  groupWin.minimized = false;
+  groupWin.el.classList.remove("minimized");
+  focusGroupChatWindow();
+  loadGroupWinMessages();
+}
+
+function closeGroupChatWindow(){
+  if(groupWin && groupWin.el) groupWin.el.remove();
+  groupWin = null;
+  // Si no estamos en la pestaña de comunidad, detener el sondeo.
+  const active = document.querySelector(".tab.active");
+  if(!active || active.dataset.tab !== "comunidad") stopChatPoll();
+}
+
+/* ⛶: abre la vista completa (con fotos, temas y RV) y cierra la ventanita. */
+function expandGroupChatWindow(){
+  closeGroupChatWindow();
+  switchTab("comunidad");
+}
+
+/* Pinta los mensajes del chat grupal dentro de la ventanita. */
+function paintGroupWinMessages(j){
+  if(!groupWinOpen()) return;
+  const box = groupWin.el.querySelector(".group-win-msgs");
+  if(!box) return;
+  const prevTop = box.scrollTop;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const items = (j && j.comentarios) || [];
+  communityUsers = {};
+  box.innerHTML = items.map(c=>communityMsgHtml(c)).join("") ||
+    `<p style="text-align:center;color:var(--cocoa-soft)">💛</p>`;
+  box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
+  const onEl = groupWin.el.querySelector(".group-win-online");
+  if(onEl && j && j.onlineCount != null){
+    const n = Number(j.onlineCount) || 0;
+    onEl.textContent = n > 0 ? `🟢 ${n} en línea` : `🔴 0 en línea`;
+  }
+  if(j && j.muted) disableCommunityComposer();
+  refreshFlagLevels(Object.keys(communityUsers).map(Number)).catch(()=>{});
+}
+
+async function loadGroupWinMessages(){
+  if(!groupWinOpen()) return;
+  try{
+    const r = await fetch("/api/community", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    paintGroupWinMessages(await r.json());
+  }catch(e){
+    const box = groupWin.el.querySelector(".group-win-msgs");
+    if(box) box.innerHTML = `<p style="text-align:center;color:#a33">⚠️</p>`;
+  }
+}
+
+/* Enviar mensaje al chat grupal desde la ventanita. */
+async function sendGroupWin(){
+  if(!groupWinOpen()) return;
+  const inp = groupWin.el.querySelector(".group-win-input");
+  const text = inp ? inp.value.trim() : "";
+  if(!text){ toast(t("t.write_something")); return; }
+  try{
+    const r = await fetch("/api/community", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ text })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok){
+      if(handleSpamError(j)) return;
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
+    if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
+    inp.value = "";
+    playDing();
+    loadGroupWinMessages();
+  }catch(e){
+    toast(e.message);
+  }
+}
+
 /* Actualiza el encabezado (nombre/foto) de una ventana. */
 function updateDmWinHead(uid){
   const w = dmWindows[uid];
@@ -2206,6 +2490,15 @@ function updateDmWinHead(uid){
   if(av) av.innerHTML = dmAvatarHtml(t);
   const b = head.querySelector(".dm-win-title b");
   if(b) b.textContent = t.nombre || t("dm.win_user");
+  // Refrescar la banderita junto al nombre.
+  const title = head.querySelector(".dm-win-title");
+  if(title){
+    const old = title.querySelector("[data-flag-uid]");
+    const html = flagHtml(uid);
+    if(old){ if(html) old.outerHTML = html; else old.remove(); }
+    else if(html && b) b.insertAdjacentHTML("afterend", html);
+  }
+  refreshFlagLevels([uid]).catch(()=>{});
 }
 
 /* HTML de un mensaje (texto, voz, video-invite, archivo). */

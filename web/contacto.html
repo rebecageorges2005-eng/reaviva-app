@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Contacto — Reaviva</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:#faf6f1;color:#4a3728;line-height:1.7}
+.wrap{max-width:560px;margin:0 auto;padding:40px 20px 80px}
+.logo{text-align:center;font-size:1.6rem;font-weight:800;margin-bottom:8px}
+.logo span{color:#c4704f}
+h1{text-align:center;font-size:1.4rem;margin:12px 0 24px}
+.field{width:100%;padding:12px 14px;border:1px solid #e5d9cc;border-radius:10px;font-size:.95rem;margin-bottom:12px;background:#fff;color:#4a3728}
+textarea.field{min-height:140px;resize:vertical}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:12px;background:#c4704f;color:#fff;font-weight:700;font-size:1rem;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:wait}
+.msg{text-align:center;margin-top:14px;font-size:.95rem}
+.msg.ok{color:#2e7d32}
+.msg.err{color:#c62828}
+footer{margin-top:48px;padding-top:20px;border-top:1px solid #e5d9cc;text-align:center;font-size:.82rem;color:#a58a76}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="logo">Reaviva<span>.</span></div>
+<h1>Contáctanos 💌</h1>
+<form id="contact-form">
+<input class="field" id="c-name" type="text" placeholder="Tu nombre" required maxlength="80">
+<input class="field" id="c-email" type="email" placeholder="tu@correo.com" required maxlength="120">
+<textarea class="field" id="c-message" placeholder="Escribe tu mensaje…" required maxlength="2000"></textarea>
+<button class="btn" type="submit" id="c-btn">Enviar mensaje →</button>
+<p class="msg" id="c-msg"></p>
+</form>
+<footer>© 2026 Reaviva Tu Fe. Todos los derechos reservados.</footer>
+</div>
+<script>
+document.getElementById("contact-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("c-btn"), msg = document.getElementById("c-msg");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Enviando…";
+  try {
+    const r = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: document.getElementById("c-name").value.trim(),
+        email: document.getElementById("c-email").value.trim(),
+        message: document.getElementById("c-message").value.trim()
+      })
+    });
+    const j = await r.json();
+    if (r.ok) {
+      msg.className = "msg ok"; msg.textContent = "¡Mensaje enviado! Te responderemos pronto 💛";
+      document.getElementById("contact-form").reset();
+    } else {
+      msg.className = "msg err"; msg.textContent = j.error || "No se pudo enviar. Inténtalo de nuevo.";
+    }
+  } catch (err) {
+    msg.className = "msg err"; msg.textContent = "Sin conexión. Revisa tu internet.";
+  }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

@@ -183,6 +183,12 @@
       <form id="form-signup" onsubmit="doSignup(event)" style="display:none">
         <input id="signup-name" class="field" type="text" data-i18n-ph="auth.ph_name" placeholder="Tu nombre" required autocomplete="given-name">
         <input id="signup-email" class="field" type="email" data-i18n-ph="auth.ph_email" placeholder="tu@correo.com" required autocomplete="email">
+        <label class="bd-label" data-i18n="auth.birthdate">Fecha de nacimiento</label>
+        <div class="bd-row">
+          <select id="signup-day" class="field" required aria-label="Día"><option value="" data-i18n="auth.day">Día</option></select>
+          <select id="signup-month" class="field" required aria-label="Mes"><option value="" data-i18n="auth.month">Mes</option></select>
+          <select id="signup-year" class="field" required aria-label="Año"><option value="" data-i18n="auth.year">Año</option></select>
+        </div>
         <div class="pwd-wrap">
           <input id="signup-password" class="field" type="password" data-i18n-ph="auth.ph_newpass" placeholder="Crea una contraseña (mín. 6 caracteres)" required autocomplete="new-password" minlength="6">
           <button type="button" class="pwd-toggle" onclick="togglePassword('signup-password')" aria-label="Mostrar contraseña">👁️</button>
@@ -204,11 +210,11 @@
     <div class="container">
       <a class="logo" href="#" style="color:#f7eadd" onclick="showView('landing');return false">Reaviva<span style="color:var(--terra)">.</span></a>
       <p style="margin-top:10px;font-size:.85rem">
-        <a href="#" onclick="alert('Términos de servicio — próximamente');return false" data-i18n="footer.terms">Términos</a>
+        <a href="terminos.html" target="_blank" rel="noopener" data-i18n="footer.terms">Términos</a>
         ·
-        <a href="#" onclick="alert('Política de privacidad — próximamente');return false" data-i18n="footer.privacy">Privacidad</a>
+        <a href="privacidad.html" target="_blank" rel="noopener" data-i18n="footer.privacy">Privacidad</a>
         ·
-        <a href="mailto:contacto@reavivaapp.com" data-i18n="footer.contact">Contacto</a>
+        <a href="contacto.html" target="_blank" rel="noopener" data-i18n="footer.contact">Contacto</a>
       </p>
       <small data-i18n="footer.rights">© 2026 Reaviva Tu Fe. Todos los derechos reservados. · Contenido 100% original.</small>
       <div class="lang-selector" style="margin-top:14px">
@@ -369,7 +375,7 @@
     <button class="tab" data-tab="programa" onclick="switchTab('programa')"><span class="ticon">📖</span><span data-i18n="tab.program">Programa</span></button>
     <button class="tab" data-tab="diario" onclick="switchTab('diario')"><span class="ticon">✍️</span><span data-i18n="tab.diary">Diario</span></button>
     <button class="tab" data-tab="progreso" onclick="switchTab('progreso')"><span class="ticon">📊</span><span data-i18n="tab.progress">Progreso</span></button>
-    <button class="tab" data-tab="comunidad" onclick="switchTab('comunidad')"><span class="ticon">💬</span><span data-i18n="tab.community">Comunidad</span></button>
+    <button class="tab" data-tab="comunidad" onclick="openGroupChat()"><span class="ticon">💬</span><span data-i18n="tab.community">Comunidad</span></button>
     <button class="tab" data-tab="privados" onclick="switchTab('privados')"><span class="ticon">✉️</span><span data-i18n="tab.dm">Privados</span><span id="dm-badge" class="dm-badge" style="display:none"></span></button>
     <button class="tab" data-tab="perfil" onclick="switchTab('perfil')"><span class="ticon">👤</span><span data-i18n="tab.profile">Perfil</span></button>
     <button class="tab" data-tab="admin" onclick="switchTab('admin')" style="display:none"><span class="ticon">👑</span><span data-i18n="tab.admin">Admin</span></button>
