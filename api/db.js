@@ -333,6 +333,39 @@ try {
   console.error("[db] migración private_messages:", e.message);
 }
 
+/* --- Migración: mensajes de voz en DMs ---
+ * private_messages.msg_type: 'text' | 'voice' | 'video-invite' | 'file'.
+ * private_messages.audio_data: base64 data URL del audio (solo msg_type='voice').
+ * private_messages.file_data: base64 data URL del archivo (solo msg_type='file').
+ * private_messages.file_name: nombre original del archivo.
+ * private_messages.file_size: tamaño en bytes.
+ * Reglas: voz → plan anual y mensual; videollamada y archivos → solo plan anual. */
+try {
+  const colsDm = db.prepare("PRAGMA table_info(private_messages)").all().map((c) => c.name);
+  if (!colsDm.includes("msg_type")) {
+    db.exec("ALTER TABLE private_messages ADD COLUMN msg_type TEXT NOT NULL DEFAULT 'text'");
+    console.log("[db] migración: columna private_messages.msg_type agregada");
+  }
+  if (!colsDm.includes("audio_data")) {
+    db.exec("ALTER TABLE private_messages ADD COLUMN audio_data TEXT");
+    console.log("[db] migración: columna private_messages.audio_data agregada");
+  }
+  if (!colsDm.includes("file_data")) {
+    db.exec("ALTER TABLE private_messages ADD COLUMN file_data TEXT");
+    console.log("[db] migración: columna private_messages.file_data agregada");
+  }
+  if (!colsDm.includes("file_name")) {
+    db.exec("ALTER TABLE private_messages ADD COLUMN file_name TEXT");
+    console.log("[db] migración: columna private_messages.file_name agregada");
+  }
+  if (!colsDm.includes("file_size")) {
+    db.exec("ALTER TABLE private_messages ADD COLUMN file_size INTEGER");
+    console.log("[db] migración: columna private_messages.file_size agregada");
+  }
+} catch (e) {
+  console.error("[db] migración msg_type/audio_data:", e.message);
+}
+
 module.exports = db;
 
 /* --- Sistema anti-spam: strikes por compartir correos/teléfonos/redes ---
