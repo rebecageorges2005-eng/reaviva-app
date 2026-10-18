@@ -17,6 +17,7 @@ const journalRouter = require("./routes/journal");
 const { router: billingRouter, webhookHandler, paypalConfigured } = require("./routes/billing");
 const { router: adminRouter } = require("./routes/admin");
 const { router: communityRouter } = require("./routes/community");
+const { router: topicsRouter } = require("./routes/topics");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -53,6 +54,7 @@ app.use("/api/journal", journalRouter);
 app.use("/api", billingRouter); // /api/paypal/*
 app.use("/api/admin", adminRouter); // /api/admin/* (solo administradores)
 app.use("/api/community", communityRouter); // /api/community/* (comunidad anónima)
+app.use("/api/topics", topicsRouter); // /api/topics/* (temas temporales del chat)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).

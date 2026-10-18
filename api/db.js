@@ -223,4 +223,43 @@ try {
   console.error("[db] migración chat_usage:", e.message);
 }
 
+/* --- Migración: temas temporales del chat (solo con plan) ---
+ * chat_topics: cada tema dura 2 horas y luego expira/desaparece.
+ * Los temas expirados se filtran en el GET (sin cron). */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_topics (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      name       TEXT NOT NULL,   -- nombre del tema, sin el símbolo #
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,   -- created_at + 2 horas
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_topics_expires ON chat_topics(expires_at);
+  `);
+  console.log("[db] migración: tabla chat_topics lista");
+} catch (e) {
+  console.error("[db] migración chat_topics:", e.message);
+}
+
+/* --- Migración: fotos temporales del chat (30 segundos) ---
+ * community_comments.msg_type: 'text' | 'photo'.
+ * community_comments.photo_data: imagen base64 (data URL) para msg_type='photo'.
+ * Las fotos se "eliminan" a los 30 segundos: el GET deja de devolver los
+ * datos y muestra "📷 Foto eliminada". */
+try {
+  const cols8 = db.prepare("PRAGMA table_info(community_comments)").all().map((c) => c.name);
+  if (!cols8.includes("msg_type")) {
+    db.exec("ALTER TABLE community_comments ADD COLUMN msg_type TEXT NOT NULL DEFAULT 'text'");
+    console.log("[db] migración: columna community_comments.msg_type agregada");
+  }
+  if (!cols8.includes("photo_data")) {
+    db.exec("ALTER TABLE community_comments ADD COLUMN photo_data TEXT");
+    console.log("[db] migración: columna community_comments.photo_data agregada");
+  }
+} catch (e) {
+  console.error("[db] migración fotos temporales:", e.message);
+}
+
 module.exports = db;
