@@ -44,15 +44,105 @@ function requireAuth(){
   if(currentUser()) return true;
   showView("auth"); return false;
 }
-function doLogin(ev){
-  ev.preventDefault();
-  const email = $("#auth-email").value.trim();
-  const name  = $("#auth-name").value.trim() || email.split("@")[0];
-  if(!email || !email.includes("@")){ toast("Escribe un correo válido"); return; }
-  store.set(LS.user, {email, name});
+/* ---------- auth con backend (email + contraseña) ---------- */
+let authMode = "login"; // "login" (principal) | "signup"
+
+function switchAuthMode(mode){
+  authMode = mode;
+  $("#tab-login").classList.toggle("active", mode === "login");
+  $("#tab-signup").classList.toggle("active", mode === "signup");
+  $("#form-login").style.display = mode === "login" ? "" : "none";
+  $("#form-signup").style.display = mode === "signup" ? "" : "none";
+  $("#login-err").textContent = "";
+  $("#signup-err").textContent = "";
+}
+
+function togglePassword(id){
+  const f = $("#" + id);
+  f.type = f.type === "password" ? "text" : "password";
+}
+
+/* Guarda la sesión del backend y entra a la app. */
+function saveSession(token, user){
+  store.set("reaviva_token", token);
+  store.set(LS.user, { email: user.email, name: user.name });
+  store.set("reaviva_admin", user.isAdmin === true);
+  store.set("reaviva_paid", user.subscribed === true || user.isAdmin === true);
   if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
-  enterApp();
-  toast("¡Bienvenido/a, " + name + "! 💛");
+}
+
+async function doLogin(ev){
+  ev.preventDefault();
+  const email = $("#login-email").value.trim().toLowerCase();
+  const password = $("#login-password").value;
+  const errBox = $("#login-err");
+  errBox.textContent = "";
+  if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
+  if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+  errBox.textContent = "Entrando…";
+  try{
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const j = await r.json();
+    if(!r.ok){ errBox.textContent = j.error || "No se pudo entrar. Inténtalo de nuevo."; return; }
+    saveSession(j.token, j.user);
+    enterApp();
+    toast("¡Bienvenido/a de nuevo, " + j.user.name + "! 💛");
+  }catch(e){
+    errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
+  }
+}
+
+async function doSignup(ev){
+  ev.preventDefault();
+  const name = $("#signup-name").value.trim();
+  const email = $("#signup-email").value.trim().toLowerCase();
+  const password = $("#signup-password").value;
+  const errBox = $("#signup-err");
+  errBox.textContent = "";
+  if(!name){ errBox.textContent = "Escribe tu nombre."; return; }
+  if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
+  if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+  errBox.textContent = "Creando tu cuenta…";
+  try{
+    const r = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password })
+    });
+    const j = await r.json();
+    if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
+    saveSession(j.token, j.user);
+    enterApp();
+    toast("¡Cuenta creada! Bienvenido/a, " + j.user.name + " 💛");
+  }catch(e){
+    errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
+  }
+}
+
+/* Valida la sesión guardada contra el backend. */
+async function restoreSession(){
+  const token = store.get("reaviva_token", null);
+  if(!token) return false;
+  try{
+    const r = await fetch("/api/auth/me", {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    if(!r.ok) throw new Error("401");
+    const j = await r.json();
+    saveSession(token, j.user);
+    return true;
+  }catch(e){
+    // sesión inválida: limpiar
+    localStorage.removeItem(LS.user);
+    localStorage.removeItem("reaviva_token");
+    localStorage.removeItem("reaviva_admin");
+    localStorage.removeItem("reaviva_paid");
+    return false;
+  }
 }
 
 /* ---------- program progress ---------- */
@@ -709,8 +799,8 @@ async function handlePayPalReturn(){
 /* ---------- init ---------- */
 document.addEventListener("DOMContentLoaded", ()=>{
   // landing CTAs
-  $$("[data-go-app]").forEach(b=>b.addEventListener("click", ()=>{
-    if(currentUser()) enterApp(); else showView("auth");
+  $$("[data-go-app]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(await restoreSession()) enterApp(); else showView("auth");
   }));
   $("#logout-btn").addEventListener("click", ()=>{
     localStorage.removeItem(LS.user);
@@ -724,9 +814,11 @@ document.addEventListener("DOMContentLoaded", ()=>{
   refreshPaidStatus();
   // URL secreta de admin: /admin/ingzoe
   if(location.pathname === "/admin/ingzoe"){
-    if(currentUser() && isAdmin()) enterApp(); else showView("admin-login");
+    restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
     return;
   }
-  // deep-link: #app
-  if(location.hash === "#app" && currentUser()) enterApp();
+  // deep-link: #app — valida la sesión contra el backend
+  if(location.hash === "#app"){
+    restoreSession().then(ok => { if(ok) enterApp(); else showView("auth"); });
+  }
 });

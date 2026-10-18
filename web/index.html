@@ -144,12 +144,33 @@
   <div class="container">
     <div class="auth-card">
       <a class="logo" href="#" onclick="showView('landing');return false">Reaviva<span>.</span></a>
-      <h2 style="margin-top:14px">Empieza tu proceso</h2>
-      <p>7 días gratis. Sin tarjeta. Solo tu correo para guardar tu progreso.</p>
-      <form onsubmit="doLogin(event)">
-        <input id="auth-name" class="field" type="text" placeholder="Tu nombre" autocomplete="given-name">
-        <input id="auth-email" class="field" type="email" placeholder="tu@correo.com" required autocomplete="email">
-        <button class="btn btn-primary btn-block" type="submit">Comenzar mis 7 días gratis →</button>
+      <h2 style="margin-top:14px">Bienvenido/a de nuevo 💛</h2>
+      <!-- Pestañas visibles: Entrar (principal) / Crear cuenta -->
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tab-login" onclick="switchAuthMode('login')">Entrar</button>
+        <button type="button" class="auth-tab" id="tab-signup" onclick="switchAuthMode('signup')">Crear cuenta</button>
+      </div>
+      <!-- FORMULARIO ENTRAR (principal) -->
+      <form id="form-login" onsubmit="doLogin(event)">
+        <input id="login-email" class="field" type="email" placeholder="tu@correo.com" required autocomplete="email">
+        <div class="pwd-wrap">
+          <input id="login-password" class="field" type="password" placeholder="Tu contraseña" required autocomplete="current-password" minlength="6">
+          <button type="button" class="pwd-toggle" onclick="togglePassword('login-password')" aria-label="Mostrar contraseña">👁️</button>
+        </div>
+        <p id="login-err" class="auth-err"></p>
+        <button class="btn btn-primary btn-block" type="submit">Entrar →</button>
+      </form>
+      <!-- FORMULARIO CREAR CUENTA -->
+      <form id="form-signup" onsubmit="doSignup(event)" style="display:none">
+        <input id="signup-name" class="field" type="text" placeholder="Tu nombre" required autocomplete="given-name">
+        <input id="signup-email" class="field" type="email" placeholder="tu@correo.com" required autocomplete="email">
+        <div class="pwd-wrap">
+          <input id="signup-password" class="field" type="password" placeholder="Crea una contraseña (mín. 6 caracteres)" required autocomplete="new-password" minlength="6">
+          <button type="button" class="pwd-toggle" onclick="togglePassword('signup-password')" aria-label="Mostrar contraseña">👁️</button>
+        </div>
+        <p id="signup-err" class="auth-err"></p>
+        <button class="btn btn-primary btn-block" type="submit">Crear mi cuenta gratis →</button>
+        <p style="margin-top:10px;font-size:.82rem;color:var(--cocoa-soft)">7 días gratis. Sin tarjeta. Solo tu cuenta para guardar tu progreso.</p>
       </form>
       <p style="margin-top:14px;font-size:.82rem">Al continuar aceptas nuestros términos. Podrás cancelar cuando quieras.</p>
     </div>

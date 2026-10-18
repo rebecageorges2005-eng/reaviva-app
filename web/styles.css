@@ -394,3 +394,13 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .hidden-comment{opacity:.65;background:#faf7f3}
 .empty-state{text-align:center;padding:40px 20px;color:var(--cocoa)}
 .empty-state p{margin:8px 0}
+
+/* ---------- auth tabs (Entrar / Crear cuenta) ---------- */
+.auth-tabs{display:flex;gap:8px;margin:18px 0 20px;background:var(--sand);border-radius:999px;padding:5px}
+.auth-tab{flex:1;border:none;background:transparent;padding:12px 8px;border-radius:999px;font-size:1rem;font-weight:700;color:var(--cocoa-soft);cursor:pointer;transition:all .2s}
+.auth-tab.active{background:var(--white);color:var(--cocoa);box-shadow:0 2px 8px rgba(74,55,40,.12)}
+.auth-err{color:#b3402e;font-size:.85rem;min-height:1.3em;margin:6px 0;text-align:left}
+.pwd-wrap{position:relative}
+.pwd-wrap .field{padding-right:44px;width:100%}
+.pwd-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:1.1rem;cursor:pointer;opacity:.6;padding:4px}
+.pwd-toggle:hover{opacity:1}
