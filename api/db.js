@@ -193,6 +193,26 @@ try {
   console.error("[db] migración expires_at:", e.message);
 }
 
+/* --- Migration: Oct 2026 — ocultar mensajes personales (solo con plan) ---
+ * hidden_messages: un usuario con plan puede ocultar un mensaje SOLO para
+ * sí mismo (no es moderación global). Clave compuesta (user_id, message_id). */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hidden_messages (
+      user_id    INTEGER NOT NULL,
+      message_id INTEGER NOT NULL,
+      hidden_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, message_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES community_comments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_hidden_user ON hidden_messages(user_id);
+  `);
+  console.log("[db] migración: tabla hidden_messages lista");
+} catch (e) {
+  console.error("[db] migración hidden_messages:", e.message);
+}
+
 /* --- Migration: Oct 2026 — verificación de correo ---
  * email_verified: 0/1 — el usuario debe confirmar su correo con el link
  * que recibe al registrarse antes de poder entrar.
@@ -610,4 +630,29 @@ try {
   }
 } catch (e) {
   console.error("[db] migración referred_by:", e.message);
+}
+
+/* --- Migración: reacciones 👍👎 a mensajes (chat grupal y DMs) ---
+ * message_reactions: un usuario puede dar "like" o "dislike" a un mensaje.
+ * message_type: 'community' (community_comments.id) o 'dm' (private_messages.id).
+ * Restricción única: un usuario solo puede tener UNA reacción por mensaje
+ * (like O dislike, no ambas). Clic repetido = quitar la reacción. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      message_id   INTEGER NOT NULL,
+      message_type TEXT NOT NULL CHECK (message_type IN ('community','dm')),
+      reaction     TEXT NOT NULL CHECK (reaction IN ('like','dislike')),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (user_id, message_id, message_type),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_react_msg ON message_reactions(message_id, message_type);
+    CREATE INDEX IF NOT EXISTS idx_react_user ON message_reactions(user_id);
+  `);
+  console.log("[db] migración: tabla message_reactions lista");
+} catch (e) {
+  console.error("[db] migración message_reactions:", e.message);
 }
