@@ -97,6 +97,7 @@ app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
   // URL secreta de admin: sirve la página de login dedicada
   if (req.path === "/admin/ingzoe") return res.sendFile(path.join(FRONTEND_DIR, "admin.html"));
+  if (req.path === "/admin/panel") return res.sendFile(path.join(FRONTEND_DIR, "panel.html"));
   res.sendFile(path.join(FRONTEND_DIR, "index.html"));
 });
 
