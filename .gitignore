@@ -1,0 +1,4 @@
+node_modules/
+*.db
+.env
+ADMIN_CODE.txt
