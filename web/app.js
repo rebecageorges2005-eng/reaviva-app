@@ -804,14 +804,20 @@ async function renderComunidad(){
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     const items = j.comentarios || [];
-    list.innerHTML = items.map(c=>`
+    list.innerHTML = items.map(c=>{
+      // Sin plan → "Guest" + foto; con plan → nombre real + foto.
+      // La foto viene validada del servidor (data:image/...); esc() la protege.
+      const avatar = (c.foto && String(c.foto).startsWith("data:image/"))
+        ? `<img src="${esc(c.foto)}" class="comment-photo" alt="">`
+        : esc(c.avatar || "💛");
+      return `
       <div class="comment-card">
-        <div class="comment-avatar">${c.avatar}</div>
+        <div class="comment-avatar">${avatar}</div>
         <div class="comment-body">
-          <div class="comment-head"><b>Anónimo</b><span>${esc(c.fecha)}</span></div>
+          <div class="comment-head"><b>${esc(c.nombre || "Guest")}</b><span>${esc(c.fecha)}</span></div>
           <p>${esc(c.texto)}</p>
         </div>
-      </div>`).join("") ||
+      </div>`;}).join("") ||
       `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
        <p><b>Sé la primera persona en compartir</b></p>
        <p style="font-size:.85rem;color:var(--cocoa-soft)">Tu historia puede ayudar a alguien que lo necesita.</p></div>`;

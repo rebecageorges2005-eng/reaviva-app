@@ -383,6 +383,7 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .community-list{display:flex;flex-direction:column;gap:12px;margin-top:6px}
 .comment-card{background:#fff;border:1px solid #eadfd3;border-radius:14px;padding:14px;display:flex;gap:12px}
 .comment-avatar{font-size:1.8rem;line-height:1;flex-shrink:0}
+.comment-photo{width:40px;height:40px;border-radius:50%;object-fit:cover;display:block}
 .comment-body{flex:1;min-width:0}
 .comment-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .comment-head b{font-size:.9rem;color:var(--cocoa)}
