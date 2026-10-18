@@ -21,11 +21,45 @@ const { router: communityRouter, processDueReposts } = require("./routes/communi
 const { router: topicsRouter } = require("./routes/topics");
 const { router: dmRouter } = require("./routes/dm");
 const { router: rvRouter } = require("./routes/rv");
+const { router: reactionsRouter } = require("./routes/reactions");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
+
+/* --- Seguridad: el JWT_SECRET NUNCA puede quedar con el valor de desarrollo
+ * en producción. Si falta, el servidor no arranca (antes caía a un secreto
+ * público "dev-secret-change-me" y cualquiera podía forjar tokens de admin). */
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("[seguridad] FATAL: JWT_SECRET no está configurado. El servidor no arranca.");
+  process.exit(1);
+}
+
+const {
+  blockIpMiddleware,
+  securityHeaders,
+  attackDetector,
+  scanDetector,
+  rateLimit,
+} = require("./security");
+
+/* --- Seguridad: orden de middlewares ---
+ * 1. blockIpMiddleware: rechaza IPs bloqueadas antes que nada.
+ * 2. securityHeaders: cabeceras anti-XSS/clickjacking en cada respuesta.
+ * 3. scanDetector: detecta escaneo de rutas sensibles. */
+app.use(blockIpMiddleware);
+app.use(securityHeaders);
+app.use(scanDetector);
+
+/* --- Rate limit general de la API: 100 req/min por IP.
+ * El polling del chat es cada 30s (~4-6 req/min por usuario), así que
+ * 100/min no afecta el uso normal. El webhook de PayPal queda exento. */
+const apiLimiter = rateLimit({ max: 100, windowMs: 60 * 1000 });
+app.use("/api/", (req, res, next) => {
+  if (req.path === "/api/paypal/webhook") return next();
+  return apiLimiter(req, res, next);
+});
 
 /* --- PayPal webhook needs the RAW body: mount BEFORE express.json() --- */
 app.post("/api/paypal/webhook", express.raw({ type: "application/json" }), webhookHandler);
@@ -36,6 +70,15 @@ if (paypalConfigured()) {
 }
 
 app.use(express.json({ limit: "3mb" })); // 3mb: permite la foto de perfil en base64
+
+/* --- Detector de ataques: inspecciona query + body en escrituras.
+ * SQLi/XSS detectado → IP bloqueada + usuario baneado. Va DESPUÉS de
+ * express.json() para poder leer el body. Exento: webhook de PayPal
+ * (firma verificada por PayPal, body raw). */
+app.use("/api/", (req, res, next) => {
+  if (req.path === "/api/paypal/webhook") return next();
+  return attackDetector(req, res, next);
+});
 
 /* --- Compresión gzip para respuestas de texto (sin dependencias externas).
  * Reduce ~70% el tamaño de app.js, i18n.js, HTML y CSS. --- */
@@ -81,6 +124,7 @@ app.use("/api/community", communityRouter); // /api/community/* (comunidad anón
 app.use("/api/topics", topicsRouter); // /api/topics/* (temas temporales del chat)
 app.use("/api/dm", dmRouter); // /api/dm/* (mensajes privados, plan anual)
 app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
+app.use("/api/reactions", reactionsRouter); // /api/reactions/* (likes/dislikes)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).

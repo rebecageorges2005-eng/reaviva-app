@@ -656,3 +656,49 @@ try {
 } catch (e) {
   console.error("[db] migración message_reactions:", e.message);
 }
+
+/* --- Seguridad: bloqueo de IPs y baneo permanente de usuarios ---
+ * blocked_ips: IPs bloqueadas automáticamente (intentos de hackeo) o manualmente.
+ * users.banned: 1 = cuenta suspendida permanentemente (no puede entrar,
+ *   sus tokens quedan invalidados).
+ * users.ban_reason: motivo del baneo (visible para el admin). */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS blocked_ips (
+      ip         TEXT PRIMARY KEY,
+      reason     TEXT NOT NULL DEFAULT '',
+      blocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      blocked_by TEXT NOT NULL DEFAULT 'auto' CHECK (blocked_by IN ('auto','admin'))
+    );
+  `);
+  console.log("[db] migración: tabla blocked_ips lista");
+} catch (e) {
+  console.error("[db] migración blocked_ips:", e.message);
+}
+try {
+  const colsSec = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  const addSec = (col, def) => {
+    if (!colsSec.includes(col)) {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+      console.log(`[db] migración: columna users.${col} agregada`);
+      colsSec.push(col);
+    }
+  };
+  addSec("banned", "INTEGER NOT NULL DEFAULT 0");
+  addSec("ban_reason", "TEXT");
+} catch (e) {
+  console.error("[db] migración banned:", e.message);
+}
+
+/* --- Correo de respaldo del admin ---
+ * users.backup_email: correo alternativo para recuperación de cuenta.
+ * Se configura desde el panel admin al cambiar la contraseña. */
+try {
+  const colsBk = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!colsBk.includes("backup_email")) {
+    db.exec("ALTER TABLE users ADD COLUMN backup_email TEXT");
+    console.log("[db] migración: columna users.backup_email agregada");
+  }
+} catch (e) {
+  console.error("[db] migración backup_email:", e.message);
+}
