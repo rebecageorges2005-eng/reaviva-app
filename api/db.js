@@ -134,6 +134,22 @@ try {
   console.error("[db] migración paypal_subscriptions:", e.message);
 }
 
+/* --- Migration: Oct 2026 — IP y país de usuarios ---
+ * Registra la dirección IP y el país de cada usuario para saber
+ * desde qué país se conectan. El lookup de país se hace de forma
+ * asíncrona vía ip-api.com al registrarse / iniciar sesión. */
+try {
+  const cols5 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  for (const c of ["ip", "country", "country_code"]) {
+    if (!cols5.includes(c)) {
+      db.exec(`ALTER TABLE users ADD COLUMN ${c} TEXT`);
+      console.log(`[db] migración: columna users.${c} agregada`);
+    }
+  }
+} catch (e) {
+  console.error("[db] migración ip/país:", e.message);
+}
+
 /* --- Migration: Oct 2026 — comunidad anónima ---
  * community_comments: comentarios públicos de la comunidad.
  * Los usuarios son anónimos entre sí; solo el admin ve quién escribió
