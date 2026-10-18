@@ -6,8 +6,14 @@
  *   GET  /api/dm/:uid            → mensajes con un usuario (marca leídos)
  *
  * Reglas:
- * - Solo usuarios con plan ANUAL (o admin) pueden enviar y leer DMs.
- *   Los de plan mensual reciben 403 con error "UPGRADE_ANNUAL".
+ * - Usuarios con plan (mensual o anual, o admin) pueden enviar y leer DMs.
+ *   Límite diario de CONVERSACIONES (usuarios únicos por día, UTC):
+ *     plan anual → 90/día · plan mensual → 15/día.
+ *   Al exceder el límite, el mensual recibe 403 "UPGRADE_ANNUAL" con el
+ *   mensaje "Actualiza tu plan para conversar con más personas 💎"
+ *   (el frontend abre el modal de actualización a anual); el anual
+ *   recibe 429 (ya tiene el plan más alto).
+ * - Usuarios gratuitos no pueden usar DMs.
  * - Cada mensaje se elimina automáticamente a las 48 horas.
  * - NUNCA se exponen nombres reales, emails, IPs ni user_ids crudos:
  *   solo iniciales + país + foto (mismas reglas que la comunidad).
@@ -23,7 +29,10 @@ const { checkMessage } = require("../spam");
 
 const router = express.Router();
 const DM_MAX_CHARS = 1000;
-const DM_PER_DAY = 20;
+/* Límite diario de conversaciones únicas (usuarios diferentes por día, UTC).
+ * Anual: 90/día · mensual: 15/día. Se cuentan usuarios, no mensajes. */
+const DM_CONV_PER_DAY = { annual: 90, monthly: 15 };
+const utcDay = () => new Date().toISOString().slice(0, 10);
 
 /* Limpieza de mensajes expirados (48h). Se ejecuta en cada lectura. */
 function cleanupExpired() {
@@ -34,8 +43,55 @@ function cleanupExpired() {
   }
 }
 
+/* ¿Puede usar DMs? Solo usuarios con plan pagado (mensual o anual).
+ * El admin cuenta como annual. */
 function canDm(user) {
-  return getPlanType(user) === "annual"; // el admin cuenta como annual
+  const p = getPlanType(user);
+  return p === "annual" || p === "monthly";
+}
+
+/* Límite de conversaciones únicas por día según el plan. */
+function dmConvLimit(user) {
+  return DM_CONV_PER_DAY[getPlanType(user)] || 0;
+}
+
+/* ¿Ya conversó con este usuario hoy? Si es un contacto nuevo y hay
+ * cupo, lo registra. Devuelve { ok: true } o { ok: false, code, message, status }. */
+function checkDmDailyLimit(userId, partnerId, limit, isMonthly) {
+  const day = utcDay();
+  try {
+    // Limpieza de filas viejas (más de 2 días) para no acumular.
+    db.prepare("DELETE FROM dm_daily_partners WHERE day < date('now', '-2 days')").run();
+    const ya = db
+      .prepare("SELECT 1 FROM dm_daily_partners WHERE user_id = ? AND partner_id = ? AND day = ?")
+      .get(userId, partnerId, day);
+    if (ya) return { ok: true, nueva: false };
+    const cuantos = db
+      .prepare("SELECT COUNT(*) AS n FROM dm_daily_partners WHERE user_id = ? AND day = ?")
+      .get(userId, day).n;
+    if (cuantos >= limit) {
+      if (isMonthly) {
+        return {
+          ok: false,
+          code: "UPGRADE_ANNUAL",
+          message: "Actualiza tu plan para conversar con más personas 💎",
+          status: 403,
+        };
+      }
+      return {
+        ok: false,
+        code: "LIMITE_DIARIO",
+        message: `Llegaste al límite de conversaciones de hoy (${limit}). Intenta mañana 💛`,
+        status: 429,
+      };
+    }
+    db.prepare(
+      "INSERT OR IGNORE INTO dm_daily_partners (user_id, partner_id, day) VALUES (?, ?, ?)"
+    ).run(userId, partnerId, day);
+    return { ok: true, nueva: true };
+  } catch (e) {
+    return { ok: true, nueva: false }; // ante error, no bloquea el envío
+  }
 }
 
 /* Fecha corta en español para la lista. */
@@ -48,14 +104,10 @@ function fechaCorta(iso) {
 /* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */
 router.post("/", requireAuth, (req, res) => {
   const plan = getPlanType(req.user);
-  if (plan === "monthly") {
-    return res.status(403).json({
-      error: "UPGRADE_ANNUAL",
-      message: "Actualiza a un plan anual para enviar mensajes privados 💎",
-    });
-  }
-  if (plan !== "annual") {
-    return res.status(403).json({ error: "Necesitas un plan anual para enviar mensajes privados 💎" });
+  const isMonthly = plan === "monthly";
+  const isAnnual = plan === "annual"; // el admin cuenta como annual
+  if (!isMonthly && !isAnnual) {
+    return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   }
   const toId = Number(req.body?.to_user_id);
   const text = String(req.body?.text || "").trim();
@@ -68,11 +120,12 @@ router.post("/", requireAuth, (req, res) => {
   }
   const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
-  const today = db
-    .prepare("SELECT COUNT(*) AS n FROM private_messages WHERE from_user_id = ? AND date(created_at) = date('now')")
-    .get(req.user.id);
-  if (today && today.n >= DM_PER_DAY) {
-    return res.status(429).json({ error: "Llegaste al límite de mensajes de hoy. Intenta mañana 💛" });
+  /* Límite diario de conversaciones únicas (usuarios diferentes por día).
+   * Solo el primer mensaje a un usuario nuevo ese día consume cupo. */
+  const limite = dmConvLimit(req.user);
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, isMonthly);
+  if (!chk.ok) {
+    return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
   cleanupExpired();
   /* Filtro anti-spam (mismo sistema de strikes que el chat grupal). */
@@ -89,7 +142,7 @@ router.post("/", requireAuth, (req, res) => {
 
 /* GET /api/dm/conversations — lista de conversaciones del usuario. */
 router.get("/conversations", requireAuth, (req, res) => {
-  if (!canDm(req.user)) return res.status(403).json({ error: "Necesitas un plan anual 💎" });
+  if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
   const me = req.user.id;
   const rows = db
@@ -131,7 +184,7 @@ router.get("/unread-count", requireAuth, (req, res) => {
 
 /* GET /api/dm/:uid — mensajes con un usuario (los marca como leídos). */
 router.get("/:uid", requireAuth, (req, res) => {
-  if (!canDm(req.user)) return res.status(403).json({ error: "Necesitas un plan anual 💎" });
+  if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
   const me = req.user.id;
   const other = Number(req.params.uid);

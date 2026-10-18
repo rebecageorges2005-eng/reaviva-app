@@ -117,6 +117,33 @@ function messageExpiresAt(user, msgType) {
     .replace("T", " ");
 }
 
+/* Republicación automática de links pagados con RV 🔁
+ * Se ejecuta al cargar el chat, en cada heartbeat y en un intervalo
+ * periódico del servidor: publica los reposts vencidos (máx 10 por
+ * pasada). Si el usuario fue muteado, se cancelan sus republicaciones
+ * pendientes. Las repeticiones son gratis (ya pagadas). */
+function processDueReposts() {
+  try {
+    const due = db
+      .prepare(
+        `SELECT id, user_id, text, msg_type, photo_data, expires_at FROM scheduled_reposts
+         WHERE scheduled_at <= datetime('now') ORDER BY scheduled_at ASC LIMIT 10`
+      )
+      .all();
+    for (const s of due) {
+      const muted = db.prepare("SELECT chat_muted FROM users WHERE id = ?").get(s.user_id);
+      db.prepare("DELETE FROM scheduled_reposts WHERE id = ?").run(s.id);
+      if (muted && Number(muted.chat_muted) === 1) continue; // muteado: se cancela
+      db.prepare(
+        `INSERT INTO community_comments (user_id, text, msg_type, photo_data, is_promo, is_repost, expires_at)
+         VALUES (?, ?, ?, ?, 1, 1, ?)`
+      ).run(s.user_id, s.text, s.msg_type, s.photo_data, s.expires_at);
+    }
+  } catch (e) {
+    /* no bloquea */
+  }
+}
+
 /* GET /api/community → lista pública, anónima, newest first.
  * Incluye chatTimeLeft (segundos restantes hoy; null = ilimitado).
  * Sin tiempo restante → 403 con mensaje en español.
@@ -125,6 +152,8 @@ function messageExpiresAt(user, msgType) {
 router.get("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
+  // Republicaciones automáticas pendientes de links pagados con RV.
+  processDueReposts();
   // Limpieza: borra mensajes de texto vencidos (las fotos usan su lógica de 30s).
   try {
     db.prepare(
@@ -133,7 +162,7 @@ router.get("/", requireAuth, (req, res) => {
   } catch (e) { /* no bloquea la lectura */ }
   const rows = db
     .prepare(
-      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data, c.is_promo,
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data, c.is_promo, c.is_repost,
               CASE WHEN c.msg_type = 'photo' THEN NULL
                    ELSE CAST((julianday(c.expires_at) - julianday('now')) * 24 AS INTEGER) END AS horas_restantes,
               u.name, u.photo, u.subscribed, u.is_admin, u.country_code
@@ -186,6 +215,7 @@ router.get("/", requireAuth, (req, res) => {
         avatar: avatarFor(c.user_id), // emoji de respaldo si no tiene foto
         msg_type: tipo,
         promo: Number(c.is_promo) === 1,
+        repost: Number(c.is_repost) === 1,
         expira_en_horas: c.horas_restantes == null ? null : Number(c.horas_restantes),
         foto_msg: fotoMsg,
         foto_eliminada: eliminada,
@@ -221,14 +251,23 @@ router.post("/", requireAuth, (req, res) => {
   const isPaid = req.user.is_admin === 1 || req.user.subscribed === 1;
   const photoRaw = req.body && req.body.photo;
 
+  /* --- Bloqueo de audios y video: NO se permiten notas de voz ni
+   * archivos mp3/mp4 (ni ningún audio/video). Aplica a TODOS los planes,
+   * sin excepción y sin opción de pagar con RV. --- */
+  const MSG_SIN_AUDIO = "No se permiten audios ni archivos de audio/video 🚫";
+  if (photoRaw && /^data:(audio|video)\//i.test(String(photoRaw))) {
+    return res.status(400).json({ error: MSG_SIN_AUDIO });
+  }
+
   // Fotos: solo con plan pagado.
   let photoData = null;
   let msgType = "text";
   if (photoRaw) {
+    // Usuarios gratuitos: solo texto plano (sin fotos, links ni temas).
     if (!isPaid)
       return res
         .status(403)
-        .json({ error: "Solo los miembros con plan pueden enviar fotos 💎" });
+        .json({ error: "💎 Esta función es para miembros con plan" });
     const vf = validarFoto(photoRaw);
     if (vf.error) return res.status(400).json({ error: vf.error });
     photoData = vf.photo;
@@ -258,6 +297,12 @@ router.post("/", requireAuth, (req, res) => {
   } else if (prefix) {
     // Solo tema + foto: el prefijo igual se guarda.
     finalText = prefix.trim();
+  }
+
+  // Bloqueo de archivos de audio/video en el texto (ej. "escucha.mp3").
+  // Aplica a todos los planes, sin excepción.
+  if (/\.(mp3|mp4|wav|ogg|m4a|webm|aac|opus)(\s|$|[?#.,;:!])/i.test(finalText)) {
+    return res.status(400).json({ error: MSG_SIN_AUDIO });
   }
 
   /* --- Filtro anti-spam: correos, teléfonos y redes sociales ---
@@ -328,6 +373,33 @@ router.post("/", requireAuth, (req, res) => {
   const r = db
     .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data, is_promo, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(req.user.id, finalText, msgType, photoData, isPromo, messageExpiresAt(req.user, msgType));
+
+  // Republicación automática: los links pagados con RV se republican
+  // 2 veces más (a las 2 y 4 horas), marcados como 🔁 repost. Son gratis.
+  // El expires_at se desplaza por el mismo intervalo para que el repost
+  // expire igual que el mensaje original (las fotos tienen expires_at NULL
+  // porque se eliminan a los 30 segundos por antigüedad).
+  if (isPromo === 1) {
+    try {
+      const baseExp = messageExpiresAt(req.user, msgType);
+      const desplazar = (ms) =>
+        baseExp
+          ? new Date(new Date(baseExp.replace(" ", "T") + "Z").getTime() + ms)
+              .toISOString()
+              .slice(0, 19)
+              .replace("T", " ")
+          : null;
+      const sched = db.prepare(
+        `INSERT INTO scheduled_reposts (user_id, text, msg_type, photo_data, expires_at, scheduled_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now', ?))`
+      );
+      sched.run(req.user.id, finalText, msgType, photoData, desplazar(2 * 3600 * 1000), "+120 minutes");
+      sched.run(req.user.id, finalText, msgType, photoData, desplazar(4 * 3600 * 1000), "+240 minutes");
+    } catch (e) {
+      /* no bloquea la publicación */
+    }
+  }
+
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: getRV(req.user.id) });
 });
 
@@ -337,6 +409,8 @@ router.post("/", requireAuth, (req, res) => {
  * Plan pagado / admin: { chatTimeLeft: null } (ilimitado). */
 router.post("/heartbeat", requireAuth, (req, res) => {
   const u = req.user;
+  // Republicaciones automáticas pendientes de links pagados con RV.
+  processDueReposts();
   if (u.is_admin === 1 || u.subscribed === 1)
     return res.json({ chatTimeLeft: null });
 
@@ -365,4 +439,4 @@ router.post("/heartbeat", requireAuth, (req, res) => {
   res.json({ chatTimeLeft: Math.max(0, CHAT_FREE_SECONDS - used) });
 });
 
-module.exports = { router, avatarFor, validarTexto, chatAccess, CHAT_FREE_SECONDS };
+module.exports = { router, avatarFor, validarTexto, chatAccess, CHAT_FREE_SECONDS, processDueReposts };
