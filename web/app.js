@@ -105,6 +105,12 @@ function handleSpamError(j){
     showPlanBanner(msg);
     return true;
   }
+  if(code === "LINK_NO_VERIFICADO"){
+    // Link de página no verificada: banner rojo con candado, sin descontar RV.
+    showStrikeBanner(msg);
+    toast(msg);
+    return true;
+  }
   return false;
 }
 

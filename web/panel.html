@@ -494,7 +494,35 @@ async function loadCommunity(){
       }).join("")||'<p style="color:var(--cocoa-soft)">Sin infracciones.</p>';
       $("#community-list").innerHTML+=vh;
     }catch(e2){ /* sin infracciones visibles */ }
+    /* Dominios verificados 🔒 (links permitidos en mensajes promocionales). */
+    try{
+      var vd=await api("GET","/api/admin/verified-domains");
+      var vdh='<h3 style="margin-top:20px">🔒 Dominios verificados (links permitidos)</h3>'+
+        '<p style="color:var(--cocoa-soft);font-size:.85rem">Solo se permiten enlaces de estas páginas en mensajes promocionales pagados con RV, para prevenir phishing y hackers.</p>'+
+        '<div style="display:flex;gap:8px;margin:10px 0">'+
+        '<input id="new-domain" class="field" placeholder="mitienda.com" style="max-width:260px">'+
+        '<button class="btn btn-primary btn-sm" onclick="addDomain()">➕ Verificar</button></div>'+
+        '<div id="domain-list">'+
+        (vd.dominios||[]).map(function(dm){
+          return '<div class="block cmt" style="display:flex;align-items:center;gap:10px;justify-content:space-between">'+
+          '<span>🔒 <b>'+esc(dm.dominio)+'</b> <small style="color:var(--cocoa-soft)">'+esc(dm.fecha||"")+'</small></span>'+
+          '<button class="btn btn-danger btn-sm" onclick="delDomain('+dm.id+')">🗑️ Quitar</button></div>';
+        }).join("")+'</div>';
+      $("#community-list").innerHTML+=vdh;
+    }catch(e3){ /* sin dominios visibles */ }
   }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+async function addDomain(){
+  var inp=$("#new-domain");
+  var d=inp?inp.value.trim():"";
+  if(!d){ alert("Escribe un dominio. Ejemplo: mitienda.com"); return; }
+  try{ await api("POST","/api/admin/verified-domains",{domain:d}); loadCommunity(); }
+  catch(e){ alert(e.message==="AUTH"?"Sesión expirada":(e.data&&e.data.error)||"Error al agregar."); }
+}
+async function delDomain(id){
+  if(!confirm("¿Quitar este dominio de la lista de verificados?")) return;
+  try{ await api("DELETE","/api/admin/verified-domains/"+id); loadCommunity(); }
+  catch(e){ if(e.message==="AUTH") authFail(); }
 }
 async function toggleComment(id,hide){
   try{ await api("POST","/api/admin/community/"+id+(hide?"/hide":"/unhide")); loadCommunity(); }
