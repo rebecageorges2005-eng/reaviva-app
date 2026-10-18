@@ -189,6 +189,8 @@ function costoMensajeRV(user) {
  * Nunca deja saldo negativo. */
 function trySpendRV(userId, user) {
   try {
+    // El admin tiene RV ilimitado: nunca se le descuenta.
+    if (user && user.is_admin === 1) return true;
     const row = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
     const costo = costoMensajeRV(user);
     const saldo = Math.max(0, Number(row && row.credits) || 0);
@@ -232,8 +234,10 @@ const IMAGENES_POR_BLOQUE = 8;
  * y el usuario tiene >= 10 RV, compra un bloque nuevo automáticamente
  * (descuenta 10 RV, deja 7 envíos restantes tras este).
  * Devuelve { ok: true } o { ok: false, motivo: "sin_rv" }. */
-function trySpendImageSend(userId) {
+function trySpendImageSend(userId, user) {
   try {
+    // El admin tiene RV ilimitado: nunca se le descuenta.
+    if (user && user.is_admin === 1) return { ok: true, via: "admin" };
     const row = db.prepare("SELECT credits, img_block_remaining FROM users WHERE id = ?").get(userId);
     const bloque = Math.max(0, Number(row && row.img_block_remaining) || 0);
     if (bloque > 0) {

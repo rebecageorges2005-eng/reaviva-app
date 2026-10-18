@@ -131,5 +131,34 @@ module.exports = {
   sendEmail,
   sendVerificationEmail,
   sendWelcomeEmail,
+  sendLoginAlertEmail,
   SITE_URL,
 };
+
+/* Correo 3: alerta de nuevo inicio de sesión.
+ * Se envía SOLO si la IP es distinta a la del último login registrado
+ * (para no spamear al usuario que entra todos los días desde su casa).
+ * Fire-and-forget: nunca bloquea el login. */
+function sendLoginAlertEmail({ to, name, ip, country, city, device }) {
+  const safeName = String(name || "amigo/a").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const safeIp = String(ip || "desconocida").replace(/[<>&"]/g, "");
+  const safeLoc = [city, country].filter(Boolean).join(", ") || "Ubicación desconocida";
+  const fecha = new Date().toLocaleString("es-ES", {
+    day: "numeric", month: "long", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+  const html = emailShell(
+    `🔐 Nuevo inicio de sesión en tu cuenta`,
+    `<p style="color:#4a3728;line-height:1.6;">Hola ${safeName},</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">Detectamos un inicio de sesión en tu cuenta de <b>Reaviva</b> desde un lugar o dispositivo diferente al habitual:</p>` +
+    `<div style="background:#faf6f1;border-radius:12px;padding:16px 20px;margin:16px 0;line-height:2;">` +
+    `<div>📅 <b>Fecha:</b> ${fecha}</div>` +
+    `<div>📍 <b>Ubicación:</b> ${safeLoc.replace(/[<>&"]/g, "")}</div>` +
+    `<div>🌐 <b>Dirección IP:</b> ${safeIp}</div>` +
+    `<div>📱 <b>Dispositivo:</b> ${String(device || "desconocido").replace(/[<>&"]/g, "")}</div>` +
+    `</div>` +
+    `<p style="color:#4a3728;line-height:1.6;"><b>¿Fuiste tú?</b> Si reconoces este acceso, no necesitas hacer nada.</p>` +
+    `<p style="color:#a33;line-height:1.6;"><b>¿No fuiste tú?</b> Cambia tu contraseña inmediatamente desde tu perfil y avísanos.</p>`
+  );
+  sendEmail({ to, subject: "🔐 Nuevo inicio de sesión en tu cuenta Reaviva", html }).catch(() => {});
+}

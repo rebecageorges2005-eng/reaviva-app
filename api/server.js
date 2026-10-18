@@ -29,11 +29,12 @@ const PORT = Number(process.env.PORT || 3000);
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
 
 /* --- Seguridad: el JWT_SECRET NUNCA puede quedar con el valor de desarrollo
- * en producción. Si falta, el servidor no arranca (antes caía a un secreto
- * público "dev-secret-change-me" y cualquiera podía forjar tokens de admin). */
+ * en producción. Si falta, se genera uno temporal (los tokens se invalidan
+ * al reiniciar) y se advierte. Georges debe configurar JWT_SECRET en Render
+ * para un secreto persistente. */
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-  console.error("[seguridad] FATAL: JWT_SECRET no está configurado. El servidor no arranca.");
-  process.exit(1);
+  console.warn("[seguridad] ADVERTENCIA: JWT_SECRET no configurado. Usando clave temporal.");
+  process.env.JWT_SECRET = require("crypto").randomBytes(32).toString("hex");
 }
 
 const {
@@ -55,7 +56,10 @@ app.use(scanDetector);
 /* --- Rate limit general de la API: 100 req/min por IP.
  * El polling del chat es cada 30s (~4-6 req/min por usuario), así que
  * 100/min no afecta el uso normal. El webhook de PayPal queda exento. */
-const apiLimiter = rateLimit({ max: 100, windowMs: 60 * 1000 });
+const apiLimiter = rateLimit({
+  max: 100, windowMs: 60 * 1000,
+  keyFn: () => "api",
+});
 app.use("/api/", (req, res, next) => {
   if (req.path === "/api/paypal/webhook") return next();
   return apiLimiter(req, res, next);

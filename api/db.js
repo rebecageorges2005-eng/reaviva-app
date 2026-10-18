@@ -702,3 +702,52 @@ try {
 } catch (e) {
   console.error("[db] migración backup_email:", e.message);
 }
+
+/* --- Seguridad de cuenta: bloqueo por intentos, códigos temporales,
+ * límites de cambio de contraseña ---
+ * users.failed_logins: intentos fallidos de contraseña consecutivos.
+ * users.locked_until: cuenta desactivada hasta esta fecha (3 fallos → 48h).
+ * users.disabled_until: cuenta deshabilitada hasta esta fecha
+ *   (3 cambios de contraseña en 7 días → 15 días, pierde su RV).
+ * password_reset_codes: códigos temporales de 10 segundos para entrar
+ *   sin contraseña (flujo "olvidé mi contraseña").
+ * password_changes: historial de cambios de contraseña (límite 3/semana). */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      code       TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_reset_codes_user ON password_reset_codes(user_id);
+    CREATE TABLE IF NOT EXISTS password_changes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_pw_changes_user ON password_changes(user_id);
+  `);
+  console.log("[db] migración: tablas password_reset_codes y password_changes listas");
+} catch (e) {
+  console.error("[db] migración códigos/cambios:", e.message);
+}
+try {
+  const colsAcc = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  const addAcc = (col, def) => {
+    if (!colsAcc.includes(col)) {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+      console.log(`[db] migración: columna users.${col} agregada`);
+      colsAcc.push(col);
+    }
+  };
+  addAcc("failed_logins", "INTEGER NOT NULL DEFAULT 0");
+  addAcc("locked_until", "TEXT");
+  addAcc("disabled_until", "TEXT");
+} catch (e) {
+  console.error("[db] migración seguridad cuenta:", e.message);
+}
