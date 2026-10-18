@@ -262,4 +262,54 @@ try {
   console.error("[db] migración fotos temporales:", e.message);
 }
 
+/* --- Migración: tipo de plan + mensajes privados (DM) ---
+ * users.plan_type: 'monthly' | 'yearly' | NULL (lo fija el webhook de PayPal
+ * al activarse/cancelarse la suscripción; ver routes/billing.js).
+ * private_messages: mensajes privados entre usuarios con plan anual.
+ * Cada mensaje expira a las 48 horas (expires_at) y se limpia al leer. */
+try {
+  const cols9 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols9.includes("plan_type")) {
+    db.exec("ALTER TABLE users ADD COLUMN plan_type TEXT");
+    console.log("[db] migración: columna users.plan_type agregada");
+  }
+  // Relleno para suscriptores existentes según paypal_subscriptions.
+  try {
+    db.exec(`
+      UPDATE users SET plan_type = 'yearly'
+      WHERE subscribed = 1 AND plan_type IS NULL AND lower(email) IN (
+        SELECT lower(email) FROM paypal_subscriptions WHERE status = 'ACTIVE'
+          AND (lower(plan) IN ('yearly','annual','anual') OR plan LIKE 'P-28J%')
+      )`);
+    db.exec(`
+      UPDATE users SET plan_type = 'monthly'
+      WHERE subscribed = 1 AND plan_type IS NULL`);
+  } catch (e2) {
+    console.error("[db] migración plan_type (relleno):", e2.message);
+  }
+} catch (e) {
+  console.error("[db] migración plan_type:", e.message);
+}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS private_messages (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_user_id INTEGER NOT NULL,
+      to_user_id   INTEGER NOT NULL,
+      text         TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at   TEXT NOT NULL,   -- created_at + 48 horas
+      read_at      TEXT,            -- NULL = no leído
+      FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_dm_pair ON private_messages(from_user_id, to_user_id);
+    CREATE INDEX IF NOT EXISTS idx_dm_to ON private_messages(to_user_id, read_at);
+  `);
+  console.log("[db] migración: tabla private_messages lista");
+} catch (e) {
+  console.error("[db] migración private_messages:", e.message);
+}
+
 module.exports = db;
