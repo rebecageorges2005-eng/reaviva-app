@@ -17,6 +17,7 @@
 "use strict";
 
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { requireAuth } = require("./auth");
 const { isEmailConfigured, verificationUrl } = require("../email");
@@ -250,7 +251,7 @@ router.get("/users", requireAdmin, (req, res) => {
       chatMuted: Number(u.chat_muted || 0) === 1,
       chatStrikes: Number(u.chat_strikes || 0),
       chatMutes: Number(u.chat_mutes || 0),
-      rv: Math.max(0, Number(u.credits || 0)),
+      rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
     })),
   });
 });
@@ -289,6 +290,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
               u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
               u.credits, u.img_block_remaining,
+              u.banned, u.ban_reason,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -424,7 +426,9 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     chatStrikes: Number(u.chat_strikes || 0),
     chatMutes: Number(u.chat_mutes || 0),
     chatStrikesFecha: u.chat_strikes_date || null,
-    rv: Math.max(0, Number(u.credits || 0)),
+    banned: Number(u.banned || 0) === 1,
+    banReason: u.ban_reason || null,
+    rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
     rvBloqueImagenes: Math.max(0, Number(u.img_block_remaining || 0)),
   });
 });
@@ -687,6 +691,127 @@ router.post("/community/:id/unhide", requireAdmin, (req, res) => {
   const r = db.prepare("UPDATE community_comments SET hidden = 0 WHERE id = ?").run(id);
   if (!r.changes) return res.status(404).json({ error: "Comentario no encontrado" });
   res.json({ ok: true, oculto: false });
+});
+
+/* ============ SEGURIDAD: IPs bloqueadas y usuarios baneados ============ */
+const { blockIp, unblockIp, banUser, unbanUser, getClientIp } = require("../security");
+
+/* GET /api/admin/blocked-ips → lista de IPs bloqueadas. */
+router.get("/blocked-ips", requireAdmin, (req, res) => {
+  const rows = db.prepare(
+    "SELECT ip, reason, blocked_at, blocked_by FROM blocked_ips ORDER BY blocked_at DESC LIMIT 200"
+  ).all();
+  res.json({ ips: rows });
+});
+
+/* POST /api/admin/blocked-ips { ip, reason } → bloquear IP manualmente. */
+router.post("/blocked-ips", requireAdmin, (req, res) => {
+  const ip = String(req.body?.ip || "").trim();
+  const reason = String(req.body?.reason || "Bloqueo manual").slice(0, 200);
+  if (!ip) return res.status(400).json({ error: "IP requerida" });
+  // No permitir bloquear la propia IP del admin por accidente.
+  if (ip === getClientIp(req))
+    return res.status(400).json({ error: "No puedes bloquear tu propia IP" });
+  blockIp(ip, reason, "admin");
+  res.json({ ok: true, ip });
+});
+
+/* DELETE /api/admin/blocked-ips/:ip → desbloquear IP. */
+router.delete("/blocked-ips/:ip", requireAdmin, (req, res) => {
+  const ip = String(req.params.ip || "").trim();
+  if (!ip) return res.status(400).json({ error: "IP requerida" });
+  unblockIp(ip);
+  res.json({ ok: true, ip });
+});
+
+/* GET /api/admin/banned-users → lista de usuarios baneados. */
+router.get("/banned-users", requireAdmin, (req, res) => {
+  const rows = db.prepare(
+    "SELECT id, name, email, country, ban_reason FROM users WHERE banned = 1 ORDER BY id DESC LIMIT 200"
+  ).all();
+  res.json({ usuarios: rows });
+});
+
+/* POST /api/admin/users/:id/ban { reason } → banear permanentemente. */
+router.post("/users/:id/ban", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Usuario inválido" });
+  const target = db.prepare("SELECT id, is_admin FROM users WHERE id = ?").get(id);
+  if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (target.is_admin === 1)
+    return res.status(400).json({ error: "No se puede banear a un administrador" });
+  const reason = String(req.body?.reason || "Violación de términos").slice(0, 200);
+  banUser(id, reason);
+  res.json({ ok: true, baneado: true });
+});
+
+/* POST /api/admin/users/:id/unban → quitar el baneo. */
+router.post("/users/:id/unban", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Usuario inválido" });
+  unbanUser(id);
+  res.json({ ok: true, baneado: false });
+});
+
+/* ============================================================
+   CAMBIO DE CONTRASEÑA DEL ADMIN 🔑 (+ correo de respaldo)
+   ============================================================
+ * POST /api/admin/change-password
+ *   { current_password, new_password, backup_email? }
+ *
+ * Seguridad: current_password debe ser la contraseña actual (si el admin
+ * ya fijó una) o el ADMIN_CODE (credencial actual del acceso admin).
+ * new_password: mínimo 6 caracteres. Se guarda con bcrypt.
+ * backup_email: opcional; si se envía, se valida el formato y se guarda
+ *   en users.backup_email (para futura recuperación de cuenta).
+ */
+function emailValido(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || "").trim());
+}
+
+router.post("/change-password", requireAdmin, (req, res) => {
+  const current = String(req.body?.current_password || "");
+  const nuevo = String(req.body?.new_password || "");
+  const backupEmail = String(req.body?.backup_email || "").trim().toLowerCase();
+
+  if (nuevo.length < 6)
+    return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
+
+  const admin = db.prepare("SELECT id, password_hash FROM users WHERE id = ?").get(req.user.id);
+  if (!admin) return res.status(404).json({ error: "Administrador no encontrado" });
+
+  // Verificación: contraseña actual (si existe) o el código de admin.
+  const adminCode = process.env.ADMIN_CODE || "";
+  let ok = false;
+  try {
+    if (admin.password_hash && bcrypt.compareSync(current, admin.password_hash)) ok = true;
+  } catch (e) { /* sigue */ }
+  if (!ok && adminCode && current === adminCode) ok = true;
+  if (!ok)
+    return res.status(401).json({ error: "La contraseña actual (o código de admin) es incorrecta" });
+
+  // Validar correo de respaldo si se proporcionó.
+  if (backupEmail && !emailValido(backupEmail))
+    return res.status(400).json({ error: "El correo de respaldo no tiene un formato válido" });
+
+  const hash = bcrypt.hashSync(nuevo, 10);
+  if (backupEmail) {
+    db.prepare("UPDATE users SET password_hash = ?, backup_email = ? WHERE id = ?")
+      .run(hash, backupEmail, admin.id);
+  } else {
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, admin.id);
+  }
+  res.json({
+    ok: true,
+    message: "Contraseña actualizada ✅" + (backupEmail ? " Correo de respaldo guardado 📧" : ""),
+    backup_email: backupEmail || undefined,
+  });
+});
+
+/* GET /api/admin/backup-email → correo de respaldo actual del admin. */
+router.get("/backup-email", requireAdmin, (req, res) => {
+  const row = db.prepare("SELECT backup_email FROM users WHERE id = ?").get(req.user.id);
+  res.json({ backup_email: row?.backup_email || null });
 });
 
 module.exports = { router, requireAdmin };

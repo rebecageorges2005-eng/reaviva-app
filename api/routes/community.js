@@ -410,7 +410,9 @@ router.post("/", requireAuth, (req, res) => {
   if (muteado)
     return res.status(403).json({ error: muteado.code, message: muteado.message });
   const violacion = detectSpam(finalText);
-  if (violacion) {
+  // El admin publica sin restricciones: sin verificación de enlaces ni cobro de RV.
+  const esAdmin = req.user.is_admin === 1;
+  if (violacion && !esAdmin) {
     const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
     // Gratuitos: no pueden enviar fotos promocionales (solo texto con RV).
     if (!conPlan && msgType === "photo") {

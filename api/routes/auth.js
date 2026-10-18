@@ -6,19 +6,41 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../db");
-const { sendVerificationEmail, sendWelcomeEmail } = require("../email");
+const { sendVerificationEmail, sendWelcomeEmail, sendLoginAlertEmail } = require("../email");
 const { getPlanType } = require("../plan");
+const {
+  getClientIp,
+  isPrivateIp,
+  rateLimit,
+  recordFailedLogin,
+  clearFailedLogins,
+  isBanned,
+} = require("../security");
 
 const router = express.Router();
+
+/* Rate limits de autenticación (por IP):
+ * - login: 10 intentos / 15 min (anti fuerza bruta)
+ * - signup: 5 / hora (anti cuentas spam)
+ * - admin-login: 10 / 15 min */
+const loginLimiter = rateLimit({
+  max: 10, windowMs: 15 * 60 * 1000,
+  message: "Demasiados intentos de acceso. Espera 15 minutos.",
+  keyFn: () => "login",
+});
+const signupLimiter = rateLimit({
+  max: 5, windowMs: 60 * 60 * 1000,
+  message: "Demasiados registros desde esta conexión. Espera una hora.",
+  keyFn: () => "signup",
+});
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const TOKEN_TTL = "30d";
 
-function signToken(user) {
-  return jwt.sign(
-    { uid: user.id, email: user.email, admin: user.is_admin === 1 },
-    JWT_SECRET,
-    { expiresIn: TOKEN_TTL }
-  );
+function signToken(user, extra) {
+  const payload = { uid: user.id, email: user.email, admin: user.is_admin === 1 };
+  // Modo "solo cambiar contraseña": el token solo sirve para eso.
+  if (extra && extra.mustChangePassword) payload.must_change_password = true;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_TTL });
 }
 
 function publicUser(row) {
@@ -50,9 +72,10 @@ function verifyToken(token) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const row = db
-      .prepare("SELECT id, subscribed, is_admin FROM users WHERE id = ?")
+      .prepare("SELECT id, subscribed, is_admin, banned FROM users WHERE id = ?")
       .get(payload.uid);
-    return row || null;
+    if (!row || row.banned === 1) return null; // baneado: token invalidado
+    return row;
   } catch (e) {
     return null;
   }
@@ -66,36 +89,8 @@ function newVerificationToken() {
 
 /* ============================================================
    IP Y PAÍS DEL USUARIO (para saber desde qué país se conectan)
+   getClientIp e isPrivateIp vienen de ../security (compartidos).
    ============================================================ */
-/* IP real del cliente: Render está detrás de un proxy, así que
- * x-forwarded-for (primera IP) es lo más fiable; si no existe,
- * se usa la conexión directa. */
-function getClientIp(req) {
-  const xff = req.headers["x-forwarded-for"];
-  if (xff) {
-    const first = String(xff).split(",")[0].trim();
-    if (first) return first;
-  }
-  const ra = req.socket && req.socket.remoteAddress;
-  if (ra) {
-    // Normaliza el formato IPv4-mapeado-en-IPv6 (::ffff:1.2.3.4)
-    const m = String(ra).match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    return m ? m[1] : String(ra);
-  }
-  return null;
-}
-
-function isPrivateIp(ip) {
-  if (!ip) return true;
-  if (ip === "::1" || ip === "::ffff:127.0.0.1") return true;
-  return (
-    /^127\./.test(ip) ||
-    /^10\./.test(ip) ||
-    /^192\.168\./.test(ip) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
-    /^169\.254\./.test(ip)
-  );
-}
 
 /* Geo-lookup asíncrono (ip-api.com, gratis, sin API key).
  * NO bloquea la respuesta: se dispara y se olvida. */
@@ -124,6 +119,60 @@ function trackUserIp(userId, req) {
   trackGeoAsync(userId, ip);
 }
 
+/* Describe el dispositivo de forma básica a partir del User-Agent. */
+function describeDevice(ua) {
+  const s = String(ua || "");
+  const mobile = /mobile|android|iphone|ipad/i.test(s);
+  let browser = "Navegador desconocido";
+  if (/edg/i.test(s)) browser = "Edge";
+  else if (/chrome/i.test(s) && !/edg/i.test(s)) browser = "Chrome";
+  else if (/safari/i.test(s) && !/chrome/i.test(s)) browser = "Safari";
+  else if (/firefox/i.test(s)) browser = "Firefox";
+  else if (/opera|opr/i.test(s)) browser = "Opera";
+  let os = "";
+  if (/android/i.test(s)) os = "Android";
+  else if (/iphone|ipad/i.test(s)) os = "iOS";
+  else if (/windows/i.test(s)) os = "Windows";
+  else if (/macintosh|mac os/i.test(s)) os = "Mac";
+  else if (/linux/i.test(s)) os = "Linux";
+  return `${browser} en ${os || (mobile ? "móvil" : "computadora")}`;
+}
+
+/* Alerta de nuevo inicio de sesión por correo (background, no bloquea).
+ * Solo se envía si la IP es DISTINTA a la del último login registrado,
+ * para no spamear al usuario que entra a diario desde su casa. */
+function notifyNewLogin(row, req) {
+  try {
+    const ip = getClientIp(req);
+    if (!ip || isPrivateIp(ip)) return;
+    // row.ip es la IP del login ANTERIOR (trackUserIp aún no la actualizó o ya lo hizo;
+    // comparamos contra lo que había antes de este login).
+    const prevIp = row.ip || null;
+    if (!prevIp) return; // primer login registrado: sin alerta
+    if (prevIp === ip) return; // misma IP: sin alerta
+    const ua = req.headers["user-agent"] || "";
+    const device = describeDevice(ua);
+    // Geo con ciudad para el correo (timeout corto, no bloquea).
+    fetch("http://ip-api.com/json/" + encodeURIComponent(ip) + "?fields=country,city,status",
+      { signal: AbortSignal.timeout(8000) })
+      .then((r) => r.json())
+      .then((j) => {
+        sendLoginAlertEmail({
+          to: row.email,
+          name: row.name,
+          ip,
+          country: j && j.status === "success" ? j.country : null,
+          city: j && j.status === "success" ? j.city : null,
+          device,
+        });
+      })
+      .catch(() => {
+        // Sin geo: igual se envía la alerta con la IP.
+        sendLoginAlertEmail({ to: row.email, name: row.name, ip, device });
+      });
+  } catch (e) { /* nunca bloquea el login */ }
+}
+
 /* Middleware: require a valid Bearer token. Attaches req.user = full DB row. */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -133,7 +182,21 @@ function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.uid);
     if (!row) return res.status(401).json({ error: "Usuario no encontrado" });
+    if (row.banned === 1)
+      return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
     req.user = row;
+    // Modo "solo cambiar contraseña": el token temporal solo permite
+    // cambiar la contraseña. Todo lo demás queda bloqueado.
+    if (payload.must_change_password === true) {
+      const allowedPaths = ["/change-password", "/me", "/logout"];
+      if (!allowedPaths.includes(req.path)) {
+        return res.status(403).json({
+          error: "Debes cambiar tu contraseña primero.",
+          mustChangePassword: true,
+        });
+      }
+      req.mustChangePassword = true;
+    }
     // Track activity for the admin "online now" metric (fire and forget).
     try {
       db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(row.id);
@@ -171,7 +234,7 @@ async function verifyRecaptcha(token, ip) {
  * Crea la cuenta SIN verificar. Envía el correo de confirmación
  * (asíncrono, no bloquea). NO devuelve token de sesión: el usuario
  * debe confirmar su correo antes de poder entrar. */
-router.post("/signup", async (req, res) => {
+router.post("/signup", signupLimiter, async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
@@ -309,13 +372,69 @@ router.post("/resend-verification", (req, res) => {
 
 /* POST /api/auth/login  { email, password }
  * Solo entran usuarios con el correo confirmado (el admin no necesita). */
-router.post("/login", (req, res) => {
+router.post("/login", loginLimiter, (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
+  const ip = getClientIp(req);
 
   const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-  if (!row || !bcrypt.compareSync(password, row.password_hash))
-    return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+  if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+    recordFailedLogin(ip, req); // 10 fallos en 15 min → IP bloqueada
+    // Bloqueo por contraseña incorrecta: 3 fallos → cuenta desactivada 48h.
+    // (Solo si el correo existe, para no revelar qué correos están registrados.)
+    let failedAttempts = 0;
+    if (row) {
+      failedAttempts = (row.failed_logins || 0) + 1;
+      if (failedAttempts >= 3) {
+        db.prepare(
+          "UPDATE users SET failed_logins = 0, locked_until = datetime('now', '+48 hours') WHERE id = ?"
+        ).run(row.id);
+        console.warn(`[seguridad] cuenta desactivada 48h por 3 intentos fallidos: ${email}`);
+        return res.status(403).json({
+          error: "Cuenta desactivada por 48 horas por múltiples intentos fallidos.",
+          locked: true,
+        });
+      }
+      db.prepare("UPDATE users SET failed_logins = ? WHERE id = ?").run(failedAttempts, row.id);
+    }
+    return res.status(401).json({
+      error: "Correo o contraseña incorrectos",
+      failedAttempts, // el frontend muestra "¿Olvidaste tu contraseña?" al 2do fallo
+    });
+  }
+  clearFailedLogins(ip); // login correcto: se limpia el contador de IP
+  // Login correcto: se reinicia el contador de fallos del usuario.
+  if (row.failed_logins) {
+    try { db.prepare("UPDATE users SET failed_logins = 0 WHERE id = ?").run(row.id); } catch (e) {}
+  }
+
+  // Cuenta baneada permanentemente: no puede entrar (tokens viejos también invalidados).
+  if (row.banned === 1) {
+    return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
+  }
+
+  // Cuenta desactivada por 48h (3 contraseñas incorrectas).
+  if (row.locked_until && row.locked_until > new Date().toISOString().slice(0, 19).replace("T", " ")) {
+    return res.status(403).json({
+      error: "Cuenta desactivada por 48 horas por múltiples intentos fallidos.",
+      locked: true,
+      lockedUntil: row.locked_until,
+    });
+  }
+
+  // Cuenta deshabilitada por 15 días (3 cambios de contraseña en una semana).
+  if (row.disabled_until && row.disabled_until > new Date().toISOString().slice(0, 19).replace("T", " ")) {
+    return res.status(403).json({
+      error: "Cuenta deshabilitada por 15 días por seguridad. Tu saldo RV se perdió.",
+      disabled: true,
+      disabledUntil: row.disabled_until,
+    });
+  }
+
+  // Cuenta baneada permanentemente: no puede entrar (tokens viejos también invalidados).
+  if (row.banned === 1) {
+    return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
+  }
 
   if (row.is_admin !== 1 && row.email_verified !== 1) {
     return res.status(403).json({
@@ -325,13 +444,171 @@ router.post("/login", (req, res) => {
   }
 
   trackUserIp(row.id, req); // actualiza IP y país (asíncrono)
+  notifyNewLogin(row, req); // alerta por correo si la IP cambió (background)
+  if (row.is_admin === 1) broadcastAdminOnline(row.id);
   res.json({ token: signToken(row), user: publicUser(row) });
+});
+
+/* Aviso a todos los usuarios cuando el admin se conecta: mensaje de sistema
+ * en el chat grupal ("👑 El administrador se ha conectado").
+ * Se elimina solo después de 1 hora para no saturar el chat. */
+function broadcastAdminOnline(adminId) {
+  try {
+    db.prepare(
+      `INSERT INTO community_comments (user_id, text, msg_type, expires_at)
+       VALUES (?, ?, 'system', datetime('now', '+1 hour'))`
+    ).run(adminId, "👑 El administrador se ha conectado");
+  } catch (e) { /* no bloquea el login */ }
+}
+
+/* ============ SEGURIDAD DE CUENTA: código temporal y cambio de contraseña ============
+ * REGLAS (pedido de Georges):
+ * 1. 3 contraseñas incorrectas → cuenta desactivada 48h (ver /login arriba).
+ * 2. Tras el 2do fallo, el login ofrece "¿Olvidaste tu contraseña?":
+ *    envía un código de 10 SEGUNDOS al correo; se entra con usuario + código.
+ * 3. Con el código temporal, la ÚNICA opción es cambiar la contraseña
+ *    (el token lleva must_change_password; requireAuth bloquea lo demás).
+ * 4. 3 cambios de contraseña en 7 días → cuenta deshabilitada 15 días.
+ * 5. Al deshabilitar, el RV se pierde (saldo = 0). */
+
+/* Genera un código numérico de 6 dígitos. */
+function newResetCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+/* POST /api/auth/forgot-password { email }
+ * Envía un código temporal de 10 SEGUNDOS al correo del usuario.
+ * Rate limit: 3 por hora por IP (evita spam de correos). */
+router.post("/forgot-password", rateLimit({
+  max: 3, windowMs: 60 * 60 * 1000,
+  message: "Demasiadas solicitudes. Espera una hora.",
+  keyFn: () => "forgot",
+}), (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!email || !email.includes("@"))
+    return res.status(400).json({ error: "Correo inválido" });
+  const row = db.prepare("SELECT id, name, email, banned FROM users WHERE email = ?").get(email);
+  // Respuesta genérica para no revelar qué correos existen... pero necesitamos
+  // el código solo si existe. Si no existe, respondemos ok de todos modos.
+  if (row && row.banned !== 1) {
+    // Invalida códigos anteriores sin usar.
+    db.prepare("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0").run(row.id);
+    const code = newResetCode();
+    db.prepare(
+      "INSERT INTO password_reset_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+10 seconds'))"
+    ).run(row.id, code);
+    // Envía el código por correo (background, no bloquea).
+    const { sendEmail } = require("../email");
+    const html =
+      `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;">` +
+      `<h2>🔑 Tu código temporal</h2>` +
+      `<p>Hola ${String(row.name || "").replace(/[<>&"]/g, "")},</p>` +
+      `<p>Tu código para entrar es:</p>` +
+      `<div style="font-size:2.5rem;font-weight:800;letter-spacing:8px;text-align:center;` +
+      `background:#faf6f1;border-radius:12px;padding:20px;margin:16px 0;">${code}</div>` +
+      `<p><b>⏳ Vence en 10 segundos.</b> Úsalo rápido.</p>` +
+      `<p style="color:#a33;">Si no fuiste tú, ignora este correo y cambia tu contraseña.</p></div>`;
+    sendEmail({ to: row.email, subject: "🔑 Tu código temporal Reaviva (10 segundos)", html }).catch(() => {});
+    console.log(`[seguridad] código temporal enviado a ${email}`);
+  }
+  // Siempre responde ok (no revela si el correo existe).
+  res.json({ ok: true, message: "Si el correo existe, te enviamos un código de 10 segundos." });
+});
+
+/* POST /api/auth/login-with-code { email, code }
+ * Entra con el código temporal de 10 segundos. Devuelve un token en modo
+ * "solo cambiar contraseña" (mustChangePassword: true). */
+router.post("/login-with-code", loginLimiter, (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const code = String(req.body?.code || "").trim();
+  if (!email || !code) return res.status(400).json({ error: "Correo y código requeridos" });
+
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!row) return res.status(401).json({ error: "Código inválido o vencido" });
+  if (row.banned === 1)
+    return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
+
+  const rec = db.prepare(
+    `SELECT * FROM password_reset_codes
+     WHERE user_id = ? AND code = ? AND used = 0 AND expires_at > datetime('now')
+     ORDER BY id DESC LIMIT 1`
+  ).get(row.id, code);
+  if (!rec) return res.status(401).json({ error: "Código inválido o vencido ⏳" });
+
+  db.prepare("UPDATE password_reset_codes SET used = 1 WHERE id = ?").run(rec.id);
+  // Limpia el bloqueo de 48h: el usuario demostró ser el dueño del correo.
+  try {
+    db.prepare("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?").run(row.id);
+  } catch (e) {}
+  clearFailedLogins(getClientIp(req));
+
+  const token = signToken(row, { mustChangePassword: true });
+  res.json({
+    token,
+    user: publicUser(row),
+    mustChangePassword: true,
+    message: "Entra y cambia tu contraseña ahora 🔑",
+  });
+});
+
+/* POST /api/auth/change-password { newPassword, currentPassword? }
+ * Cambia la contraseña. En modo mustChangePassword no pide la actual
+ * (ya se verificó con el código temporal).
+ * REGLA: 3 cambios en 7 días → cuenta deshabilitada 15 días + pierde su RV. */
+router.post("/change-password", requireAuth, (req, res) => {
+  const newPassword = String(req.body?.newPassword || req.body?.new_password || "");
+  if (newPassword.length < 6)
+    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+
+  const userId = req.user.id;
+  // Si NO viene del código temporal, debe confirmar la contraseña actual.
+  if (!req.mustChangePassword) {
+    const current = String(req.body?.currentPassword || req.body?.current_password || "");
+    const full = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId);
+    if (!full || !bcrypt.compareSync(current, full.password_hash))
+      return res.status(401).json({ error: "Tu contraseña actual es incorrecta" });
+  }
+
+  // Límite: 3 cambios en 7 días → deshabilitar 15 días + pierde el RV.
+  const recent = db.prepare(
+    `SELECT COUNT(*) AS n FROM password_changes
+     WHERE user_id = ? AND changed_at > datetime('now', '-7 days')`
+  ).get(userId).n;
+  if (recent >= 2) {
+    // Este sería el 3er cambio en 7 días: deshabilitar.
+    const rvRow = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
+    const lostRv = rvRow ? rvRow.credits || 0 : 0;
+    db.prepare(
+      `UPDATE users SET disabled_until = datetime('now', '+15 days'),
+        credits = 0, failed_logins = 0, locked_until = NULL WHERE id = ?`
+    ).run(userId);
+    db.prepare("INSERT INTO password_changes (user_id) VALUES (?)").run(userId);
+    console.warn(`[seguridad] cuenta deshabilitada 15 días por 3 cambios en 7 días: user ${userId} (perdió ${lostRv} RV)`);
+    return res.status(403).json({
+      error: "Cuenta deshabilitada por 15 días por seguridad. Tu saldo RV se perdió.",
+      disabled: true,
+      lostRv,
+    });
+  }
+
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, userId);
+  db.prepare("INSERT INTO password_changes (user_id) VALUES (?)").run(userId);
+  // Al cambiar la contraseña se limpian bloqueos y el modo temporal.
+  try {
+    db.prepare("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?").run(userId);
+  } catch (e) {}
+  // Invalida códigos temporales pendientes.
+  try {
+    db.prepare("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0").run(userId);
+  } catch (e) {}
+  res.json({ ok: true, message: "Contraseña actualizada ✅" });
 });
 
 /* POST /api/auth/admin-login  { code }
  * Code-based admin access. Requires ADMIN_CODE env var to be set.
  * Creates the admin user on first use (email admin@reavivaapp.com). */
-router.post("/admin-login", (req, res) => {
+router.post("/admin-login", loginLimiter, (req, res) => {
   const adminCode = process.env.ADMIN_CODE;
   if (!adminCode)
     return res.status(503).json({ error: "Acceso de administrador no configurado" });
@@ -361,6 +638,7 @@ router.post("/admin-login", (req, res) => {
   }
 
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
+  broadcastAdminOnline(row.id);
   res.json({ token: signToken(row), user: publicUser(row) });
 });
 
@@ -374,11 +652,24 @@ router.get("/me", requireAuth, (req, res) => {
  * a 400x400 antes de subirla. Se guarda en users.photo. */
 router.post("/profile/photo", requireAuth, (req, res) => {
   const photo = String(req.body?.photo || "");
-  const ok = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo);
-  if (!ok) return res.status(400).json({ error: "Formato de imagen inválido" });
+  const m = photo.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return res.status(400).json({ error: "Formato de imagen inválido" });
   // ~2.9MB en base64 ≈ 2.1MB binarios
   if (photo.length > 2.9 * 1024 * 1024)
     return res.status(400).json({ error: "La imagen es muy grande (máx 2MB)" });
+  /* Magic bytes: el contenido debe ser una imagen real del tipo declarado.
+   * JPEG: FF D8 FF · PNG: 89 50 4E 47 · WebP: "RIFF"...."WEBP". */
+  try {
+    const buf = Buffer.from(m[2].slice(0, 32), "base64");
+    const declared = m[1];
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const isWebp = buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP";
+    const valid = (declared === "jpeg" && isJpeg) || (declared === "png" && isPng) || (declared === "webp" && isWebp);
+    if (!valid) return res.status(400).json({ error: "El archivo no es una imagen válida" });
+  } catch (e) {
+    return res.status(400).json({ error: "No se pudo verificar la imagen" });
+  }
   db.prepare("UPDATE users SET photo = ? WHERE id = ?").run(photo, req.user.id);
   res.json({ ok: true });
 });

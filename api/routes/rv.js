@@ -49,8 +49,10 @@ function paidOnly(req, res, next) {
   return next();
 }
 
-/* GET /api/rv/balance → { rv } */
+/* GET /api/rv/balance → { rv } (el admin tiene RV ilimitado). */
 router.get("/balance", requireAuth, (req, res) => {
+  if (req.user && req.user.is_admin === 1)
+    return res.json({ rv: -1, unlimited: true });
   res.json({ rv: getRV(req.user.id) });
 });
 
