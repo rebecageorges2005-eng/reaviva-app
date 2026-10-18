@@ -74,4 +74,16 @@ try {
   console.error("[db] migración PayPal:", e.message);
 }
 
+/* --- Migration: Oct 2026 — admin access ---
+ * Adds is_admin flag to users for the administrator account. */
+try {
+  const cols2 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols2.includes("is_admin")) {
+    db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna users.is_admin agregada");
+  }
+} catch (e) {
+  console.error("[db] migración is_admin:", e.message);
+}
+
 module.exports = db;
