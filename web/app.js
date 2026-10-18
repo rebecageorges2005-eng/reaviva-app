@@ -688,6 +688,10 @@ function showView(name, fromHash){
   if(target) target.style.display = "";
   try{ window.scrollTo(0,0); }catch(e){}
   if(!fromHash) syncHash();
+  // Tour de bienvenida: se muestra (una sola vez) al llegar a la página de registro.
+  if(name === "auth"){
+    setTimeout(()=>{ try{ maybeShowTour(); }catch(e){} }, 800);
+  }
 }
 function enterApp(initialTab){
   showView("app", !!initialTab);
@@ -2268,10 +2272,10 @@ function maybeShowTour(){
   try{
     if(localStorage.getItem("reaviva_tour_done")) return;
   }catch(e){ return; }
-  // Solo mostrar el tour si el usuario ya inició sesión (no en la página de registro para visitantes).
-  try{
-    if(typeof currentUser === "function" && !currentUser()) return;
-  }catch(e){}
+  // El tour SOLO se muestra en la página de registro (#registro / #entrar).
+  // Nunca en el landing (precios, preguntas frecuentes) ni dentro de la app.
+  const authView = document.getElementById("view-auth");
+  if(!authView || authView.style.display === "none") return;
   tourStep = 0;
   renderTourStep();
   const m = document.getElementById("tour-modal");
