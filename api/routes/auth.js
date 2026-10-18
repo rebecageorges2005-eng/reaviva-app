@@ -40,6 +40,10 @@ function requireAuth(req, res, next) {
     const row = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.uid);
     if (!row) return res.status(401).json({ error: "Usuario no encontrado" });
     req.user = row;
+    // Track activity for the admin "online now" metric (fire and forget).
+    try {
+      db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(row.id);
+    } catch (e) { /* no bloquea la petición */ }
     next();
   } catch (e) {
     return res.status(401).json({ error: "Token inválido o expirado" });

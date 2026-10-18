@@ -196,19 +196,33 @@ async function webhookHandler(req, res) {
     const subId = resource.id;
 
     if (type === "BILLING.SUBSCRIPTION.ACTIVATED" && email) {
+      // PayPal trae la próxima fecha de cobro en billing_info.next_billing_time.
+      // Si no viene, la estimamos según el plan (mensual +1 mes, anual +1 año).
+      let nextBilling = resource.billing_info?.next_billing_time || null;
+      if (!nextBilling) {
+        const d = new Date();
+        const yearly = resource.plan_id === PAYPAL_PLAN_YEARLY;
+        d.setFullYear(d.getFullYear() + (yearly ? 1 : 0));
+        d.setMonth(d.getMonth() + (yearly ? 0 : 1));
+        nextBilling = d.toISOString().slice(0, 10);
+      } else {
+        nextBilling = String(nextBilling).slice(0, 10);
+      }
       db.prepare(
-        `INSERT INTO paypal_subscriptions (email, subscription_id, plan, status)
-         VALUES (?, ?, ?, 'ACTIVE')
+        `INSERT INTO paypal_subscriptions (email, subscription_id, plan, status, next_billing_date, reminder_sent)
+         VALUES (?, ?, ?, 'ACTIVE', ?, 0)
          ON CONFLICT(email) DO UPDATE SET
            subscription_id = excluded.subscription_id,
            status = 'ACTIVE',
+           next_billing_date = excluded.next_billing_date,
+           reminder_sent = 0,
            updated_at = datetime('now')`
-      ).run(email, subId, resource.plan_id || null);
+      ).run(email, subId, resource.plan_id || null, nextBilling);
       // also flip the users row if the buyer has an account
       db.prepare(
         "UPDATE users SET subscribed = 1, paypal_subscription_id = ? WHERE email = ?"
       ).run(subId, email);
-      console.log(`[paypal] ${email} suscrito (${subId})`);
+      console.log(`[paypal] ${email} suscrito (${subId}), próximo cobro ${nextBilling}`);
     }
 
     if (
