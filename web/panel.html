@@ -155,7 +155,7 @@ async function render(){
       '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
       '<div id="user-detail"></div>'+
-      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Plan</th><th>País</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table>'+
+      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="6">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
       '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
@@ -190,13 +190,17 @@ function planBadge(u){
   if(u.conPlan) return '<span class="badge ok">💳 CON PLAN</span>';
   return '<span class="badge warn">SIN PLAN</span>';
 }
+function verifyBadge(u){
+  if(u.emailVerificado) return '<span class="badge ok">✅</span>';
+  return '<span class="badge warn" title="Correo sin confirmar">⚠️</span>';
+}
 async function loadUsers(){
   try{
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
     $("#users-body").innerHTML=usersCache.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
-    }).join("")||'<tr><td colspan="5">Sin usuarios</td></tr>';
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+    }).join("")||'<tr><td colspan="6">Sin usuarios</td></tr>';
     var sel=$("#msg-user");
     sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
       return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+')</option>';
@@ -211,6 +215,9 @@ async function showUser(id){
     box.innerHTML='<div class="block detail"><div class="m-head"><b>'+(u.conPlan?'✅ TIENE PLAN':'⚠️ SIN PLAN')+'</b>'+
       '<button class="btn btn-ghost btn-sm" onclick="document.querySelector(\'#user-detail\').innerHTML=\'\'">Cerrar</button></div>'+
       '<p><b>'+esc(u.nombre)+'</b> · '+esc(u.email)+'</p>'+
+      '<p style="font-size:.85rem">📧 Correo: '+(u.emailVerificado?'<span class="badge ok">✅ verificado</span>':'<span class="badge warn">⚠️ sin confirmar</span>')+'</p>'+
+      (!u.emailVerificado&&u.verificationLink?'<div style="margin:8px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span><p style="font-size:.78rem;color:var(--cocoa-soft);margin-top:4px">El envío automático no está configurado: cópialo y envíaselo por WhatsApp.</p></div>':'')+
+      (!u.emailVerificado&&!u.esAdmin?'<div style="margin:8px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">Plan: '+esc(u.plan||'—')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">Registrado: '+esc(u.registrado||'—')+' · Última conexión: '+esc(u.ultimaConexion||'—')+'</p>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">🌍 País: '+(u.pais?flagEmoji(u.codigoPais)+' '+esc(u.pais):'—')+(u.ip?' · IP: '+esc(u.ip):'')+'</p>'+
@@ -223,6 +230,28 @@ function messageUser(id){
   var sel=$("#msg-user"); if(sel) sel.value=String(id);
   var t=$("#msg-title"); if(t) t.focus();
   window.scrollTo(0,document.querySelector("#msg-user").offsetTop-80);
+}
+/* Copia el link de verificación manual (cuando el correo automático no está configurado). */
+function copyVerifyLink(link){
+  var done=function(){ var m=$("#copy-msg"); if(m) m.textContent="¡Copiado! 📋"; };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(link).then(done).catch(function(){ fallbackCopy(link); done(); });
+  }else{ fallbackCopy(link); done(); }
+}
+function fallbackCopy(text){
+  var ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  document.body.removeChild(ta);
+}
+/* Marca manualmente a un usuario como verificado (casos de soporte). */
+async function verifyUser(id){
+  if(!confirm("¿Marcar a este usuario como verificado? Podrá entrar sin confirmar el correo.")) return;
+  try{
+    await api("POST","/api/admin/users/"+id+"/verify");
+    await loadUsers();
+    showUser(id);
+  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
 
 /* ---------- mensajes ---------- */

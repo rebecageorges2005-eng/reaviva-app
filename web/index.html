@@ -169,6 +169,7 @@
           <button type="button" class="pwd-toggle" onclick="togglePassword('signup-password')" aria-label="Mostrar contraseña">👁️</button>
         </div>
         <p id="signup-err" class="auth-err"></p>
+        <div id="recaptcha-box" style="margin:10px 0;display:flex;justify-content:center"></div>
         <button class="btn btn-primary btn-block" type="submit">Crear mi cuenta gratis →</button>
         <p style="margin-top:10px;font-size:.82rem;color:var(--cocoa-soft)">7 días gratis. Sin tarjeta. Solo tu cuenta para guardar tu progreso.</p>
       </form>
@@ -187,6 +188,22 @@
         <input id="admin-code" class="field" type="password" placeholder="Código de administrador" autocomplete="off">
         <button class="btn btn-primary btn-block" type="submit">Entrar como administrador</button>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== VERIFY EMAIL ==================== -->
+<div id="view-verify-email" style="display:none">
+  <div class="container">
+    <div class="auth-card" style="text-align:center">
+      <a class="logo" href="#" onclick="showView('landing');return false">Reaviva<span>.</span></a>
+      <div style="font-size:3.2rem;margin:18px 0 8px">📧</div>
+      <h2>Revisa tu correo</h2>
+      <p style="margin-top:10px">Te enviamos un link de confirmación a<br><b id="verify-email-addr">tu correo</b>.</p>
+      <p>Haz clic en el link para activar tu cuenta y poder entrar.</p>
+      <p id="verify-resend-msg" style="min-height:1.4em;font-size:.9rem;margin:8px 0 0"></p>
+      <button class="btn btn-primary btn-block" onclick="resendVerification()" style="margin-top:6px">Reenviar correo</button>
+      <p style="margin-top:14px"><a href="#" onclick="showView('landing');return false" style="font-size:.85rem">Volver al inicio</a></p>
     </div>
   </div>
 </div>

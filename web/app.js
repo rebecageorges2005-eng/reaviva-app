@@ -71,6 +71,43 @@ function saveSession(token, user){
   if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
 }
 
+/* ---------- verificación de correo ---------- */
+/* Muestra la pantalla "revisa tu correo" tras registrarse o al intentar
+ * entrar sin haber confirmado la cuenta. */
+let pendingVerifyEmail = null;
+function showVerifyEmail(email){
+  pendingVerifyEmail = email || null;
+  const addr = $("#verify-email-addr");
+  if(addr) addr.textContent = email || "tu correo";
+  const msg = $("#verify-resend-msg");
+  if(msg){ msg.textContent = ""; msg.style.color = ""; }
+  showView("verify-email");
+}
+async function resendVerification(){
+  const msg = $("#verify-resend-msg");
+  const email = (pendingVerifyEmail || $("#login-email")?.value || "").trim().toLowerCase();
+  if(msg){ msg.style.color = ""; msg.textContent = ""; }
+  if(!email || !email.includes("@")){
+    if(msg){ msg.style.color = "#a33"; msg.textContent = "Escribe tu correo en la pantalla de Entrar e inténtalo de nuevo."; }
+    return;
+  }
+  if(msg) msg.textContent = "Enviando…";
+  try{
+    const r = await fetch("/api/auth/resend-verification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const j = await r.json();
+    if(msg){
+      msg.style.color = r.ok ? "#2e7d32" : "#a33";
+      msg.textContent = j.message || j.error || "Listo.";
+    }
+  }catch(e){
+    if(msg){ msg.style.color = "#a33"; msg.textContent = "Sin conexión con el servidor."; }
+  }
+}
+
 async function doLogin(ev){
   ev.preventDefault();
   const email = $("#login-email").value.trim().toLowerCase();
@@ -87,13 +124,52 @@ async function doLogin(ev){
       body: JSON.stringify({ email, password })
     });
     const j = await r.json();
-    if(!r.ok){ errBox.textContent = j.error || "No se pudo entrar. Inténtalo de nuevo."; return; }
+    if(!r.ok){
+      // Cuenta sin confirmar: mostrar la pantalla de verificación con reenvío.
+      if(j.needsVerification){ showVerifyEmail(email); return; }
+      errBox.textContent = j.error || "No se pudo entrar. Inténtalo de nuevo.";
+      return;
+    }
     saveSession(j.token, j.user);
     enterApp();
     toast("¡Bienvenido/a de nuevo, " + j.user.name + "! 💛");
   }catch(e){
     errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
   }
+}
+
+/* ---------- reCAPTCHA v2 ("No soy un robot") en el registro ----------
+ * La site key se obtiene de GET /api/config. Si no hay key configurada,
+ * el formulario funciona SIN captcha (no bloquea). */
+let recaptchaWidgetId = null;
+async function initRecaptcha(){
+  try{
+    const r = await fetch("/api/config");
+    const j = await r.json();
+    if(!j.recaptchaSiteKey) return; // sin captcha configurado
+    window.RECAPTCHA_SITE_KEY = j.recaptchaSiteKey;
+    const s = document.createElement("script");
+    s.src = "https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit";
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
+  }catch(e){ /* sin captcha: el registro sigue funcionando */ }
+}
+/* Callback global que llama el script de Google al cargar. */
+function onRecaptchaLoad(){
+  try{
+    const box = $("#recaptcha-box");
+    if(box && window.grecaptcha && window.RECAPTCHA_SITE_KEY){
+      recaptchaWidgetId = grecaptcha.render(box, { sitekey: window.RECAPTCHA_SITE_KEY });
+    }
+  }catch(e){ recaptchaWidgetId = null; }
+}
+function getRecaptchaToken(){
+  try{
+    if(recaptchaWidgetId !== null && window.grecaptcha){
+      return grecaptcha.getResponse(recaptchaWidgetId) || null;
+    }
+  }catch(e){}
+  return null;
 }
 
 async function doSignup(ev){
@@ -106,24 +182,35 @@ async function doSignup(ev){
   if(!name){ errBox.textContent = "Escribe tu nombre."; return; }
   if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
   if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+  // Si el captcha está visible, exigir que lo marquen.
+  let recaptchaToken = null;
+  if(recaptchaWidgetId !== null){
+    recaptchaToken = getRecaptchaToken();
+    if(!recaptchaToken){ errBox.textContent = "Marca la casilla «No soy un robot» 🤖"; return; }
+  }
   errBox.textContent = "Creando tu cuenta…";
   try{
     const r = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password })
+      body: JSON.stringify({ name, email, password, recaptchaToken })
     });
     const j = await r.json();
     if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
-    saveSession(j.token, j.user);
-    enterApp();
-    toast("¡Cuenta creada! Bienvenido/a, " + j.user.name + " 💛");
+    // La cuenta se crea SIN verificar: no se entra a la app hasta confirmar el correo.
+    try{ if(recaptchaWidgetId !== null && window.grecaptcha) grecaptcha.reset(recaptchaWidgetId); }catch(e){}
+    showVerifyEmail(j.email || email);
+    toast("¡Cuenta creada! Revisa tu correo 📧");
   }catch(e){
     errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
   }
 }
 
-/* Valida la sesión guardada contra el backend. */
+/* Valida la sesión guardada contra el backend.
+ * Si el usuario no confirmó su correo, NO entra a la app: deja el email
+ * en lastUnverifiedEmail para que quien llama muestre la pantalla de
+ * verificación. */
+let lastUnverifiedEmail = null;
 async function restoreSession(){
   const token = store.get("reaviva_token", null);
   if(!token) return false;
@@ -133,6 +220,10 @@ async function restoreSession(){
     });
     if(!r.ok) throw new Error("401");
     const j = await r.json();
+    if(j.user && j.user.emailVerified === false){
+      lastUnverifiedEmail = j.user.email;
+      return false;
+    }
     saveSession(token, j.user);
     return true;
   }catch(e){
@@ -143,6 +234,12 @@ async function restoreSession(){
     localStorage.removeItem("reaviva_paid");
     return false;
   }
+}
+/* Muestra la vista correcta tras validar la sesión: app, verificación o auth. */
+function afterRestore(ok){
+  if(ok){ enterApp(); return; }
+  if(lastUnverifiedEmail){ showVerifyEmail(lastUnverifiedEmail); return; }
+  showView("auth");
 }
 
 /* ---------- program progress ---------- */
@@ -211,7 +308,7 @@ async function doAdminLogin(ev){
 
 /* ---------- views ---------- */
 function showView(name){
-  ["landing","auth","app","admin-login"].forEach(v => {
+  ["landing","auth","app","admin-login","verify-email"].forEach(v => {
     const el = $("#view-"+v);
     if(el) el.style.display = v===name ? "" : "none";
   });
@@ -800,7 +897,7 @@ async function handlePayPalReturn(){
 document.addEventListener("DOMContentLoaded", ()=>{
   // landing CTAs
   $$("[data-go-app]").forEach(b=>b.addEventListener("click", async ()=>{
-    if(await restoreSession()) enterApp(); else showView("auth");
+    afterRestore(await restoreSession());
   }));
   $("#logout-btn").addEventListener("click", ()=>{
     localStorage.removeItem(LS.user);
@@ -812,6 +909,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   // PayPal return (?paypal=ok|cancel) + sync paid status with backend
   handlePayPalReturn();
   refreshPaidStatus();
+  // reCAPTCHA v2 en el formulario de registro (si hay site key configurada)
+  initRecaptcha();
   // URL secreta de admin: /admin/ingzoe
   if(location.pathname === "/admin/ingzoe"){
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
@@ -819,6 +918,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
   }
   // deep-link: #app — valida la sesión contra el backend
   if(location.hash === "#app"){
-    restoreSession().then(ok => { if(ok) enterApp(); else showView("auth"); });
+    restoreSession().then(afterRestore);
   }
 });
