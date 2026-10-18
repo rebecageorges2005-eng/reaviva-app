@@ -547,3 +547,20 @@ try {
 } catch (e) {
   console.error("[db] migración verified_domains:", e.message);
 }
+
+/* --- Migración: usuarios en línea en el chat grupal 🟢🔴 ---
+ * online_users: marca de presencia con timestamp (segundos Unix).
+ * Se actualiza en cada heartbeat del chat (cada 60s con la pestaña abierta)
+ * y al cargar/publicar en la comunidad. En línea = last_seen < 2 minutos.
+ * Filas viejas (>1 hora) se limpian al consultar. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS online_users (
+      user_id   INTEGER PRIMARY KEY,
+      last_seen INTEGER NOT NULL
+    );
+  `);
+  console.log("[db] migración: tabla online_users lista");
+} catch (e) {
+  console.error("[db] migración online_users:", e.message);
+}
