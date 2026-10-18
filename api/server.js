@@ -89,6 +89,13 @@ app.get("/api/health", (req, res) =>
   res.json({ ok: true, paypal: paypalConfigured(), time: new Date().toISOString() })
 );
 
+/* GET /api/config — configuración pública para el frontend.
+ * Devuelve la site key de reCAPTCHA (null si no está configurada:
+ * en ese caso el registro funciona sin captcha). */
+app.get("/api/config", (req, res) =>
+  res.json({ recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || null })
+);
+
 /* --- Serve the frontend SPA in production --- */
 const FRONTEND_DIR = path.resolve(__dirname, process.env.FRONTEND_DIR || "../web");
 app.use(express.static(FRONTEND_DIR));

@@ -172,4 +172,23 @@ try {
   console.error("[db] migración community_comments:", e.message);
 }
 
+/* --- Migration: Oct 2026 — verificación de correo ---
+ * email_verified: 0/1 — el usuario debe confirmar su correo con el link
+ * que recibe al registrarse antes de poder entrar.
+ * verification_token: token único del link de confirmación (se limpia
+ * al verificar). Los tokens no expiran (documentado). */
+try {
+  const cols6 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols6.includes("email_verified")) {
+    db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna users.email_verified agregada");
+  }
+  if (!cols6.includes("verification_token")) {
+    db.exec("ALTER TABLE users ADD COLUMN verification_token TEXT");
+    console.log("[db] migración: columna users.verification_token agregada");
+  }
+} catch (e) {
+  console.error("[db] migración email_verified:", e.message);
+}
+
 module.exports = db;
