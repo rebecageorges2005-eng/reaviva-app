@@ -343,7 +343,7 @@ function requireAuth(){
 /* ---------- auth con backend (email + contraseña) ---------- */
 let authMode = "login"; // "login" (principal) | "signup"
 
-function switchAuthMode(mode){
+function switchAuthMode(mode, fromHash){
   authMode = mode;
   $("#tab-login").classList.toggle("active", mode === "login");
   $("#tab-signup").classList.toggle("active", mode === "signup");
@@ -351,6 +351,7 @@ function switchAuthMode(mode){
   $("#form-signup").style.display = mode === "signup" ? "" : "none";
   $("#login-err").textContent = "";
   $("#signup-err").textContent = "";
+  if(!fromHash) syncHash();
 }
 
 function togglePassword(id){
@@ -616,8 +617,69 @@ async function doAdminLogin(ev){
   }
 }
 
+/* ---------- ruteo con hash (URLs con nombre: #registro, #comunidad, etc.) ---------- */
+const VIEW_HASHES = {
+  "landing": "inicio", "admin-login": "admin", "verify-email": "verificar"
+};
+const TAB_HASHES = {
+  "hoy": "hoy", "programa": "programa", "diario": "diario", "progreso": "progreso",
+  "comunidad": "comunidad", "privados": "privados", "perfil": "perfil", "admin": "admin"
+};
+const AUTH_HASHES = { "login": "entrar", "signup": "registro" };
+let suppressHashUpdate = false;
+
+function hashForCurrent(){
+  const visible = ["landing","auth","app","admin-login","verify-email"].find(v => {
+    const el = $("#view-"+v);
+    return el && el.style.display !== "none";
+  });
+  if(visible === "auth") return AUTH_HASHES[authMode] || "entrar";
+  if(visible === "app"){
+    const active = Array.prototype.find.call($$(".tab"), b => b.classList.contains("active"));
+    const tab = active ? active.dataset.tab : "hoy";
+    return TAB_HASHES[tab] || "hoy";
+  }
+  return VIEW_HASHES[visible] || "";
+}
+
+function syncHash(){
+  if(suppressHashUpdate) return;
+  const h = hashForCurrent();
+  const cur = (location.hash || "").replace(/^#/, "");
+  if(h === cur) return;
+  suppressHashUpdate = true;
+  try{
+    if(h) location.hash = h;
+    else history.replaceState(null, "", location.pathname + location.search);
+  }catch(e){}
+  setTimeout(() => { suppressHashUpdate = false; }, 0);
+}
+
+/* Aplica un hash de la URL a la vista/pestaña correspondiente. Devuelve true si lo manejó. */
+function applyHashRoute(){
+  const h = (location.hash || "").replace(/^#/, "").toLowerCase();
+  if(!h) return false;
+  // Vistas de auth
+  if(h === "entrar" || h === "registro"){
+    showView("auth", true);
+    switchAuthMode(h === "registro" ? "signup" : "login", true);
+    return true;
+  }
+  // Vistas sueltas
+  if(h === "inicio"){ showView("landing", true); return true; }
+  if(h === "verificar"){ showView("verify-email", true); return true; }
+  // Pestañas de la app (requieren sesión)
+  const tabByHash = Object.keys(TAB_HASHES).find(t => TAB_HASHES[t] === h);
+  if(tabByHash){
+    if(!currentUser()){ showView("auth", true); switchAuthMode("login", true); return true; }
+    enterApp(tabByHash);
+    return true;
+  }
+  return false;
+}
+
 /* ---------- views ---------- */
-function showView(name){
+function showView(name, fromHash){
   ["landing","auth","app","admin-login","verify-email"].forEach(v => {
     const el = $("#view-"+v);
     if(el) el.style.display = v===name ? "" : "none";
@@ -625,21 +687,22 @@ function showView(name){
   const target = $("#view-"+name);
   if(target) target.style.display = "";
   try{ window.scrollTo(0,0); }catch(e){}
+  if(!fromHash) syncHash();
 }
-function enterApp(){
-  showView("app");
+function enterApp(initialTab){
+  showView("app", !!initialTab);
   const u = currentUser();
   const chip = $("#user-chip");
   if(chip && u) chip.textContent = "Hola, " + esc(u.name);
   // Mostrar pestaña Admin solo para administradores
   const adminTab = document.querySelector('[data-tab="admin"]');
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
-  try{ switchTab("hoy"); }catch(e){ console.error("switchTab:", e); }
+  try{ switchTab(initialTab || "hoy", !!initialTab); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
   try{ startDmWinPoll(); }catch(e){}
 }
-function switchTab(tab){
+function switchTab(tab, fromHash){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id==="panel-"+tab));
   // El sondeo de mensajes nuevos solo corre con el chat abierto.
@@ -652,6 +715,7 @@ function switchTab(tab){
   if(tab==="privados") renderDmList();
   if(tab==="perfil") renderPerfil();
   if(tab==="admin") renderAdmin();
+  if(!fromHash) syncHash();
 }
 
 /* ---------- auth header helper ---------- */
@@ -2272,10 +2336,20 @@ document.addEventListener("DOMContentLoaded", ()=>{
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
     return;
   }
-  // deep-link: #app — valida la sesión contra el backend
-  if(location.hash === "#app"){
+  // deep-link con nombre: #registro, #entrar, #comunidad, etc.
+  if(applyHashRoute()){
+    restoreSession().then(()=>{});
+  }
+  // deep-link legado: #app — valida la sesión contra el backend
+  else if(location.hash === "#app"){
     restoreSession().then(afterRestore);
   }
+  // Botones atrás/adelante del navegador.
+  window.addEventListener("hashchange", ()=>{
+    if(suppressHashUpdate) return;
+    suppressHashUpdate = true;
+    try{ applyHashRoute(); }finally{ setTimeout(()=>{ suppressHashUpdate = false; }, 0); }
+  });
   // Referido: si llegó con ?ref=USERID, guardarlo para el registro.
   try{
     const refParam = new URLSearchParams(location.search).get("ref");
