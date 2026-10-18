@@ -16,9 +16,10 @@ const { router: progressRouter } = require("./routes/progress");
 const journalRouter = require("./routes/journal");
 const { router: billingRouter, webhookHandler, paypalConfigured } = require("./routes/billing");
 const { router: adminRouter } = require("./routes/admin");
-const { router: communityRouter } = require("./routes/community");
+const { router: communityRouter, processDueReposts } = require("./routes/community");
 const { router: topicsRouter } = require("./routes/topics");
 const { router: dmRouter } = require("./routes/dm");
+const { router: rvRouter } = require("./routes/rv");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -57,6 +58,7 @@ app.use("/api/admin", adminRouter); // /api/admin/* (solo administradores)
 app.use("/api/community", communityRouter); // /api/community/* (comunidad anónima)
 app.use("/api/topics", topicsRouter); // /api/topics/* (temas temporales del chat)
 app.use("/api/dm", dmRouter); // /api/dm/* (mensajes privados, plan anual)
+app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
@@ -171,6 +173,16 @@ function checkExpiringPlans() {
 }
 setInterval(checkExpiringPlans, 6 * 60 * 60 * 1000);
 setTimeout(checkExpiringPlans, 60 * 1000); // primera pasada 1 min después de arrancar
+
+/* Republicación automática de links pagados con RV (🔁): publica los
+ * reposts vencidos cada 5 minutos aunque nadie abra el chat. */
+setInterval(() => {
+  try {
+    processDueReposts();
+  } catch (e) {
+    console.error("[reaviva] error en processDueReposts:", e.message);
+  }
+}, 5 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`[reaviva] API corriendo en http://localhost:${PORT}`);

@@ -442,3 +442,64 @@ try {
 } catch (e) {
   console.error("[db] migración img_block_remaining:", e.message);
 }
+
+/* --- Migración: republicación automática de links pagados con RV ---
+ * scheduled_reposts: cuando un usuario con plan publica un link pagado
+ * con RV, el sistema lo republica 2 veces más (2 y 4 horas después).
+ * expires_at se guarda ya desplazado por el mismo intervalo para que el
+ * repost expire igual que un mensaje normal.
+ * community_comments.is_repost: marca las republicaciones (🔁). */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_reposts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      text         TEXT NOT NULL,
+      msg_type     TEXT NOT NULL DEFAULT 'text',
+      photo_data   TEXT,
+      expires_at   TEXT,
+      scheduled_at TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sr_due ON scheduled_reposts(scheduled_at);
+  `);
+  const colsE = db.prepare("PRAGMA table_info(scheduled_reposts)").all().map((c) => c.name);
+  if (!colsE.includes("expires_at")) {
+    db.exec("ALTER TABLE scheduled_reposts ADD COLUMN expires_at TEXT");
+    console.log("[db] migración: columna scheduled_reposts.expires_at agregada");
+  }
+  console.log("[db] migración: tabla scheduled_reposts lista");
+} catch (e) {
+  console.error("[db] migración scheduled_reposts:", e.message);
+}
+
+try {
+  const colsD = db.prepare("PRAGMA table_info(community_comments)").all().map((c) => c.name);
+  if (!colsD.includes("is_repost")) {
+    db.exec("ALTER TABLE community_comments ADD COLUMN is_repost INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna community_comments.is_repost agregada");
+  }
+} catch (e) {
+  console.error("[db] migración is_repost:", e.message);
+}
+
+/* --- Migración: límite diario de conversaciones privadas (DM) ---
+ * dm_daily_partners: usuarios únicos contactados por día (UTC).
+ * Anual: 90 conversaciones/día · mensual: 15/día. Las filas viejas
+ * (más de 2 días) se limpian al enviar. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dm_daily_partners (
+      user_id    INTEGER NOT NULL,
+      partner_id INTEGER NOT NULL,
+      day        TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, partner_id, day)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ddp_user_day ON dm_daily_partners(user_id, day);
+  `);
+  console.log("[db] migración: tabla dm_daily_partners lista");
+} catch (e) {
+  console.error("[db] migración dm_daily_partners:", e.message);
+}

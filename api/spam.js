@@ -28,11 +28,15 @@ const HANDLE_RE = /(^|[\s¿¡(,"'])@[A-Za-z0-9_.]{2,}/; // @usuario (2+ caracter
 const PLATFORM_RE = /\b(tiktok|instagram|you\s?tube|facebook|twitter|whatsapp|telegram|snapchat)\b/i;
 const INTENT_RE =
   /\b(mi|sigueme|sígueme|follow|cuenta|perfil|b[uú]scame|b[uú]scame como|agr[eé]game|agr[eé]game|agrega|encu[eé]ntrame|encuentra|contactame|cont[aá]ctame|escribeme|escr[ií]beme|hablame|h[aá]blame)\b/i;
+// URL genérica (ej. "mitienda.com", "www.ejemplo.com/producto"). Se excluye
+// el dominio propio de la plataforma para no penalizarlo.
+const URL_RE =
+  /\b((https?:\/\/)?(www\.)?[a-z0-9][a-z0-9\-]*\.(com|net|org|io|co|mx|es|app|store|shop|online|site|link|bio|ly|me|tv)(\/[^\s]*)?)/i;
 
 const utcDate = () => new Date().toISOString().slice(0, 10);
 
 /* detectSpam(text) → null | { tipo, detalle }
- * tipo: "correo" | "telefono" | "red social" */
+ * tipo: "correo" | "telefono" | "red social" | "link" */
 function detectSpam(raw) {
   const text = String(raw || "");
   if (EMAIL_RE.test(text)) return { tipo: "correo", detalle: "dirección de correo" };
@@ -41,6 +45,9 @@ function detectSpam(raw) {
   if (HANDLE_RE.test(text)) return { tipo: "red social", detalle: "usuario de red social (@…)" };
   if (PLATFORM_RE.test(text) && INTENT_RE.test(text))
     return { tipo: "red social", detalle: "cuenta de red social" };
+  // Link genérico (quitando el dominio propio de la plataforma).
+  const sinPropio = text.replace(/reavivaapp\.com/gi, "");
+  if (URL_RE.test(sinPropio)) return { tipo: "link", detalle: "enlace web" };
   return null;
 }
 
