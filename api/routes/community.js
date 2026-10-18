@@ -13,6 +13,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
+const { temaActivoPorId } = require("./topics");
 
 const router = express.Router();
 
@@ -97,13 +98,15 @@ function validarTexto(raw) {
 
 /* GET /api/community → lista pública, anónima, newest first.
  * Incluye chatTimeLeft (segundos restantes hoy; null = ilimitado).
- * Sin tiempo restante → 403 con mensaje en español. */
+ * Sin tiempo restante → 403 con mensaje en español.
+ * Fotos temporales: si msg_type='photo' y tiene más de 30 segundos, se
+ * devuelve texto "📷 Foto eliminada" sin los datos de la imagen. */
 router.get("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
   const rows = db
     .prepare(
-      `SELECT c.id, c.user_id, c.text, c.created_at,
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data,
               u.name, u.photo, u.subscribed, u.is_admin, u.country_code
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
@@ -122,24 +125,103 @@ router.get("/", requireAuth, (req, res) => {
       const nombre = paid
         ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
         : "Guest";
+      // Foto temporal: a los 30 segundos se "elimina".
+      let texto = c.text;
+      let fotoMsg = null;
+      let tipo = c.msg_type || "text";
+      let eliminada = false;
+      let fotoSegundos = 0;
+      if (tipo === "photo") {
+        const edadMs = Date.now() - new Date(String(c.created_at).replace(" ", "T") + "Z").getTime();
+        if (isNaN(edadMs) || edadMs > 30000) {
+          texto = "📷 Foto eliminada";
+          fotoMsg = null;
+          eliminada = true;
+        } else {
+          fotoMsg = c.photo_data || null;
+          fotoSegundos = Math.max(1, Math.ceil((30000 - edadMs) / 1000));
+        }
+      }
       return {
         id: c.id,
-        texto: c.text,
+        texto,
         fecha: fechaCorta(c.created_at),
         nombre,
         foto: c.photo || null,
         avatar: avatarFor(c.user_id), // emoji de respaldo si no tiene foto
+        msg_type: tipo,
+        foto_msg: fotoMsg,
+        foto_eliminada: eliminada,
+        foto_segundos: fotoSegundos,
       };
     }),
   });
 });
 
-/* POST /api/community → publicar (validado + rate limit + límite de tiempo). */
+/* Límite de tamaño para fotos temporales del chat: 1 MB en base64. */
+const PHOTO_MAX_BYTES = 1024 * 1024;
+
+function validarFoto(raw) {
+  const s = String(raw || "");
+  if (!s.startsWith("data:image/")) return { error: "Formato de imagen no válido." };
+  // Solo jpeg, png, webp, gif.
+  if (!/^data:image\/(jpeg|png|webp|gif);base64,/.test(s))
+    return { error: "Formato de imagen no válido (usa JPG, PNG o WebP)." };
+  if (s.length > PHOTO_MAX_BYTES)
+    return { error: "La foto es muy grande (máximo 1 MB)." };
+  return { photo: s };
+}
+
+/* POST /api/community → publicar (validado + rate limit + límite de tiempo).
+ * Acepta topic_id opcional: si el tema existe y sigue activo, el mensaje
+ * se publica con "#NombreDelTema " antepuesto.
+ * Acepta photo opcional (base64 data URL): solo usuarios con plan. La foto
+ * es temporal: se elimina a los 30 segundos. */
 router.post("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
-  const v = validarTexto(req.body && req.body.text);
-  if (v.error) return res.status(400).json({ error: v.error });
+
+  const isPaid = req.user.is_admin === 1 || req.user.subscribed === 1;
+  const photoRaw = req.body && req.body.photo;
+
+  // Fotos: solo con plan pagado.
+  let photoData = null;
+  let msgType = "text";
+  if (photoRaw) {
+    if (!isPaid)
+      return res
+        .status(403)
+        .json({ error: "Solo los miembros con plan pueden enviar fotos 💎" });
+    const vf = validarFoto(photoRaw);
+    if (vf.error) return res.status(400).json({ error: vf.error });
+    photoData = vf.photo;
+    msgType = "photo";
+  }
+
+  // Tema opcional: solo si existe y sigue activo (no expirado).
+  let prefix = "";
+  const topicId = req.body && req.body.topic_id;
+  if (topicId !== undefined && topicId !== null && topicId !== "") {
+    const topicName = temaActivoPorId(topicId);
+    if (!topicName)
+      return res.status(400).json({ error: "Ese tema ya expiró o no existe ⏰" });
+    prefix = "#" + topicName + " ";
+  }
+
+  // El texto es opcional si hay foto; si hay texto se valida igual.
+  const rawText = req.body && req.body.text ? String(req.body.text).trim() : "";
+  if (!rawText && !photoData)
+    return res.status(400).json({ error: "Escribe algo o envía una foto 💛" });
+
+  let finalText = "";
+  if (rawText) {
+    const v = validarTexto(prefix + rawText);
+    if (v.error) return res.status(400).json({ error: v.error });
+    finalText = v.text;
+  } else if (prefix) {
+    // Solo tema + foto: el prefijo igual se guarda.
+    finalText = prefix.trim();
+  }
 
   const recent = db
     .prepare(
@@ -153,8 +235,8 @@ router.post("/", requireAuth, (req, res) => {
       .json({ error: "Publicaste muchos comentarios seguidos. Intenta en un rato 💛" });
 
   const r = db
-    .prepare("INSERT INTO community_comments (user_id, text) VALUES (?, ?)")
-    .run(req.user.id, v.text);
+    .prepare("INSERT INTO community_comments (user_id, text, msg_type, photo_data) VALUES (?, ?, ?, ?)")
+    .run(req.user.id, finalText, msgType, photoData);
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid) });
 });
 
