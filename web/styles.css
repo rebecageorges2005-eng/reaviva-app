@@ -484,6 +484,15 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .dm-theirs{align-self:flex-start;background:var(--card,#fff);border:1px solid var(--border,#eee);border-bottom-left-radius:4px}
 .dm-composer{display:flex;gap:8px;align-items:center}
 .dm-composer .field{flex:1}
+.dm-icon-btn{background:var(--card,#fff);border:1px solid var(--border,#eee);border-radius:10px;font-size:1.25rem;padding:8px 10px;cursor:pointer;line-height:1}
+.dm-icon-btn:hover{border-color:var(--accent,#f59e0b)}
+.dm-icon-btn.locked-feature{opacity:.55;filter:grayscale(.6)}
+.dm-rec-ind{display:flex;align-items:center;gap:8px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:.9rem}
+.dm-file-card{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:10px 12px;text-decoration:none;color:inherit}
+.dm-theirs .dm-file-card{background:#f8f4ee;border-color:var(--border,#eee)}
+.dm-file-icon{font-size:1.6rem}
+.dm-file-card small{opacity:.75}
+.dm-msg audio{max-width:220px;margin:4px 0}
 .upgrade-quote{background:var(--card,#fff);border:1px solid var(--border,#eee);border-radius:12px;padding:12px 16px;margin:14px 0}
 .upgrade-quote>div{display:flex;justify-content:space-between;padding:6px 0;font-size:.92rem}
 .upgrade-total{border-top:1px solid var(--border,#eee);margin-top:6px;padding-top:10px;font-size:1.05rem}

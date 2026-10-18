@@ -1621,14 +1621,34 @@ async function openDmChat(uid, target){
     <div class="dm-chat-head">
       <button class="dm-back" onclick="renderDmList()" aria-label="Volver">←</button>
       <div class="comment-avatar">${dmAvatarHtml(target)}</div>
-      <div><b>${esc(target.nombre)}</b><br><small id="dm-countdown" style="color:var(--cocoa-soft)">⏳ Los mensajes se eliminan en 48h</small></div>
+      <div style="flex:1"><b>${esc(target.nombre)}</b><br><small id="dm-countdown" style="color:var(--cocoa-soft)">⏳ Los mensajes se eliminan en 48h</small></div>
+      <button id="dm-video-btn" class="dm-icon-btn" title="${isAnnual() ? "Videollamada 📹" : "Actualiza a plan anual 💎"}" aria-label="Videollamada">${isAnnual() ? "📹" : "📹🔒"}</button>
     </div>
     <div id="dm-messages" class="dm-messages"><p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p></div>
     <div class="dm-composer">
+      <input id="dm-voice-file" type="file" accept=".pdf,.doc,.docx,.txt" style="display:none" onchange="sendDmFile(this)">
+      <button id="dm-voice-btn" class="dm-icon-btn" title="Mensaje de voz 🎤" aria-label="Mensaje de voz">🎤</button>
+      <button id="dm-file-btn" class="dm-icon-btn" title="${isAnnual() ? "Adjuntar archivo 📎" : "Actualiza a plan anual 💎"}" aria-label="Adjuntar archivo">${isAnnual() ? "📎" : "📎🔒"}</button>
       <input id="dm-input" class="field" maxlength="1000" placeholder="Escribe un mensaje privado…"
         onkeydown="if(event.key==='Enter')sendDm()">
       <button class="btn btn-primary" onclick="sendDm()">➤</button>
-    </div>`;
+    </div>
+    <div id="dm-rec-ind" class="dm-rec-ind" style="display:none">🔴 Grabando… <span id="dm-rec-time">0:00</span> <button class="btn btn-sm" onclick="toggleDmVoice()">Detener</button></div>`;
+  /* Botón de videollamada según el plan. */
+  const vbtn = $("#dm-video-btn");
+  if(vbtn){
+    if(isAnnual()){ vbtn.onclick = startVideoCall; }
+    else { vbtn.onclick = function(){ openUpgradeModal("Las videollamadas son exclusivas del plan anual 💎"); }; vbtn.classList.add("locked-feature"); }
+  }
+  /* Botón de archivo: solo anual. */
+  const fbtn = $("#dm-file-btn");
+  if(fbtn){
+    if(isAnnual()){ fbtn.onclick = function(){ $("#dm-voice-file").click(); }; }
+    else { fbtn.onclick = function(){ openUpgradeModal("Los archivos adjuntos son exclusivos del plan anual 💎"); }; fbtn.classList.add("locked-feature"); }
+  }
+  /* Botón de voz: anual y mensual (los gratuitos no llegan al DM). */
+  const mic = $("#dm-voice-btn");
+  if(mic){ mic.onclick = toggleDmVoice; }
   await loadDmMessages();
   updateDmBadge();
   startDmCountdown();
@@ -1642,11 +1662,29 @@ async function loadDmMessages(){
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     const msgs = j.mensajes || [];
-    box.innerHTML = msgs.map(m => `
+    box.innerHTML = msgs.map(m => {
+      const tipo = m.tipo || "text";
+      let cuerpo = "";
+      if(tipo === "voice" && m.audio){
+        cuerpo = `<audio controls preload="metadata" src="${esc(m.audio)}" style="max-width:100%"></audio>`;
+      }else if(tipo === "video-invite" && m.texto){
+        cuerpo = `<p>📹 <b>Invitación a videollamada</b></p>
+          <button class="btn btn-primary btn-sm" onclick="window.open('${esc(m.texto)}','_blank')">Unirse a la videollamada</button>`;
+      }else if(tipo === "file" && m.archivo){
+        const kb = m.archivo.tamano ? (m.archivo.tamano/1024).toFixed(0) + " KB" : "";
+        cuerpo = `<a class="dm-file-card" href="${esc(m.archivo.data)}" download="${esc(m.archivo.nombre)}">
+          <span class="dm-file-icon">📎</span>
+          <span><b>${esc(m.archivo.nombre)}</b><br><small>${kb} · clic para descargar</small></span>
+        </a>`;
+      }else{
+        cuerpo = `<p>${esc(m.texto)}</p>`;
+      }
+      return `
       <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""}>
-        <p>${esc(m.texto)}</p>
+        ${cuerpo}
         <span class="dm-meta">${esc(m.fecha)} · ⏳ se elimina en 48h</span>
-      </div>`).join("") || `<p style="text-align:center;color:var(--cocoa-soft)">Sin mensajes todavía. ¡Saluda! 👋</p>`;
+      </div>`;
+    }).join("") || `<p style="text-align:center;color:var(--cocoa-soft)">Sin mensajes todavía. ¡Saluda! 👋</p>`;
     box.scrollTop = box.scrollHeight;
   }catch(e){
     box.innerHTML = `<p style="text-align:center;color:#a33">Error cargando mensajes</p>`;
@@ -1675,6 +1713,129 @@ async function sendDm(){
   }catch(e){
     toast(e.message);
   }
+}
+
+/* ---------- videollamada (solo plan anual, vía Jitsi Meet) ---------- */
+async function startVideoCall(){
+  if(!dmActiveUid) return;
+  if(!isAnnual()){ openUpgradeModal("Las videollamadas son exclusivas del plan anual 💎"); return; }
+  try{
+    const r = await fetch("/api/dm/" + dmActiveUid + "/video-call", {
+      method: "POST", headers: authHeaders()
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok){
+      if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(j.message); return; }
+      throw new Error(j.message || j.error || ("HTTP " + r.status));
+    }
+    window.open(j.roomUrl, "_blank");
+    await loadDmMessages();
+  }catch(e){
+    toast(e.message);
+  }
+}
+
+/* ---------- mensajes de voz (plan anual y mensual) ---------- */
+let dmRecorder = null, dmAudioChunks = [], dmRecTimer = null, dmRecSecs = 0;
+
+async function toggleDmVoice(){
+  if(dmRecorder && dmRecorder.state === "recording"){ detenerDmVoice(); return; }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    dmRecorder = new MediaRecorder(stream);
+    dmAudioChunks = [];
+    dmRecorder.ondataavailable = e => { if(e.data && e.data.size) dmAudioChunks.push(e.data); };
+    dmRecorder.onstop = enviarDmVoice;
+    dmRecorder.start();
+    dmRecSecs = 0;
+    const ind = $("#dm-rec-ind"), t = $("#dm-rec-time");
+    if(ind) ind.style.display = "";
+    dmRecTimer = setInterval(() => {
+      dmRecSecs++;
+      if(t) t.textContent = Math.floor(dmRecSecs/60) + ":" + String(dmRecSecs%60).padStart(2, "0");
+      if(dmRecSecs >= 120) detenerDmVoice(); /* máx 2 minutos */
+    }, 1000);
+  }catch(e){
+    toast("No se pudo acceder al micrófono 🎤");
+  }
+}
+
+function detenerDmVoice(){
+  if(dmRecTimer){ clearInterval(dmRecTimer); dmRecTimer = null; }
+  const ind = $("#dm-rec-ind");
+  if(ind) ind.style.display = "none";
+  if(dmRecorder && dmRecorder.state === "recording"){
+    dmRecorder.stop();
+  }else{
+    dmRecorder = null;
+  }
+  try{ dmRecorder && dmRecorder.stream && dmRecorder.stream.getTracks().forEach(tr => tr.stop()); }catch(e){}
+}
+
+async function enviarDmVoice(){
+  const rec = dmRecorder; dmRecorder = null;
+  try{ rec && rec.stream && rec.stream.getTracks().forEach(tr => tr.stop()); }catch(e){}
+  if(!dmAudioChunks.length || !dmActiveUid){ dmAudioChunks = []; return; }
+  const blob = new Blob(dmAudioChunks, { type: (rec && rec.mimeType) || "audio/webm" });
+  dmAudioChunks = [];
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const r = await fetch("/api/dm/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ to_user_id: dmActiveUid, audio: reader.result })
+      });
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok){
+        if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(j.message); return; }
+        throw new Error(j.message || j.error || ("HTTP " + r.status));
+      }
+      playDing();
+      await loadDmMessages();
+    }catch(e){
+      toast(e.message);
+    }
+  };
+  reader.readAsDataURL(blob);
+}
+
+/* ---------- archivos adjuntos (solo plan anual) ---------- */
+async function sendDmFile(input){
+  const f = input && input.files && input.files[0];
+  input.value = "";
+  if(!f || !dmActiveUid) return;
+  if(!isAnnual()){ openUpgradeModal("Los archivos adjuntos son exclusivos del plan anual 💎"); return; }
+  const permitidos = ["application/pdf", "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+  if(!permitidos.includes(f.type)){
+    toast("Solo se permiten PDF, DOC, DOCX y TXT 📎");
+    return;
+  }
+  if(f.size > 10 * 1024 * 1024){
+    toast("El archivo es muy grande (máx 10MB) 📎");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const r = await fetch("/api/dm/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ to_user_id: dmActiveUid, file: reader.result, fileName: f.name })
+      });
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok){
+        if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(j.message); return; }
+        throw new Error(j.message || j.error || ("HTTP " + r.status));
+      }
+      playDing();
+      await loadDmMessages();
+    }catch(e){
+      toast(e.message);
+    }
+  };
+  reader.readAsDataURL(f);
 }
 
 /* ---------- insignia + aviso de mensajes sin leer ---------- */
