@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Reaviva — 30 días para soltar el dolor y recuperar tu paz</title>
 <meta name="description" content="Reaviva es tu compañero diario de sanación emocional: un programa guiado de 30 días, diario emocional y comunidad. Empieza gratis.">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -149,6 +152,13 @@
         <button class="btn btn-primary btn-block" type="submit">Comenzar mis 7 días gratis →</button>
       </form>
       <p style="margin-top:14px;font-size:.82rem">Al continuar aceptas nuestros términos. Podrás cancelar cuando quieras.</p>
+      <p style="margin-top:10px"><a href="#" onclick="toggleAdminLogin(event)" style="font-size:.75rem;color:#b9a48f;text-decoration:none">Acceso administrador</a></p>
+      <div id="admin-login-box" style="display:none;margin-top:10px">
+        <form onsubmit="doAdminLogin(event)">
+          <input id="admin-code" class="field" type="password" placeholder="Código de administrador" autocomplete="off">
+          <button class="btn btn-ghost btn-block" type="submit">Entrar como administrador</button>
+        </form>
+      </div>
     </div>
   </div>
 </div>

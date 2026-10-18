@@ -283,3 +283,6 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
   .nav a.hide-m{display:none}
   .hero{padding:60px 0 50px}
 }
+
+/* audio player */
+.audio-block audio{margin-top:8px;border-radius:8px}

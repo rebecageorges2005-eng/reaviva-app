@@ -73,6 +73,7 @@ function markDone(d){
 }
 function isUnlocked(d){ return d <= Math.min(currentDay(), 30); }
 function isPaid(){ return store.get("reaviva_paid", false); } // synced from /api/paypal/status
+function isAdmin(){ return store.get("reaviva_admin", false); }
 
 /* Sync the paid flag with the backend (PayPal is the source of truth). */
 async function refreshPaidStatus(){
@@ -86,9 +87,41 @@ async function refreshPaidStatus(){
   }catch(e){ /* sin conexión: conserva el valor local */ }
 }
 function canAccess(d){
+  // Admin: full access to all 30 days, no paywall.
+  if(isAdmin()) return true;
   // Freemium: days 1-7 free during trial; days 8-30 require paid membership.
   // Calendar pacing (isUnlocked) is enforced separately in renderPrograma.
   return d <= TRIAL_DAYS || isPaid();
+}
+
+/* ---------- admin login (code-based, discrete link on login screen) ---------- */
+function toggleAdminLogin(ev){
+  ev.preventDefault();
+  const box = $("#admin-login-box");
+  box.style.display = box.style.display === "none" ? "" : "none";
+}
+async function doAdminLogin(ev){
+  ev.preventDefault();
+  const code = $("#admin-code").value.trim();
+  if(!code){ toast("Escribe el código de administrador"); return; }
+  try{
+    const r = await fetch("/api/auth/admin-login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ code })
+    });
+    const j = await r.json();
+    if(!r.ok){ toast(j.error || "Código incorrecto"); return; }
+    store.set(LS.user, { email: j.user.email, name: j.user.name });
+    store.set("reaviva_token", j.token);
+    store.set("reaviva_admin", true);
+    store.set("reaviva_paid", true); // admin nunca ve el paywall
+    if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
+    enterApp();
+    toast("¡Acceso de administrador! 👑");
+  }catch(e){
+    toast("Sin conexión con el servidor");
+  }
 }
 
 /* ---------- views ---------- */
@@ -177,6 +210,7 @@ function openDay(d){
       <div class="part">${esc(p.part)}</div>
       <h2>Día ${p.day} · ${esc(p.title)}</h2>
     </div>
+    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(p.reflexion)}</p></div>
     <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(p.ejercicio)}</p></div>
@@ -330,7 +364,11 @@ document.addEventListener("DOMContentLoaded", ()=>{
     if(currentUser()) enterApp(); else showView("auth");
   }));
   $("#logout-btn").addEventListener("click", ()=>{
-    localStorage.removeItem(LS.user); showView("landing");
+    localStorage.removeItem(LS.user);
+    localStorage.removeItem("reaviva_token");
+    localStorage.removeItem("reaviva_admin");
+    localStorage.removeItem("reaviva_paid");
+    showView("landing");
   });
   // PayPal return (?paypal=ok|cancel) + sync paid status with backend
   handlePayPalReturn();
