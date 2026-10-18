@@ -226,10 +226,40 @@ router.get("/", requireAuth, (req, res) => {
        JOIN users u ON u.id = c.user_id
        WHERE c.hidden = 0
          AND (c.msg_type = 'photo' OR c.expires_at IS NULL OR c.expires_at > datetime('now'))
+         AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.user_id = ? AND h.message_id = c.id)
        ORDER BY c.created_at DESC
        LIMIT 100`
     )
-    .all();
+    .all(req.user.id);
+  // Reacciones 👍👎: conteos por mensaje + mi reacción, en una sola consulta.
+  const ids = rows.map((c) => c.id);
+  const reacMap = {};
+  if (ids.length) {
+    const ph = ids.map(() => "?").join(",");
+    const reacRows = db
+      .prepare(
+        `SELECT message_id, reaction, COUNT(*) AS n
+         FROM message_reactions
+         WHERE message_type = 'community' AND message_id IN (${ph})
+         GROUP BY message_id, reaction`
+      )
+      .all(...ids);
+    for (const r of reacRows) {
+      const e = reacMap[r.message_id] || (reacMap[r.message_id] = { likes: 0, dislikes: 0 });
+      if (r.reaction === "like") e.likes = r.n;
+      else if (r.reaction === "dislike") e.dislikes = r.n;
+    }
+    const misRows = db
+      .prepare(
+        `SELECT message_id, reaction FROM message_reactions
+         WHERE message_type = 'community' AND user_id = ? AND message_id IN (${ph})`
+      )
+      .all(req.user.id, ...ids);
+    for (const r of misRows) {
+      const e = reacMap[r.message_id] || (reacMap[r.message_id] = { likes: 0, dislikes: 0 });
+      e.mi_reaccion = r.reaction;
+    }
+  }
   res.json({
     chatTimeLeft: acc.left,
     muted: mutedPayload(req.user.id) !== null,
@@ -277,6 +307,9 @@ router.get("/", requireAuth, (req, res) => {
         foto_msg: fotoMsg,
         foto_eliminada: eliminada,
         foto_segundos: fotoSegundos,
+        likes: (reacMap[c.id] && reacMap[c.id].likes) || 0,
+        dislikes: (reacMap[c.id] && reacMap[c.id].dislikes) || 0,
+        mi_reaccion: (reacMap[c.id] && reacMap[c.id].mi_reaccion) || null,
       };
     }),
   });
@@ -489,6 +522,72 @@ router.get("/online", requireAuth, (req, res) => {
   markOnline(req.user.id);
   const usuarios = onlineUsers();
   res.json({ count: usuarios.length, usuarios });
+});
+
+/* POST /api/community/hide → ocultar un mensaje SOLO para mí.
+ * Solo usuarios con plan (mensual/anual) o admin. Ocultamiento personal:
+ * el mensaje sigue visible para los demás. Devuelve { ok: true }. */
+router.post("/hide", requireAuth, (req, res) => {
+  const u = req.user;
+  const isPaid = u.is_admin === 1 || u.subscribed === 1;
+  if (!isPaid) return res.status(403).json({ error: "Esta función es para miembros con plan 💎" });
+  const messageId = Number(req.body && req.body.message_id);
+  if (!messageId) return res.status(400).json({ error: "Falta el mensaje." });
+  const msg = db.prepare("SELECT id FROM community_comments WHERE id = ?").get(messageId);
+  if (!msg) return res.status(404).json({ error: "Mensaje no encontrado." });
+  db.prepare("INSERT OR IGNORE INTO hidden_messages (user_id, message_id) VALUES (?, ?)")
+    .run(u.id, messageId);
+  res.json({ ok: true });
+});
+
+/* POST /api/community/unhide → volver a mostrar un mensaje oculto.
+ * Solo usuarios con plan o admin. */
+router.post("/unhide", requireAuth, (req, res) => {
+  const u = req.user;
+  const isPaid = u.is_admin === 1 || u.subscribed === 1;
+  if (!isPaid) return res.status(403).json({ error: "Esta función es para miembros con plan 💎" });
+  const messageId = Number(req.body && req.body.message_id);
+  if (!messageId) return res.status(400).json({ error: "Falta el mensaje." });
+  db.prepare("DELETE FROM hidden_messages WHERE user_id = ? AND message_id = ?")
+    .run(u.id, messageId);
+  res.json({ ok: true });
+});
+
+/* GET /api/community/hidden → mensajes que YO oculté (para "ver ocultos").
+ * Solo usuarios con plan o admin. Devuelve los mismos campos públicos. */
+router.get("/hidden", requireAuth, (req, res) => {
+  const u = req.user;
+  const isPaid = u.is_admin === 1 || u.subscribed === 1;
+  if (!isPaid) return res.status(403).json({ error: "Esta función es para miembros con plan 💎" });
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data,
+              u.name, u.photo, u.subscribed, u.is_admin, u.country_code
+       FROM hidden_messages h
+       JOIN community_comments c ON c.id = h.message_id
+       JOIN users u ON u.id = c.user_id
+       WHERE h.user_id = ?
+       ORDER BY h.hidden_at DESC
+       LIMIT 50`
+    )
+    .all(u.id);
+  res.json({
+    ocultos: rows.map((c) => {
+      const paid = c.subscribed === 1 || c.is_admin === 1;
+      const pais = String(c.country_code || "").toUpperCase();
+      const nombre = paid
+        ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
+        : "Guest";
+      return {
+        id: c.id,
+        texto: c.msg_type === "photo" ? "📷 Foto" : c.text,
+        fecha: fechaCorta(c.created_at),
+        nombre,
+        foto: c.photo || null,
+        avatar: avatarFor(c.user_id),
+      };
+    }),
+  });
 });
 
 /* POST /api/community/heartbeat → el frontend lo llama cada 60s mientras
