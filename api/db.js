@@ -503,3 +503,47 @@ try {
 } catch (e) {
   console.error("[db] migración dm_daily_partners:", e.message);
 }
+
+/* --- Migración: dominios verificados para enlaces promocionales 🔒 ---
+ * verified_domains: solo se permiten links de páginas verificadas
+ * cuando un usuario paga RV para compartir un enlace (anti-hackers).
+ * El admin gestiona la lista desde el panel. Se precarga con
+ * dominios comunes y seguros. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verified_domains (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain      TEXT UNIQUE NOT NULL,
+      approved_by TEXT,
+      approved_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  const n = db.prepare("SELECT COUNT(*) AS n FROM verified_domains").get().n;
+  if (n === 0) {
+    const semilla = [
+      "reavivaapp.com",
+      "youtube.com", "youtu.be",
+      "instagram.com",
+      "tiktok.com",
+      "facebook.com", "fb.com",
+      "twitter.com", "x.com",
+      "whatsapp.com",
+      "telegram.me", "t.me",
+      "amazon.com", "amazon.com.mx", "amazon.es",
+      "mercadolibre.com", "mercadolibre.com.mx", "mercadolibre.com.co", "mercadolibre.com.ar",
+      "ebay.com",
+      "paypal.com",
+      "hotmart.com",
+      "google.com",
+    ];
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO verified_domains (domain, approved_by) VALUES (?, 'sistema')"
+    );
+    for (const d of semilla) ins.run(d);
+    console.log("[db] migración: tabla verified_domains creada con", semilla.length, "dominios semilla");
+  } else {
+    console.log("[db] migración: tabla verified_domains lista");
+  }
+} catch (e) {
+  console.error("[db] migración verified_domains:", e.message);
+}
