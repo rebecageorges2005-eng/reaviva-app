@@ -11,8 +11,8 @@ const path = require("path");
 const express = require("express");
 
 const db = require("./db"); // initializes schema on require
-const { router: authRouter, requireAuth } = require("./routes/auth");
-const progressRouter = require("./routes/progress");
+const { router: authRouter, requireAuth, verifyToken } = require("./routes/auth");
+const { router: progressRouter } = require("./routes/progress");
 const journalRouter = require("./routes/journal");
 const { router: billingRouter, webhookHandler, paypalConfigured } = require("./routes/billing");
 const { router: adminRouter } = require("./routes/admin");
@@ -31,7 +31,7 @@ if (paypalConfigured()) {
   console.log("[reaviva] PayPal NO configurado — /api/paypal/* devolverá 503 hasta que Georges ponga las credenciales (ver README)");
 }
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "3mb" })); // 3mb: permite la foto de perfil en base64
 
 /* --- API routes --- */
 app.use("/api/auth", authRouter);
@@ -95,6 +95,21 @@ app.get("/api/health", (req, res) =>
 app.get("/api/config", (req, res) =>
   res.json({ recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || null })
 );
+
+/* --- Protección de audios freemium ---
+ * Los audios de los días 8–30 requieren plan de pago (límite freemium:
+ * solo hasta el día 7). Las etiquetas <audio> del navegador no envían
+ * headers de autorización, así que el frontend pasa el JWT como ?token=.
+ * Días 1–7: acceso libre. */
+app.use("/audio", (req, res, next) => {
+  const m = /^\/dia-(\d+)\.mp3$/.exec(req.path);
+  if (!m) return next();
+  const day = Number(m[1]);
+  if (day <= 7) return next();
+  const user = req.query.token ? verifyToken(String(req.query.token)) : null;
+  if (user && (user.subscribed === 1 || user.is_admin === 1)) return next();
+  return res.status(403).send("Este día requiere un plan de pago 💎");
+});
 
 /* --- Serve the frontend SPA in production --- */
 const FRONTEND_DIR = path.resolve(__dirname, process.env.FRONTEND_DIR || "../web");
