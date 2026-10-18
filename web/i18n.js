@@ -38,7 +38,7 @@ es: {
 "prices.sub": "Empieza gratis. Actualiza cuando estés listo/a.",
 "faq.title": "Preguntas frecuentes",
 "footer.made": "De los creadores de", "footer.rights": "© 2026 Reaviva Tu Fe. Todos los derechos reservados. · Contenido 100% original.",
-"footer.lang": "🌍 Idioma:",
+"footer.lang": "🌍 Idioma:", "footer.terms": "Términos", "footer.privacy": "Privacidad", "footer.contact": "Contacto",
 /* ---------- auth ---------- */
 "auth.welcome": "Bienvenido/a de nuevo 💛",
 "auth.tab_login": "Entrar", "auth.tab_signup": "Crear cuenta",
@@ -171,7 +171,7 @@ en: {
 "prices.sub": "Start free. Upgrade when you're ready.",
 "faq.title": "Frequently asked questions",
 "footer.made": "From the creators of", "footer.rights": "© 2026 Reaviva Tu Fe. All rights reserved. · 100% original content.",
-"footer.lang": "🌍 Language:",
+"footer.lang": "🌍 Language:", "footer.terms": "Terms", "footer.privacy": "Privacy", "footer.contact": "Contact",
 /* ---------- auth ---------- */
 "auth.welcome": "Welcome back 💛",
 "auth.tab_login": "Log in", "auth.tab_signup": "Create account",
@@ -301,7 +301,7 @@ pt: {
 "prices.sub": "Comece grátis. Atualize quando estiver pronto/a.",
 "faq.title": "Perguntas frequentes",
 "footer.made": "Dos criadores de", "footer.rights": "© 2026 Reaviva Tu Fe. Todos os direitos reservados. · Conteúdo 100% original.",
-"footer.lang": "🌍 Idioma:",
+"footer.lang": "🌍 Idioma:", "footer.terms": "Termos", "footer.privacy": "Privacidade", "footer.contact": "Contato",
 /* ---------- auth ---------- */
 "auth.welcome": "Bem-vindo/a de volta 💛",
 "auth.tab_login": "Entrar", "auth.tab_signup": "Criar conta",
@@ -434,7 +434,7 @@ fr: {
 "prices.sub": "Commencez gratuitement. Passez au niveau supérieur quand vous êtes prêt(e).",
 "faq.title": "Questions fréquentes",
 "footer.made": "Des créateurs de", "footer.rights": "© 2026 Reaviva Tu Fe. Tous droits réservés. · Contenu 100% original.",
-"footer.lang": "🌍 Langue :",
+"footer.lang": "🌍 Langue :", "footer.terms": "Conditions", "footer.privacy": "Confidentialité", "footer.contact": "Contact",
 /* ---------- auth ---------- */
 "auth.welcome": "Bon retour 💛",
 "auth.tab_login": "Se connecter", "auth.tab_signup": "Créer un compte",

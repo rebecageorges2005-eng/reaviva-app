@@ -199,6 +199,27 @@
       <p style="margin-top:14px;font-size:.82rem" data-i18n="auth.terms">Al continuar aceptas nuestros términos. Podrás cancelar cuando quieras.</p>
     </div>
   </div>
+  <!-- Pie de página de la vista de autenticación -->
+  <footer class="site" style="margin-top:40px">
+    <div class="container">
+      <a class="logo" href="#" style="color:#f7eadd" onclick="showView('landing');return false">Reaviva<span style="color:var(--terra)">.</span></a>
+      <p style="margin-top:10px;font-size:.85rem">
+        <a href="#" onclick="alert('Términos de servicio — próximamente');return false" data-i18n="footer.terms">Términos</a>
+        ·
+        <a href="#" onclick="alert('Política de privacidad — próximamente');return false" data-i18n="footer.privacy">Privacidad</a>
+        ·
+        <a href="mailto:contacto@reavivaapp.com" data-i18n="footer.contact">Contacto</a>
+      </p>
+      <small data-i18n="footer.rights">© 2026 Reaviva Tu Fe. Todos los derechos reservados. · Contenido 100% original.</small>
+      <div class="lang-selector" style="margin-top:14px">
+        <span data-i18n="footer.lang" style="font-size:.85rem;color:var(--sand)">🌍 Idioma:</span>
+        <button class="lang-opt" data-lang="es" onclick="setLang('es')">🇪🇸 Español</button>
+        <button class="lang-opt" data-lang="en" onclick="setLang('en')">🇺🇸 English</button>
+        <button class="lang-opt" data-lang="pt" onclick="setLang('pt')">🇧🇷 Português</button>
+        <button class="lang-opt" data-lang="fr" onclick="setLang('fr')">🇫🇷 Français</button>
+      </div>
+    </div>
+  </footer>
 </div>
 
 <!-- ==================== ADMIN LOGIN (URL secreta /admin/ingzoe) ==================== -->

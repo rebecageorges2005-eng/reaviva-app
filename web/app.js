@@ -2204,6 +2204,10 @@ function maybeShowTour(){
   try{
     if(localStorage.getItem("reaviva_tour_done")) return;
   }catch(e){ return; }
+  // Solo mostrar el tour si el usuario ya inició sesión (no en la página de registro para visitantes).
+  try{
+    if(typeof currentUser === "function" && !currentUser()) return;
+  }catch(e){}
   tourStep = 0;
   renderTourStep();
   const m = document.getElementById("tour-modal");

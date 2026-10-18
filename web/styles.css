@@ -591,6 +591,10 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .msg-expiry{font-size:.72rem;color:var(--cocoa-soft);opacity:.75;margin-left:6px;white-space:nowrap}
 
 /* ============ TOUR DE BIENVENIDA ============ */
+/* Overlay centrado (el tour aparece en el centro de la pantalla) */
+.modal-overlay{ position:fixed; inset:0; background:rgba(74,55,40,.55); display:none; align-items:center; justify-content:center; z-index:200; padding:20px; }
+.modal-overlay .modal-card{ background:var(--white); border-radius:var(--radius); box-shadow:var(--shadow); animation:tourPop .25s ease-out; }
+@keyframes tourPop{ from{ transform:scale(.92); opacity:0 } to{ transform:scale(1); opacity:1 } }
 .tour-card{ max-width:380px; text-align:center; padding:28px 24px; }
 .tour-emoji{ font-size:3rem; margin-bottom:12px; }
 .tour-card h3{ margin:0 0 10px; font-size:1.25rem; }
