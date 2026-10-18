@@ -65,7 +65,7 @@ function togglePassword(id){
 /* Guarda la sesión del backend y entra a la app. */
 function saveSession(token, user){
   store.set("reaviva_token", token);
-  store.set(LS.user, { email: user.email, name: user.name });
+  store.set(LS.user, { id: user.id, email: user.email, name: user.name, planType: user.planType || "free" });
   store.set("reaviva_admin", user.isAdmin === true);
   store.set("reaviva_paid", user.subscribed === true || user.isAdmin === true);
   if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
@@ -263,6 +263,13 @@ function markDone(d){
 function isUnlocked(d){ return d <= Math.min(currentDay(), 30); }
 function isPaid(){ return store.get("reaviva_paid", false); } // synced from /api/paypal/status
 function isAdmin(){ return store.get("reaviva_admin", false); }
+/* Tipo de plan: 'annual' | 'monthly' | 'free'. El admin cuenta como annual. */
+function planType(){
+  if(isAdmin()) return "annual";
+  const u = currentUser();
+  return (u && u.planType) || "free";
+}
+function isAnnual(){ return planType() === "annual"; }
 
 /* Sync the paid flag with the backend (PayPal is the source of truth). */
 async function refreshPaidStatus(){
@@ -273,6 +280,11 @@ async function refreshPaidStatus(){
     if(!r.ok) return; // backend sin PayPal o sin registro: conserva el valor local
     const j = await r.json();
     store.set("reaviva_paid", !!j.subscribed);
+    if(j.planType){
+      const cu = currentUser() || {};
+      cu.planType = j.planType;
+      store.set(LS.user, cu);
+    }
   }catch(e){ /* sin conexión: conserva el valor local */ }
 }
 function canAccess(d){
@@ -328,6 +340,7 @@ function enterApp(){
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
   try{ switchTab("hoy"); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
+  try{ startDmPoll(); }catch(e){}
 }
 function switchTab(tab){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
@@ -339,6 +352,7 @@ function switchTab(tab){
   if(tab==="diario") renderDiario();
   if(tab==="progreso") renderProgreso();
   if(tab==="comunidad") renderComunidad();
+  if(tab==="privados") renderDmList();
   if(tab==="admin") renderAdmin();
 }
 
@@ -811,7 +825,10 @@ async function renderComunidad(){
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     const items = j.comentarios || [];
+    // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
+    communityUsers = {};
     list.innerHTML = items.map(c=>{
+      if(c.uid) communityUsers[c.uid] = { nombre: c.nombre, foto: c.foto, avatar: c.avatar };
       // Sin plan → "Guest" + foto; con plan → nombre real + foto.
       // La foto viene validada del servidor (data:image/...); esc() la protege.
       const avatar = (c.foto && String(c.foto).startsWith("data:image/"))
@@ -835,11 +852,15 @@ async function renderComunidad(){
           ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
           : `<p>${esc(c.texto)}</p>`;
       }
+      // Avatar y nombre clicables → mensaje privado (según el plan).
+      // Tooltip al pasar el mouse: "💬 Chat privado" solo para plan anual.
+      const tipText = isAnnual() ? "💬 Chat privado" : (planType() === "monthly" ? "Actualiza a plan anual 💎" : "");
+      const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
       return `
       <div class="comment-card">
-        <div class="comment-avatar">${avatar}</div>
+        <div class="comment-avatar"${clickAttr}>${avatar}</div>
         <div class="comment-body">
-          <div class="comment-head"><b>${esc(c.nombre || "Guest")}</b><span>${esc(c.fecha)}</span></div>
+          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b><span>${esc(c.fecha)}</span></div>
           ${body}
         </div>
       </div>`;}).join("") ||
@@ -1161,6 +1182,286 @@ function stopChatPoll(){
   if(chatPollTimer){ clearInterval(chatPollTimer); chatPollTimer = null; }
 }
 
+/* ============================================================
+   MENSAJES PRIVADOS (DM) 💬 — solo plan anual
+   - Clic en un usuario de la comunidad → chat privado (sin ver su
+     nombre real: solo iniciales + país + foto).
+   - Plan mensual → modal de actualización con cotización prorrateada.
+   - Cada mensaje se elimina a las 48 horas.
+   ============================================================ */
+let communityUsers = {}; // uid → { nombre, foto, avatar }
+let dmActiveUid = null;
+let dmPollTimer = null;
+
+function dmAvatarHtml(p){
+  return (p.foto && String(p.foto).startsWith("data:image/"))
+    ? `<img src="${esc(p.foto)}" class="comment-photo" alt="">`
+    : esc(p.avatar || "💛");
+}
+
+/* Clic en avatar/nombre de la comunidad. */
+function onCommunityUserClick(uid){
+  uid = Number(uid);
+  const me = currentUser();
+  if(me && Number(me.id) === uid){ toast("Ese eres tú 😄"); return; }
+  const target = communityUsers[uid] || { nombre: "Usuario", foto: null, avatar: "💛" };
+  if(isAnnual()){
+    openDmChat(uid, target);
+    switchTab("privados");
+  }else if(planType() === "monthly"){
+    openUpgradeModal();
+  }else{
+    toast("Los mensajes privados son para miembros con plan anual 💎");
+  }
+}
+
+/* ---------- lista de conversaciones ---------- */
+async function renderDmList(){
+  const list = $("#dm-list");
+  const chat = $("#dm-chat");
+  if(chat) chat.style.display = "none";
+  if(list) list.style.display = "";
+  dmActiveUid = null;
+  if(!isAnnual()){
+    if(list) list.innerHTML = `
+      <div class="empty-state"><div style="font-size:2.5rem">💎</div>
+      <p><b>Mensajes privados</b></p>
+      <p style="font-size:.85rem;color:var(--cocoa-soft)">Solo para miembros con plan anual.</p>
+      ${planType() === "monthly"
+        ? `<button class="btn btn-primary" onclick="openUpgradeModal()" style="margin-top:10px">Actualizar a anual 💎</button>`
+        : `<button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">Ver planes</button>`}
+      </div>`;
+    return;
+  }
+  if(list) list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando conversaciones…</p>`;
+  try{
+    const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const convs = j.conversaciones || [];
+    if(!convs.length){
+      list.innerHTML = `
+        <div class="empty-state"><div style="font-size:2.5rem">💬</div>
+        <p><b>Sin conversaciones todavía</b></p>
+        <p style="font-size:.85rem;color:var(--cocoa-soft)">Toca la foto o el nombre de alguien en la comunidad para escribirle en privado.</p></div>`;
+      return;
+    }
+    list.innerHTML = convs.map(c => `
+      <div class="dm-conv" onclick="openDmChat(${Number(c.uid)})">
+        <div class="comment-avatar">${dmAvatarHtml(c)}</div>
+        <div class="dm-conv-body">
+          <div class="dm-conv-head"><b>${esc(c.nombre)}</b><span>${esc(c.fecha || "")}</span></div>
+          <p class="dm-preview">${esc(c.ultimo || "")}</p>
+        </div>
+        ${c.noLeidos ? `<span class="dm-unread">${c.noLeidos}</span>` : ""}
+      </div>`).join("");
+  }catch(e){
+    if(list) list.innerHTML = `<p style="text-align:center;color:#a33">Error cargando conversaciones</p>`;
+  }
+}
+
+/* ---------- chat privado con un usuario ---------- */
+async function openDmChat(uid, target){
+  uid = Number(uid);
+  dmActiveUid = uid;
+  if(!target){
+    try{
+      const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
+      const j = await r.json();
+      const c = (j.conversaciones || []).find(x => Number(x.uid) === uid);
+      if(c) target = c;
+    }catch(e){}
+  }
+  target = target || communityUsers[uid] || { nombre: "Usuario", foto: null, avatar: "💛" };
+  const list = $("#dm-list");
+  const chat = $("#dm-chat");
+  if(list) list.style.display = "none";
+  if(!chat) return;
+  chat.style.display = "";
+  chat.innerHTML = `
+    <div class="dm-chat-head">
+      <button class="dm-back" onclick="renderDmList()" aria-label="Volver">←</button>
+      <div class="comment-avatar">${dmAvatarHtml(target)}</div>
+      <div><b>${esc(target.nombre)}</b><br><small id="dm-countdown" style="color:var(--cocoa-soft)">⏳ Los mensajes se eliminan en 48h</small></div>
+    </div>
+    <div id="dm-messages" class="dm-messages"><p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p></div>
+    <div class="dm-composer">
+      <input id="dm-input" class="field" maxlength="1000" placeholder="Escribe un mensaje privado…"
+        onkeydown="if(event.key==='Enter')sendDm()">
+      <button class="btn btn-primary" onclick="sendDm()">➤</button>
+    </div>`;
+  await loadDmMessages();
+  updateDmBadge();
+  startDmCountdown();
+}
+
+async function loadDmMessages(){
+  const box = $("#dm-messages");
+  if(!box || !dmActiveUid) return;
+  try{
+    const r = await fetch("/api/dm/" + dmActiveUid, { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const msgs = j.mensajes || [];
+    box.innerHTML = msgs.map(m => `
+      <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""}>
+        <p>${esc(m.texto)}</p>
+        <span class="dm-meta">${esc(m.fecha)} · ⏳ se elimina en 48h</span>
+      </div>`).join("") || `<p style="text-align:center;color:var(--cocoa-soft)">Sin mensajes todavía. ¡Saluda! 👋</p>`;
+    box.scrollTop = box.scrollHeight;
+  }catch(e){
+    box.innerHTML = `<p style="text-align:center;color:#a33">Error cargando mensajes</p>`;
+  }
+}
+
+async function sendDm(){
+  const inp = $("#dm-input");
+  const text = inp ? inp.value.trim() : "";
+  if(!text || !dmActiveUid) return;
+  try{
+    const r = await fetch("/api/dm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ to_user_id: dmActiveUid, text })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok){
+      if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(); return; }
+      throw new Error(j.error || j.message || ("HTTP " + r.status));
+    }
+    if(inp) inp.value = "";
+    playDing();
+    await loadDmMessages();
+  }catch(e){
+    toast(e.message);
+  }
+}
+
+/* ---------- insignia + aviso de mensajes sin leer ---------- */
+async function updateDmBadge(){
+  try{
+    const r = await fetch("/api/dm/unread-count", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    const n = j.count || 0;
+    const badge = $("#dm-badge");
+    if(badge){
+      badge.style.display = n ? "" : "none";
+      badge.textContent = n > 99 ? "99+" : n;
+    }
+    const notif = $("#dm-notif");
+    if(notif){
+      if(n && !isAnnual()){
+        notif.style.display = "";
+        notif.innerHTML = `💬 Tienes ${n} mensaje${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} sin leer.
+          <button class="btn btn-primary btn-sm" onclick="openUpgradeModal()">Actualizar a anual 💎</button>`;
+      }else if(n){
+        notif.style.display = "";
+        notif.innerHTML = `💬 Tienes ${n} mensaje${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} sin leer.
+          <button class="btn btn-primary btn-sm" onclick="switchTab('privados')">Ver</button>`;
+      }else{
+        notif.style.display = "none";
+        notif.innerHTML = "";
+      }
+    }
+  }catch(e){ /* sin conexión: no mostrar nada */ }
+}
+
+function startDmPoll(){
+  stopDmPoll();
+  updateDmBadge();
+  dmPollTimer = setInterval(updateDmBadge, 30000);
+}
+
+/* Cronómetro de 48h en el chat privado: muestra el tiempo restante
+ * del mensaje más antiguo visible. Se actualiza cada minuto. */
+let dmCountdownTimer = null;
+function startDmCountdown(){
+  stopDmCountdown();
+  updateDmCountdown();
+  dmCountdownTimer = setInterval(updateDmCountdown, 60000);
+}
+function stopDmCountdown(){
+  if(dmCountdownTimer){ clearInterval(dmCountdownTimer); dmCountdownTimer = null; }
+}
+function updateDmCountdown(){
+  const el = $("#dm-countdown");
+  if(!el || !dmActiveUid) return;
+  // Busca el mensaje con expiración más próxima (tiene data-expira).
+  const msgs = document.querySelectorAll("#dm-messages [data-expira]");
+  if(!msgs.length){ el.textContent = "⏳ Los mensajes se eliminan en 48h"; return; }
+  let proxima = Infinity;
+  msgs.forEach(m => {
+    const t = new Date(m.getAttribute("data-expira").replace(" ", "T") + "Z").getTime();
+    if(!isNaN(t) && t < proxima) proxima = t;
+  });
+  if(proxima === Infinity){ el.textContent = "⏳ Los mensajes se eliminan en 48h"; return; }
+  const restante = proxima - Date.now();
+  if(restante <= 0){ el.textContent = "⏳ Eliminando mensajes…"; return; }
+  const h = Math.floor(restante / 3600000);
+  const m = Math.floor((restante % 3600000) / 60000);
+  el.textContent = h >= 24
+    ? `⏳ Se eliminan en ${Math.floor(h/24)}d ${h%24}h`
+    : `⏳ Se eliminan en ${h}h ${m}m`;
+}
+function stopDmPoll(){
+  if(dmPollTimer){ clearInterval(dmPollTimer); dmPollTimer = null; }
+}
+
+/* ---------- modal de actualización mensual → anual ---------- */
+async function openUpgradeModal(){
+  const modal = $("#upgrade-modal");
+  const body = $("#upgrade-body");
+  if(!modal || !body) return;
+  body.innerHTML = `<p style="text-align:center">Cargando…</p>`;
+  modal.classList.add("open");
+  try{
+    const r = await fetch("/api/billing/upgrade-quote", { headers: authHeaders() });
+    const j = await r.json();
+    if(j.plan === "annual"){
+      body.innerHTML = `<p style="text-align:center"><b>Ya tienes el plan anual 🎉</b></p>`;
+      return;
+    }
+    body.innerHTML = `
+      <div style="text-align:center;font-size:2.5rem">💎</div>
+      <h3 style="text-align:center">Actualiza a un plan anual para enviar mensajes privados 💎</h3>
+      <p style="text-align:center">${esc(j.mensaje || "")}</p>
+      <div class="upgrade-quote">
+        <div><span>Plan anual</span><b>$${esc(j.precioAnual || "39.99")}</b></div>
+        ${j.pagadoEsteMes ? `<div><span>Ya pagado este mes</span><b>−$${esc(j.pagadoEsteMes)}</b></div>` : ""}
+        <div class="upgrade-total"><span>Total a pagar hoy</span><b>$${esc(j.quote || j.precioAnual || "39.99")} ${esc(j.moneda || "USD")}</b></div>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="upgradeToAnnual()">Actualizar mi plan →</button>
+      <p style="font-size:.78rem;color:var(--cocoa-soft);text-align:center;margin-top:8px">
+        Serás redirigido a PayPal para confirmar. Después puedes cancelar tu plan mensual.</p>`;
+  }catch(e){
+    body.innerHTML = `<p style="text-align:center;color:#a33">No se pudo cargar la cotización. Intenta de nuevo.</p>`;
+  }
+}
+function closeUpgradeModal(){
+  const modal = $("#upgrade-modal");
+  if(modal) modal.classList.remove("open");
+}
+
+async function upgradeToAnnual(){
+  const u = currentUser();
+  if(!u || !u.email){ toast("Primero crea tu cuenta gratis 💛"); return; }
+  toast("Conectando con PayPal…");
+  try{
+    const r = await fetch("/api/paypal/create-subscription", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ plan: "yearly", email: u.email })
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(j.approveUrl){ window.location.href = j.approveUrl; return; }
+    toast("No se pudo iniciar el pago.");
+  }catch(e){
+    toast(e.message);
+  }
+}
+
 /* ---------- paywall / PayPal ---------- */
 function openPaywall(){
   $("#paywall-modal").classList.add("open");
@@ -1223,6 +1524,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
     afterRestore(await restoreSession());
   }));
   $("#logout-btn").addEventListener("click", ()=>{
+    try{ stopDmPoll(); }catch(e){}
+    try{ stopChatPoll(); }catch(e){}
     localStorage.removeItem(LS.user);
     localStorage.removeItem("reaviva_token");
     localStorage.removeItem("reaviva_admin");

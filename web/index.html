@@ -224,6 +224,7 @@
 
   <main class="app-main">
     <div id="user-messages" style="display:none"></div>
+    <div id="dm-notif" class="dm-notif" style="display:none"></div>
     <!-- HOY -->
     <div class="panel" id="panel-hoy">
       <div class="greet" id="hoy-greet">Tu día de hoy</div>
@@ -307,6 +308,14 @@
         <div id="community-list" class="community-list"></div>
       </div>
     </div>
+
+    <!-- PRIVADOS (mensajes privados, plan anual) -->
+    <div class="panel" id="panel-privados">
+      <div class="greet">💬 Mensajes privados</div>
+      <p class="greet-sub">Conversaciones 1 a 1. Los mensajes se eliminan en 48 horas ⏳</p>
+      <div id="dm-list" class="dm-list"></div>
+      <div id="dm-chat" class="dm-chat" style="display:none"></div>
+    </div>
   </main>
 
   <nav class="tabbar">
@@ -315,6 +324,7 @@
     <button class="tab" data-tab="diario" onclick="switchTab('diario')"><span class="ticon">✍️</span>Diario</button>
     <button class="tab" data-tab="progreso" onclick="switchTab('progreso')"><span class="ticon">📊</span>Progreso</button>
     <button class="tab" data-tab="comunidad" onclick="switchTab('comunidad')"><span class="ticon">💬</span>Comunidad</button>
+    <button class="tab" data-tab="privados" onclick="switchTab('privados')"><span class="ticon">✉️</span>Privados<span id="dm-badge" class="dm-badge" style="display:none"></span></button>
     <button class="tab" data-tab="perfil" onclick="switchTab('perfil')"><span class="ticon">👤</span>Perfil</button>
     <button class="tab" data-tab="admin" onclick="switchTab('admin')" style="display:none"><span class="ticon">👑</span>Admin</button>
   </nav>
@@ -339,6 +349,14 @@
     <p id="topic-err" class="auth-err"></p>
     <button class="btn btn-primary btn-block" style="margin-bottom:10px" onclick="createTopic()">Crear tema 🎉</button>
     <button class="btn btn-block" style="background:none;color:var(--cocoa-soft)" onclick="closeTopicModal()">Cancelar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="upgrade-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeUpgradeModal()" aria-label="Cerrar">✕</button>
+    <div id="upgrade-body"></div>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeUpgradeModal()">Ahora no</button>
   </div>
 </div>
 
