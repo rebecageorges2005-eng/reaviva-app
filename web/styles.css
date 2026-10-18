@@ -617,3 +617,28 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
   padding:6px 12px;border-radius:20px;font-size:.82rem;cursor:pointer;transition:all .15s}
 .lang-opt:hover{background:rgba(255,255,255,.22);transform:scale(1.03)}
 .lang-opt.active{background:var(--coral);border-color:var(--coral);font-weight:700;color:#fff}
+
+/* Ocultar publicaciones (personal, solo con plan) 👁️ */
+.hide-msg-btn{background:none;border:none;font-size:.95rem;cursor:pointer;opacity:0;
+  transition:opacity .2s;margin-left:auto;padding:2px 4px;border-radius:6px}
+.comment-card:hover .hide-msg-btn{opacity:.55}
+.hide-msg-btn:hover{opacity:1 !important;background:rgba(0,0,0,.06)}
+.hidden-toggle-btn{border:none;border-radius:20px;padding:6px 12px;font-size:.9rem;cursor:pointer;
+  background:var(--hatch-widget-surface-muted,#f5efe6);transition:all .2s}
+.hidden-toggle-btn:hover{filter:brightness(.95)}
+.hidden-toggle-btn.active{background:#dbeafe}
+.hidden-list{margin:8px 0}
+.hidden-card{opacity:.75;border-style:dashed}
+
+/* Reacciones 👍👎 con conteo (chat grupal y mensajes privados) */
+.reactions{display:flex;gap:6px;margin-top:6px}
+.react-btn{background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.06);border-radius:16px;
+  padding:3px 10px;font-size:.8rem;cursor:pointer;color:var(--cocoa-soft,#7a6a5f);
+  transition:all .15s;display:inline-flex;align-items:center;gap:4px;line-height:1.4}
+.react-btn:hover{background:rgba(0,0,0,.08);transform:scale(1.05)}
+.react-btn.on{background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;font-weight:700}
+.react-btn .react-n{font-variant-numeric:tabular-nums;min-width:1ch;text-align:right}
+/* En mensajes propios del DM, botones más sutiles */
+.dm-mine .react-btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.25);color:inherit}
+.dm-mine .react-btn:hover{background:rgba(255,255,255,.3)}
+.dm-mine .react-btn.on{background:#fff;color:#1d4ed8}

@@ -1213,6 +1213,9 @@ async function renderComunidad(){
   loadTopics().catch(()=>{});
   // Saldo de RV en la cabecera del chat (solo con plan).
   loadRVBalance().catch(()=>{});
+  // Botón "Ver ocultos" 👁️‍🗨️: solo visible para usuarios con plan.
+  const hiddenBtn = $("#hidden-toggle-btn");
+  if(hiddenBtn) hiddenBtn.style.display = isPaid() ? "" : "none";
   // El botón de foto: habilitado con plan, bloqueado (visible) sin plan.
   const photoBtn = $("#photo-btn");
   if(photoBtn){
@@ -1271,12 +1274,18 @@ async function renderComunidad(){
       const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
         ? `<span class="msg-expiry" title="Este mensaje se elimina automáticamente">⏳ ${Number(c.expira_en_horas) < 1 ? "menos de 1h" : Math.round(c.expira_en_horas) + "h"}</span>`
         : "";
+      // Icono 👁️ para ocultar la publicación (solo usuarios con plan).
+      // El ocultamiento es personal: el mensaje sigue visible para los demás.
+      const hideBtn = isPaid()
+        ? `<button class="hide-msg-btn" title="Ocultar esta publicación" onclick="hideCommunityMsg(event, ${Number(c.id)})">👁️</button>`
+        : "";
       return `
-      <div class="comment-card">
+      <div class="comment-card" data-msg-id="${Number(c.id)}">
         <div class="comment-avatar"${clickAttr}>${avatar}</div>
         <div class="comment-body">
-          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${c.repost ? `<span class="repost-badge" title="Republicación automática">🔁</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span></div>
+          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${c.repost ? `<span class="repost-badge" title="Republicación automática">🔁</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span>${hideBtn}</div>
           ${body}
+          ${reactionHtml(c.id, "community", c.likes, c.dislikes, c.mi_reaccion)}
         </div>
       </div>`;}).join("") ||
       `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
@@ -1284,6 +1293,167 @@ async function renderComunidad(){
        <p style="font-size:.85rem;color:var(--cocoa-soft)">Tu historia puede ayudar a alguien que lo necesita.</p></div>`;
   }catch(e){
     list.innerHTML = `<p style="text-align:center;color:#a33">Error cargando la comunidad</p>`;
+  }
+}
+
+/* ---------- reacciones 👍👎 (chat grupal y mensajes privados) ----------
+ * Todos los usuarios autenticados pueden reaccionar. Un clic alterna:
+ * sin reacción → la pone; misma reacción → la quita; opuesta → la cambia. */
+function reactionHtml(msgId, msgType, likes, dislikes, miReaccion, handler){
+  msgId = Number(msgId);
+  handler = handler || "toggleReaction";
+  const l = Number(likes) || 0, d = Number(dislikes) || 0;
+  const likeOn = miReaccion === "like" ? " on" : "";
+  const disOn = miReaccion === "dislike" ? " on" : "";
+  return `<div class="reactions" data-reactions="${msgType}:${msgId}">
+    <button class="react-btn${likeOn}" title="${esc(t("react.like"))}"
+      onclick="${handler}(event, ${msgId}, '${esc(msgType)}', 'like')">👍 <span class="react-n">${l}</span></button>
+    <button class="react-btn${disOn}" title="${esc(t("react.dislike"))}"
+      onclick="${handler}(event, ${msgId}, '${esc(msgType)}', 'dislike')">👎 <span class="react-n">${d}</span></button>
+  </div>`;
+}
+
+/* Versión para ventanas flotantes de DM (actualiza dentro de la ventana). */
+function reactionHtmlDm(msgId, likes, dislikes, miReaccion){
+  return reactionHtml(msgId, "dm", likes, dislikes, miReaccion, "toggleReactionDm");
+}
+
+async function toggleReaction(ev, msgId, msgType, reaction){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  return doToggleReaction(msgId, msgType, reaction, document);
+}
+async function toggleReactionDm(ev, msgId, msgType, reaction){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  const win = ev.target.closest(".dm-win");
+  return doToggleReaction(msgId, msgType, reaction, win || document);
+}
+async function doToggleReaction(msgId, msgType, reaction, root){
+  msgId = Number(msgId);
+  const sel = `[data-reactions="${msgType}:${msgId}"]`;
+  const box = (root || document).querySelector(sel);
+  // UI optimista: actualiza al instante, el servidor confirma.
+  let prevState = null;
+  if(box){
+    const btns = box.querySelectorAll(".react-btn");
+    prevState = box.innerHTML;
+    const likeBtn = btns[0], disBtn = btns[1];
+    const likeN = likeBtn.querySelector(".react-n"), disN = disBtn.querySelector(".react-n");
+    const likeOn = likeBtn.classList.contains("on"), disOn = disBtn.classList.contains("on");
+    if(reaction === "like"){
+      if(likeOn){ likeBtn.classList.remove("on"); likeN.textContent = Math.max(0, Number(likeN.textContent) - 1); }
+      else{
+        likeBtn.classList.add("on"); likeN.textContent = Number(likeN.textContent) + 1;
+        if(disOn){ disBtn.classList.remove("on"); disN.textContent = Math.max(0, Number(disN.textContent) - 1); }
+      }
+    }else{
+      if(disOn){ disBtn.classList.remove("on"); disN.textContent = Math.max(0, Number(disN.textContent) - 1); }
+      else{
+        disBtn.classList.add("on"); disN.textContent = Number(disN.textContent) + 1;
+        if(likeOn){ likeBtn.classList.remove("on"); likeN.textContent = Math.max(0, Number(likeN.textContent) - 1); }
+      }
+    }
+  }
+  try{
+    const r = await fetch("/api/reactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message_id: msgId, message_type: msgType, reaction })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    // Confirma con los conteos reales del servidor.
+    if(box){
+      const btns = box.querySelectorAll(".react-btn");
+      btns[0].querySelector(".react-n").textContent = Number(j.likes) || 0;
+      btns[1].querySelector(".react-n").textContent = Number(j.dislikes) || 0;
+      btns[0].classList.toggle("on", j.mi_reaccion === "like");
+      btns[1].classList.toggle("on", j.mi_reaccion === "dislike");
+    }
+  }catch(e){
+    // Revierte la UI optimista si falló.
+    if(box && prevState != null) box.innerHTML = prevState;
+    toast(e.message || "No se pudo registrar tu reacción.");
+  }
+}
+
+/* ---------- ocultar publicaciones (personal, solo con plan) ---------- */
+/* El ojo 👁️ oculta el mensaje SOLO para mí; los demás lo siguen viendo. */
+async function hideCommunityMsg(ev, msgId){
+  if(ev) ev.stopPropagation();
+  msgId = Number(msgId);
+  try{
+    const r = await fetch("/api/community/hide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message_id: msgId })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const card = document.querySelector(`.comment-card[data-msg-id="${msgId}"]`);
+    if(card){
+      card.style.transition = "opacity .4s";
+      card.style.opacity = "0";
+      setTimeout(()=>card.remove(), 400);
+    }
+    toast("Publicación oculta 👁️");
+  }catch(e){
+    toast(e.message || "No se pudo ocultar.");
+  }
+}
+
+/* Volver a mostrar un mensaje que oculté. */
+async function unhideCommunityMsg(msgId){
+  msgId = Number(msgId);
+  try{
+    const r = await fetch("/api/community/unhide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message_id: msgId })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const card = document.querySelector(`.hidden-card[data-msg-id="${msgId}"]`);
+    if(card) card.remove();
+    toast("Publicación visible de nuevo 👁️");
+  }catch(e){
+    toast(e.message || "No se pudo mostrar.");
+  }
+}
+
+/* Mostrar/ocultar la lista de publicaciones que oculté. */
+let showingHidden = false;
+async function toggleHiddenMsgs(){
+  const btn = $("#hidden-toggle-btn");
+  const list = $("#hidden-list");
+  if(!list) return;
+  showingHidden = !showingHidden;
+  if(!showingHidden){
+    list.style.display = "none";
+    list.innerHTML = "";
+    if(btn) btn.classList.remove("active");
+    return;
+  }
+  if(btn) btn.classList.add("active");
+  list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p>`;
+  list.style.display = "";
+  try{
+    const r = await fetch("/api/community/hidden", { headers: authHeaders() });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const items = j.ocultos || [];
+    list.innerHTML = items.map(m => `
+      <div class="comment-card hidden-card" data-msg-id="${Number(m.id)}">
+        <div class="comment-avatar">${m.foto ? `<img src="${esc(m.foto)}" alt="">` : esc(m.avatar || "💛")}</div>
+        <div class="comment-body">
+          <div class="comment-head"><b>${esc(m.nombre || "Guest")}</b><span>${esc(m.fecha)}</span>
+            <button class="hide-msg-btn" title="Volver a mostrar" onclick="unhideCommunityMsg(${Number(m.id)})">👁️‍🗨️</button>
+          </div>
+          <p>${esc(m.texto)}</p>
+        </div>
+      </div>`).join("") ||
+      `<p style="text-align:center;color:var(--cocoa-soft)">No tienes publicaciones ocultas.</p>`;
+  }catch(e){
+    list.innerHTML = `<p style="text-align:center;color:#a33">${esc(e.message)}</p>`;
   }
 }
 
@@ -1879,9 +2049,10 @@ function dmMessageHtml(m){
     cuerpo = `<p>${esc(m.texto)}</p>`;
   }
   return `
-    <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""}>
+    <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""} data-dm-id="${Number(m.id)}">
       ${cuerpo}
       <span class="dm-meta">${esc(m.fecha)} · ${esc(t("dm.expires_in"))} 48h</span>
+      ${reactionHtmlDm(m.id, m.likes, m.dislikes, m.mi_reaccion)}
     </div>`;
 }
 

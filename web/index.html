@@ -325,11 +325,13 @@
       <div class="greet" style="display:flex;align-items:center;justify-content:space-between">
         <span data-i18n="chat.title">💬 Comunidad</span>
         <button id="online-btn" class="online-btn online-red" onclick="showOnlineList()" data-i18n-title="chat.online" title="Ver quién está en línea">🔴 0 en línea</button>
+        <button id="hidden-toggle-btn" class="hidden-toggle-btn" onclick="toggleHiddenMsgs()" title="Ver publicaciones que oculté" style="display:none">👁️‍🗨️</button>
         <button id="chat-sound-btn" class="sound-toggle" onclick="toggleChatSound()" title="Activar/silenciar sonido">🔔</button>
         <button id="rv-btn" class="rv-btn" title="Mis RV — recargar" style="display:none">💰 <span id="rv-balance">0</span> RV</button>
       </div>
       <div id="rv-error" class="rv-error" style="display:none"></div>
       <p class="greet-sub" data-i18n="chat.safe_space">Un espacio seguro. Todos somos anónimos aquí 💛</p>
+      <div id="hidden-list" class="hidden-list" style="display:none"></div>
       <div id="chat-timer"></div>
       <!-- Temas temporales (solo con plan) -->
       <div id="topics-bar" class="topics-bar" style="display:none">
