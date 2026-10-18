@@ -10,6 +10,15 @@ router.use(requireAuth);
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
+/* Límite freemium: sin plan pagado solo se puede llegar al día 7.
+ * El admin y los suscriptores acceden a los 30 días. */
+const FREE_MAX_DAY = 7;
+function canAccessDay(user, day) {
+  if (!user) return false;
+  if (user.is_admin === 1 || user.subscribed === 1) return true;
+  return Number(day) <= FREE_MAX_DAY;
+}
+
 /* Ensure the user has a program_start date (set on first progress read). */
 function ensureStart(user) {
   if (!user.program_start) {
@@ -42,6 +51,10 @@ router.post("/", (req, res) => {
   if (!Number.isInteger(day) || day < 1 || day > 30)
     return res.status(400).json({ error: "day debe ser un número entre 1 y 30" });
 
+  // Límite freemium: marcar días 8+ como hechos requiere plan de pago.
+  if (done && !canAccessDay(req.user, day))
+    return res.status(403).json({ error: "Este día requiere un plan de pago 💎" });
+
   ensureStart(req.user);
   if (done) {
     db.prepare(
@@ -57,4 +70,4 @@ router.post("/", (req, res) => {
   res.json({ doneDays: rows.map((r) => r.day) });
 });
 
-module.exports = router;
+module.exports = { router, canAccessDay, FREE_MAX_DAY };

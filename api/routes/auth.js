@@ -31,7 +31,28 @@ function publicUser(row) {
     // El admin siempre se considera verificado.
     emailVerified: row.email_verified === 1 || row.is_admin === 1,
     createdAt: row.created_at,
+    photo: row.photo || null,
+    // País y último acceso: visibles para el propio usuario.
+    // La IP NUNCA se expone aquí (solo el admin la ve en su panel).
+    pais: row.country || null,
+    codigoPais: row.country_code || null,
+    ultimoAcceso: row.last_seen || null,
   };
+}
+
+/* Verifica un JWT y devuelve {id, subscribed, is_admin} o null.
+ * Se usa en el middleware de audios (las etiquetas <audio> no envían
+ * headers, así que el token llega como ?token=). */
+function verifyToken(token) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const row = db
+      .prepare("SELECT id, subscribed, is_admin FROM users WHERE id = ?")
+      .get(payload.uid);
+    return row || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 /* Genera un token único para el link de verificación.
@@ -337,4 +358,18 @@ router.get("/me", requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
-module.exports = { router, requireAuth };
+/* POST /api/profile/photo  { photo: "data:image/jpeg;base64,..." }
+ * Foto de perfil del usuario (máx 2MB). El frontend la redimensiona
+ * a 400x400 antes de subirla. Se guarda en users.photo. */
+router.post("/profile/photo", requireAuth, (req, res) => {
+  const photo = String(req.body?.photo || "");
+  const ok = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo);
+  if (!ok) return res.status(400).json({ error: "Formato de imagen inválido" });
+  // ~2.9MB en base64 ≈ 2.1MB binarios
+  if (photo.length > 2.9 * 1024 * 1024)
+    return res.status(400).json({ error: "La imagen es muy grande (máx 2MB)" });
+  db.prepare("UPDATE users SET photo = ? WHERE id = ?").run(photo, req.user.id);
+  res.json({ ok: true });
+});
+
+module.exports = { router, requireAuth, verifyToken };
