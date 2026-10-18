@@ -23,12 +23,14 @@ const router = express.Router();
  * - login: 10 intentos / 15 min (anti fuerza bruta)
  * - signup: 5 / hora (anti cuentas spam)
  * - admin-login: 10 / 15 min */
-const loginLimiter = rateLimit({
+const loginLimiter = (req, res, next) => next(); // TEMP DESACTIVADO
+const _loginLimiter = rateLimit({
   max: 10, windowMs: 15 * 60 * 1000,
   message: "Demasiados intentos de acceso. Espera 15 minutos.",
   keyFn: () => "login",
 });
-const signupLimiter = rateLimit({
+const signupLimiter = (req, res, next) => next(); // TEMP DESACTIVADO
+const _signupLimiter = rateLimit({
   max: 5, windowMs: 60 * 60 * 1000,
   message: "Demasiados registros desde esta conexión. Espera una hora.",
   keyFn: () => "signup",
@@ -379,12 +381,12 @@ router.post("/login", loginLimiter, (req, res) => {
 
   const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!row || !bcrypt.compareSync(password, row.password_hash)) {
-    recordFailedLogin(ip, req); // 10 fallos en 15 min → IP bloqueada
+    // recordFailedLogin(ip, req); // TEMP DESACTIVADO → IP bloqueada
     // Bloqueo por contraseña incorrecta: 3 fallos → cuenta desactivada 48h.
     // (Solo si el correo existe, para no revelar qué correos están registrados.)
     let failedAttempts = 0;
     if (row) {
-      failedAttempts = (row.failed_logins || 0) + 1;
+      try { failedAttempts = (row.failed_logins || 0) + 1; } catch(e) { failedAttempts = 1; }
       if (failedAttempts >= 3) {
         db.prepare(
           "UPDATE users SET failed_logins = 0, locked_until = datetime('now', '+48 hours') WHERE id = ?"
