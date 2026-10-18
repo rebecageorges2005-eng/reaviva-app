@@ -4,7 +4,9 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const db = require("../db");
+const { sendVerificationEmail, sendWelcomeEmail } = require("../email");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
@@ -26,8 +28,16 @@ function publicUser(row) {
     programStart: row.program_start,
     subscribed: row.subscribed === 1,
     isAdmin: row.is_admin === 1,
+    // El admin siempre se considera verificado.
+    emailVerified: row.email_verified === 1 || row.is_admin === 1,
     createdAt: row.created_at,
   };
+}
+
+/* Genera un token único para el link de verificación.
+ * Los tokens no expiran (documentado): el link funciona hasta que se usa. */
+function newVerificationToken() {
+  return crypto.randomBytes(32).toString("hex");
 }
 
 /* ============================================================
@@ -110,8 +120,34 @@ function requireAuth(req, res, next) {
   }
 }
 
-/* POST /api/auth/signup  { name, email, password } */
-router.post("/signup", (req, res) => {
+/* Verifica el token de reCAPTCHA v2 contra Google.
+ * Si RECAPTCHA_SECRET_KEY no está configurado, o no llegó token,
+ * NO bloquea (el registro funciona sin captcha). */
+async function verifyRecaptcha(token, ip) {
+  const secret = process.env.RECAPTCHA_SECRET_KEY;
+  if (!secret || !token) return true;
+  try {
+    const params = new URLSearchParams({ secret, response: token });
+    if (ip) params.append("remoteip", ip);
+    const r = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      signal: AbortSignal.timeout(10000),
+    });
+    const j = await r.json();
+    return j.success === true;
+  } catch (e) {
+    console.error("[recaptcha] error verificando:", e.message);
+    return false;
+  }
+}
+
+/* POST /api/auth/signup  { name, email, password, recaptchaToken? }
+ * Crea la cuenta SIN verificar. Envía el correo de confirmación
+ * (asíncrono, no bloquea). NO devuelve token de sesión: el usuario
+ * debe confirmar su correo antes de poder entrar. */
+router.post("/signup", async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
@@ -125,17 +161,122 @@ router.post("/signup", (req, res) => {
   const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (exists) return res.status(409).json({ error: "Ese correo ya está registrado" });
 
+  // reCAPTCHA v2 (solo si está configurado y llegó el token).
+  const recaptchaToken = String(req.body?.recaptchaToken || "").trim();
+  if (process.env.RECAPTCHA_SECRET_KEY && recaptchaToken) {
+    const human = await verifyRecaptcha(recaptchaToken, getClientIp(req));
+    if (!human) return res.status(400).json({ error: "Verifica que no eres un robot 🤖" });
+  }
+
   const hash = bcrypt.hashSync(password, 10);
+  const token = newVerificationToken();
   const info = db
-    .prepare("INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)")
-    .run(email, name, hash);
+    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token) VALUES (?, ?, ?, 0, ?)")
+    .run(email, name, hash, token);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
-  res.status(201).json({ token: signToken(row), user: publicUser(row) });
+  // Correo de verificación (fire-and-forget, no bloquea la respuesta).
+  sendVerificationEmail({ to: email, name, token });
+
+  res.status(201).json({
+    ok: true,
+    email,
+    message: "Te enviamos un link de confirmación a tu correo. Haz clic en el link para activar tu cuenta.",
+  });
 });
 
-/* POST /api/auth/login  { email, password } */
+/* GET /api/auth/verify?token=xxx
+ * Confirma la cuenta con el link del correo. Devuelve una página HTML
+ * bonita (es el destino del link del correo). Al confirmar, envía el
+ * SEGUNDO correo: bienvenida/confirmación. */
+router.get("/verify", (req, res) => {
+  const token = String(req.query.token || "").trim();
+  const page = (title, emoji, text, cta) =>
+    `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1.0">` +
+    `<title>${title} — Reaviva</title>` +
+    `<link rel="icon" type="image/png" href="/favicon.png"></head>` +
+    `<body style="margin:0;background:#faf6f1;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">` +
+    `<div style="max-width:520px;margin:0 auto;padding:60px 20px;text-align:center;">` +
+    `<div style="font-size:1.5rem;font-weight:800;color:#4a3728;">Reaviva<span style="color:#c4704f;">.</span></div>` +
+    `<div style="font-size:3.5rem;margin:24px 0 12px;">${emoji}</div>` +
+    `<h1 style="color:#4a3728;font-size:1.5rem;">${title}</h1>` +
+    `<p style="color:#7a6252;line-height:1.6;">${text}</p>` +
+    (cta
+      ? `<a href="/" style="display:inline-block;margin-top:16px;background:#c4704f;color:#fff;` +
+        `text-decoration:none;font-weight:700;padding:14px 34px;border-radius:12px;">${cta}</a>`
+      : "") +
+    `</div></body></html>`;
+
+  if (!token) {
+    return res.status(400).send(page(
+      "Link inválido", "⚠️",
+      "Este link de confirmación no es válido. Vuelve a la página e inicia sesión para reenviar el correo de confirmación.",
+      "Ir a Reaviva"
+    ));
+  }
+  const row = db.prepare("SELECT * FROM users WHERE verification_token = ?").get(token);
+  if (!row) {
+    return res.status(400).send(page(
+      "Link inválido o ya usado", "⚠️",
+      "Este link de confirmación no es válido o ya fue usado. Si ya confirmaste tu cuenta, entra directamente. Si no, inicia sesión para reenviar el correo.",
+      "Ir a Reaviva"
+    ));
+  }
+  db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(row.id);
+  // SEGUNDO correo: bienvenida/confirmación (fire-and-forget).
+  sendWelcomeEmail({ to: row.email, name: row.name });
+  res.send(page(
+    "¡Cuenta confirmada! 🎉", "🎉",
+    `Hola ${String(row.name || "").replace(/[<>&"]/g, "")}: tu correo quedó confirmado y tu cuenta ya está activa. Ya puedes entrar con tu correo y tu contraseña. ¡Bienvenido/a a tus 7 días gratis! 💛`,
+    "Entrar a mi cuenta"
+  ));
+});
+
+/* Límite de reenvíos: máx. 3 por hora por correo (en memoria). */
+const resendAttempts = new Map();
+function resendAllowed(email) {
+  const now = Date.now();
+  const key = email.toLowerCase();
+  const arr = (resendAttempts.get(key) || []).filter((t) => now - t < 3600000);
+  if (arr.length >= 3) return false;
+  arr.push(now);
+  resendAttempts.set(key, arr);
+  // Limpieza ocasional para no crecer sin límite.
+  if (resendAttempts.size > 5000) {
+    for (const [k, v] of resendAttempts) {
+      if (!v.some((t) => now - t < 3600000)) resendAttempts.delete(k);
+    }
+  }
+  return true;
+}
+
+/* POST /api/auth/resend-verification  { email }
+ * Reenvía el correo de confirmación (nuevo token). */
+router.post("/resend-verification", (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!email || !email.includes("@"))
+    return res.status(400).json({ error: "Correo inválido" });
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  // No revelar si el correo existe o no (misma respuesta genérica).
+  if (!row) {
+    return res.json({ ok: true, message: "Si ese correo está registrado, te enviamos un nuevo link." });
+  }
+  if (row.email_verified === 1 || row.is_admin === 1) {
+    return res.json({ ok: true, message: "Tu cuenta ya está confirmada. Ya puedes entrar." });
+  }
+  if (!resendAllowed(email)) {
+    return res.status(429).json({ error: "Demasiados intentos. Espera una hora e inténtalo de nuevo." });
+  }
+  const token = newVerificationToken();
+  db.prepare("UPDATE users SET verification_token = ? WHERE id = ?").run(token, row.id);
+  sendVerificationEmail({ to: row.email, name: row.name, token });
+  res.json({ ok: true, message: "Te enviamos un nuevo link de confirmación. Revisa tu correo." });
+});
+
+/* POST /api/auth/login  { email, password }
+ * Solo entran usuarios con el correo confirmado (el admin no necesita). */
 router.post("/login", (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
@@ -143,6 +284,13 @@ router.post("/login", (req, res) => {
   const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!row || !bcrypt.compareSync(password, row.password_hash))
     return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+
+  if (row.is_admin !== 1 && row.email_verified !== 1) {
+    return res.status(403).json({
+      error: "Confirma tu correo antes de entrar. Revisa tu bandeja.",
+      needsVerification: true,
+    });
+  }
 
   trackUserIp(row.id, req); // actualiza IP y país (asíncrono)
   res.json({ token: signToken(row), user: publicUser(row) });
@@ -172,6 +320,11 @@ router.post("/admin-login", (req, res) => {
     row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   } else if (row.is_admin !== 1 || row.subscribed !== 1) {
     db.prepare("UPDATE users SET is_admin = 1, subscribed = 1 WHERE id = ?").run(row.id);
+    row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
+  }
+  // El admin no necesita verificación de correo.
+  if (row.email_verified !== 1) {
+    db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(row.id);
     row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
   }
 

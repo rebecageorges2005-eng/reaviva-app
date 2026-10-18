@@ -14,6 +14,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("./auth");
+const { isEmailConfigured, verificationUrl } = require("../email");
 
 const router = express.Router();
 
@@ -193,10 +194,11 @@ router.get("/growth", requireAdmin, (req, res) => {
 
 /* ---------- GET /api/admin/users ---------- */
 router.get("/users", requireAdmin, (req, res) => {
+  const emailOk = isEmailConfigured();
   const users = db
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
-              u.ip, u.country, u.country_code,
+              u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -223,6 +225,12 @@ router.get("/users", requireAdmin, (req, res) => {
       ip: u.ip || null,
       pais: u.country || null,
       codigoPais: u.country_code || null,
+      emailVerificado: u.email_verified === 1,
+      // Si el correo automático no está configurado, el admin ve el link
+      // para enviarlo manualmente (WhatsApp, etc.). Nunca se expone a no-admins.
+      verificationLink: (!emailOk && u.email_verified !== 1 && u.verification_token)
+        ? verificationUrl(u.verification_token)
+        : null,
     })),
   });
 });
@@ -236,6 +244,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.program_start, u.ip, u.country, u.country_code,
+              u.email_verified, u.verification_token,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -249,6 +258,8 @@ router.get("/users/:id", requireAdmin, (req, res) => {
   const lastProgress = db
     .prepare("SELECT MAX(day) AS d FROM progress WHERE user_id = ?")
     .get(id).d;
+
+  const emailOk = isEmailConfigured();
 
   res.json({
     id: u.id,
@@ -271,7 +282,23 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     ip: u.ip || null,
     pais: u.country || null,
     codigoPais: u.country_code || null,
+    emailVerificado: u.email_verified === 1,
+    verificationLink: (!emailOk && u.email_verified !== 1 && u.verification_token)
+      ? verificationUrl(u.verification_token)
+      : null,
   });
+});
+
+/* ---------- POST /api/admin/users/:id/verify ----------
+ * Marca manualmente a un usuario como verificado (casos de soporte:
+ * el correo no llegó, el usuario no puede abrir el link, etc.). */
+router.post("/users/:id/verify", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(id);
+  res.json({ ok: true, verificado: true, email: u.email });
 });
 
 /* ---------- GET /api/admin/messages ---------- */
