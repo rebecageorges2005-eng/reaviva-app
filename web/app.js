@@ -100,7 +100,25 @@ function handleSpamError(j){
     showRVBanner(msg);
     return true;
   }
+  if(code === "SOLO_PLAN"){
+    // Gratuito intentando contenido no permitido: informativo, sin strikes.
+    showPlanBanner(msg);
+    return true;
+  }
   return false;
+}
+
+/* Banner informativo para gratuitos: invita a ver los planes. */
+function showPlanBanner(message){
+  const b = $("#rv-error");
+  if(!b){ toast(message); return; }
+  b.innerHTML = `<span>💎</span><span>${esc(message)}</span>
+    <button class="btn btn-primary btn-sm" onclick="openPaywall()">Ver planes 💎</button>
+    <button class="strike-close" onclick="hideRVBanner()" aria-label="Cerrar">✕</button>`;
+  b.style.display = "flex";
+  clearTimeout(b._h);
+  b._h = setTimeout(hideRVBanner, 15000);
+  b.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 /* ============================================================
