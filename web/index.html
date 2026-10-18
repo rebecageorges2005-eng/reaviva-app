@@ -283,6 +283,7 @@
     <div class="panel" id="panel-comunidad">
       <div class="greet" style="display:flex;align-items:center;justify-content:space-between">
         <span>💬 Comunidad</span>
+        <button id="online-btn" class="online-btn online-red" onclick="showOnlineList()" title="Ver quién está en línea">🔴 0 en línea</button>
         <button id="chat-sound-btn" class="sound-toggle" onclick="toggleChatSound()" title="Activar/silenciar sonido">🔔</button>
         <button id="rv-btn" class="rv-btn" title="Mis RV — recargar" style="display:none">💰 <span id="rv-balance">0</span> RV</button>
       </div>
@@ -370,6 +371,15 @@
     <div id="rv-packs" class="rv-packs"><p style="color:var(--cocoa-soft)">Cargando paquetes…</p></div>
     <p id="rv-modal-err" class="auth-err"></p>
     <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeRVModal()">Cerrar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="online-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeOnlineModal()" aria-label="Cerrar">✕</button>
+    <h3 id="online-modal-title">🟢 En línea</h3>
+    <div id="online-list" class="online-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeOnlineModal()">Cerrar</button>
   </div>
 </div>
 
