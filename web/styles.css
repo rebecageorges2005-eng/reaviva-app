@@ -390,6 +390,44 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .comment-head span{font-size:.78rem;color:var(--cocoa-soft)}
 .comment-body p{margin:0;font-size:.92rem;line-height:1.5;color:#4a3b32;white-space:pre-wrap;word-break:break-word}
 .comment-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
+/* --- Temas temporales del chat 💬 (solo con plan) --- */
+.topics-bar{display:flex;align-items:center;gap:8px;margin:4px 0 12px}
+.topics-scroll{display:flex;gap:8px;overflow-x:auto;flex:1;padding:2px;scrollbar-width:thin}
+.topic-pill{flex-shrink:0;background:var(--sand-2);border:1.5px solid #eadfd3;color:var(--cocoa);
+  border-radius:20px;padding:6px 12px;font-size:.82rem;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;transition:all .15s}
+.topic-pill:hover{border-color:var(--terra)}
+.topic-pill.active{background:var(--terra);border-color:var(--terra-dark);color:#fff}
+.topic-pill.active .topic-time{color:rgba(255,255,255,.85)}
+.topic-time{font-size:.72rem;font-weight:400;color:var(--cocoa-soft)}
+.topic-add-btn{flex-shrink:0;background:none;border:1.5px dashed var(--terra);color:var(--terra-dark);
+  border-radius:20px;padding:6px 14px;font-size:.82rem;font-weight:700;cursor:pointer}
+.topic-add-btn:hover{background:var(--rose)}
+.topics-empty{font-size:.82rem;color:var(--cocoa-soft);padding:6px 4px}
+.topic-hint{display:flex;align-items:center;gap:8px;background:var(--rose);border-radius:10px;
+  padding:8px 12px;margin-bottom:10px;font-size:.82rem;color:var(--cocoa)}
+.topic-hint b{color:var(--terra-dark)}
+.topic-clear{background:none;border:none;color:var(--cocoa-soft);cursor:pointer;font-size:.9rem;padding:2px 6px}
+.topic-clear:hover{color:#a33}
+.topic-tag{color:var(--terra-dark);font-weight:700}
+
+/* --- Fotos temporales y emojis del chat --- */
+.composer-actions{display:flex;gap:8px;margin:8px 0}
+.composer-icon-btn{background:var(--sand-2);border:1.5px solid #eadfd3;border-radius:12px;
+  font-size:1.2rem;padding:6px 12px;cursor:pointer;transition:all .15s}
+.composer-icon-btn:hover{border-color:var(--terra);transform:scale(1.05)}
+.emoji-panel{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;background:#fff;
+  border:1px solid #eadfd3;border-radius:12px;padding:10px;margin-bottom:8px;max-height:180px;overflow-y:auto}
+.emoji-btn{background:none;border:none;font-size:1.4rem;padding:6px;cursor:pointer;border-radius:8px}
+.emoji-btn:hover{background:var(--sand-2);transform:scale(1.2)}
+.chat-photo-wrap{position:relative;margin:4px 0 8px;max-width:320px}
+.chat-photo{width:100%;border-radius:12px;display:block;object-fit:cover;max-height:320px}
+.chat-photo-timer{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.65);color:#fff;
+  font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:12px}
+.photo-deleted{color:var(--cocoa-soft);font-style:italic;font-size:.88rem}
+.sound-toggle{background:none;border:none;font-size:1.3rem;cursor:pointer;padding:4px 8px;border-radius:10px}
+.sound-toggle:hover{background:var(--sand-2)}
 .btn-sm{padding:6px 12px;font-size:.8rem}
 .admin-comment{border-left:4px solid var(--terracotta,#c96f4a)}
 .hidden-comment{opacity:.65;background:#faf7f3}

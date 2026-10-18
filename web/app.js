@@ -332,6 +332,8 @@ function enterApp(){
 function switchTab(tab){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id==="panel-"+tab));
+  // El sondeo de mensajes nuevos solo corre con el chat abierto.
+  if(tab === "comunidad") startChatPoll(); else stopChatPoll();
   if(tab==="hoy") renderHoy();
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
@@ -799,6 +801,11 @@ function renderProgreso(){
 async function renderComunidad(){
   const list = $("#community-list");
   list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando comentarios…</p>`;
+  // Los temas se cargan en paralelo (solo visibles con plan).
+  loadTopics().catch(()=>{});
+  // El botón de foto solo para usuarios con plan.
+  const photoBtn = $("#photo-btn");
+  if(photoBtn) photoBtn.style.display = isPaid() ? "" : "none";
   try{
     const r = await fetch("/api/community", { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
@@ -810,12 +817,30 @@ async function renderComunidad(){
       const avatar = (c.foto && String(c.foto).startsWith("data:image/"))
         ? `<img src="${esc(c.foto)}" class="comment-photo" alt="">`
         : esc(c.avatar || "💛");
+      // Si el mensaje empieza con #Tema, se resalta en color acento.
+      const [tag, resto] = splitTopicTag(c.texto);
+      let body;
+      if(c.msg_type === "photo" && !c.foto_eliminada && c.foto_msg && String(c.foto_msg).startsWith("data:image/")){
+        const caption = tag
+          ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
+          : (resto ? `<p>${esc(resto)}</p>` : "");
+        body = `<div class="chat-photo-wrap" data-photo-msg="${c.id}">
+                  <img src="${esc(c.foto_msg)}" class="chat-photo" alt="Foto temporal">
+                  <span class="chat-photo-timer">⏳ ${c.foto_segundos || 30}s</span>
+                </div>${caption}`;
+        // Armar la cuenta regresiva para eliminarla visualmente a tiempo.
+        setTimeout(()=>armPhotoCountdown(c.id, c.foto_segundos || 30), 0);
+      }else{
+        body = tag
+          ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
+          : `<p>${esc(c.texto)}</p>`;
+      }
       return `
       <div class="comment-card">
         <div class="comment-avatar">${avatar}</div>
         <div class="comment-body">
           <div class="comment-head"><b>${esc(c.nombre || "Guest")}</b><span>${esc(c.fecha)}</span></div>
-          <p>${esc(c.texto)}</p>
+          ${body}
         </div>
       </div>`;}).join("") ||
       `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
@@ -831,19 +856,309 @@ async function postCommunity(){
   const text = box ? box.value.trim() : "";
   if(!text){ toast("Escribe algo para compartir 💛"); return; }
   try{
+    const body = { text };
+    if(selectedTopicId) body.topic_id = selectedTopicId;
     const r = await fetch("/api/community", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ text })
+      body: JSON.stringify(body)
     });
     const j = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
     if(box) box.value = "";
     toast("¡Publicado! Gracias por compartir 💛");
     renderComunidad();
   }catch(e){
     toast(e.message);
   }
+}
+
+/* ============================================================
+   TEMAS TEMPORALES DEL CHAT 💬 (solo con plan pagado)
+   Cada tema dura 2 horas. Al publicarlo, el mensaje sale como
+   "#NombreDelTema tu mensaje".
+   ============================================================ */
+let selectedTopicId = null;
+let cachedTopics = [];
+
+function formatTopicTime(min){
+  min = Math.max(0, Math.round(min || 0));
+  if (min >= 60) return Math.floor(min / 60) + "h " + (min % 60) + "m";
+  return min + "m";
+}
+
+/* Extrae el hashtag inicial del texto: "#Ansiedad Hola" → ["#Ansiedad", "Hola"] */
+function splitTopicTag(texto){
+  const m = String(texto || "").match(/^(#[^\s#]{1,40})\s([\s\S]*)$/);
+  return m ? [m[1], m[2]] : [null, String(texto || "")];
+}
+
+async function loadTopics(){
+  const bar = $("#topics-bar");
+  const scroll = $("#topics-scroll");
+  if(!bar || !scroll) return;
+  // La barra de temas solo se muestra a usuarios con plan.
+  if(!isPaid()){
+    bar.style.display = "none";
+    selectedTopicId = null;
+    return;
+  }
+  bar.style.display = "flex";
+  try{
+    const r = await fetch("/api/topics", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    cachedTopics = j.temas || [];
+    // Si el tema seleccionado expiró, deseleccionarlo.
+    if(selectedTopicId && !cachedTopics.some(t => t.id === selectedTopicId)){
+      selectedTopicId = null;
+    }
+    renderTopicPills();
+  }catch(e){
+    scroll.innerHTML = `<span class="topics-empty">No se pudieron cargar los temas</span>`;
+  }
+}
+
+function renderTopicPills(){
+  const scroll = $("#topics-scroll");
+  if(!scroll) return;
+  scroll.innerHTML = cachedTopics.map(t => `
+    <button class="topic-pill${t.id === selectedTopicId ? " active" : ""}"
+            onclick="selectTopic(${t.id})" title="Creado por ${esc(t.creador)}">
+      #${esc(t.nombre)} <span class="topic-time">${formatTopicTime(t.minutosRestantes)}</span>
+    </button>`).join("") ||
+    `<span class="topics-empty">No hay temas activos. ¡Crea el primero! 🎉</span>`;
+}
+
+function selectTopic(id){
+  selectedTopicId = (selectedTopicId === id) ? null : id;
+  renderTopicPills();
+  updateTopicHint();
+}
+
+function updateTopicHint(){
+  let hint = $("#topic-hint");
+  const composer = document.querySelector(".community-composer");
+  const t = cachedTopics.find(x => x.id === selectedTopicId);
+  if(t){
+    if(!hint && composer){
+      hint = document.createElement("div");
+      hint.id = "topic-hint";
+      hint.className = "topic-hint";
+      composer.prepend(hint);
+    }
+    if(hint){
+      hint.innerHTML = `Publicarás en <b>#${esc(t.nombre)}</b> <button type="button" class="topic-clear" onclick="selectTopic(${t.id})" title="Quitar tema">✕</button>`;
+    }
+  }else if(hint){
+    hint.remove();
+  }
+}
+
+function openTopicModal(){
+  if(!isPaid()){ toast("Solo los miembros con plan pueden crear temas 💎"); return; }
+  $("#topic-modal").classList.add("open");
+  const inp = $("#topic-name");
+  if(inp){ inp.value = ""; $("#topic-err").textContent = ""; setTimeout(()=>inp.focus(), 100); }
+}
+function closeTopicModal(){ $("#topic-modal").classList.remove("open"); }
+
+async function createTopic(){
+  const inp = $("#topic-name");
+  const err = $("#topic-err");
+  const name = inp ? inp.value.trim() : "";
+  if(err) err.textContent = "";
+  if(!name){ if(err) err.textContent = "Escribe un nombre para el tema."; return; }
+  try{
+    const r = await fetch("/api/topics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ name })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    closeTopicModal();
+    toast(j.mensaje || "Tema creado 🎉");
+    selectedTopicId = j.id || null;
+    await loadTopics();
+    updateTopicHint();
+  }catch(e){
+    if(err) err.textContent = e.message;
+  }
+}
+
+/* ============================================================
+   FOTOS TEMPORALES (30s) 📷 + EMOJIS 😊 — solo con plan las fotos
+   ============================================================ */
+const EMOJIS = ["😊","😂","❤️","💛","🙏","😢","😮","😡","👏","🎉","💪","🌟","⭐","🔥","💫","🌈","☀️","🌙","🦋","🌻","🌷","🍀","🤗","😌","🥺","💔","❤️‍🩹","🧠","💭","✨","🕊️","🤍"];
+
+function toggleEmojiPanel(){
+  const panel = $("#emoji-panel");
+  if(!panel) return;
+  if(panel.style.display === "none"){
+    panel.innerHTML = EMOJIS.map(e =>
+      `<button type="button" class="emoji-btn" onclick="insertEmoji('${e}')">${e}</button>`
+    ).join("");
+    panel.style.display = "grid";
+  }else{
+    panel.style.display = "none";
+  }
+}
+
+function insertEmoji(e){
+  const box = $("#community-text");
+  if(!box) return;
+  const start = box.selectionStart || box.value.length;
+  const end = box.selectionEnd || box.value.length;
+  box.value = box.value.slice(0, start) + e + box.value.slice(end);
+  box.focus();
+  box.selectionStart = box.selectionEnd = start + e.length;
+}
+
+/* Fotos temporales: solo usuarios con plan. */
+function pickChatPhoto(){
+  if(!isPaid()){ toast("Solo los miembros con plan pueden enviar fotos 💎"); return; }
+  const inp = $("#chat-photo-input");
+  if(inp) inp.click();
+}
+
+function sendChatPhoto(input){
+  const file = input && input.files && input.files[0];
+  input.value = "";
+  if(!file) return;
+  if(!file.type.startsWith("image/")){ toast("Elige una imagen válida."); return; }
+  // Redimensionar a máx 800px en el cliente para no saturar el servidor.
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    const MAX = 800;
+    let w = img.width, h = img.height;
+    if(w > MAX || h > MAX){
+      const k = MAX / Math.max(w, h);
+      w = Math.round(w * k); h = Math.round(h * k);
+    }
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    cv.getContext("2d").drawImage(img, 0, 0, w, h);
+    const dataUrl = cv.toDataURL("image/jpeg", 0.75);
+    postChatPhoto(dataUrl);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast("No se pudo leer la imagen."); };
+  img.src = url;
+}
+
+async function postChatPhoto(dataUrl){
+  toast("Enviando foto… 📷");
+  try{
+    const body = { photo: dataUrl };
+    const box = $("#community-text");
+    const caption = box ? box.value.trim() : "";
+    if(caption) body.text = caption;
+    if(selectedTopicId) body.topic_id = selectedTopicId;
+    const r = await fetch("/api/community", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
+    if(box) box.value = "";
+    toast("¡Foto enviada! Se eliminará en 30 segundos ⏳");
+    renderComunidad();
+  }catch(e){
+    toast(e.message);
+  }
+}
+
+/* Cuenta regresiva de fotos temporales: reemplaza por "📷 Foto eliminada". */
+const photoTimers = {};
+function armPhotoCountdown(msgId, seconds){
+  if(photoTimers[msgId]) clearTimeout(photoTimers[msgId]);
+  const ms = Math.max(1000, (seconds || 30) * 1000);
+  photoTimers[msgId] = setTimeout(() => {
+    const el = document.querySelector(`[data-photo-msg="${msgId}"]`);
+    if(el){
+      el.innerHTML = `<p class="photo-deleted">📷 Foto eliminada</p>`;
+    }
+    delete photoTimers[msgId];
+  }, ms);
+}
+
+/* ============================================================
+   SONIDO DE NOTIFICACIONES DEL CHAT 🔔
+   Suena un "ding" cuando llega un mensaje nuevo de otro usuario
+   mientras el chat está abierto. Preferencia en localStorage.
+   ============================================================ */
+function chatSoundOn(){
+  return localStorage.getItem("reaviva_chat_sound") !== "0";
+}
+function toggleChatSound(){
+  const on = !chatSoundOn();
+  localStorage.setItem("reaviva_chat_sound", on ? "1" : "0");
+  updateSoundIcon();
+  toast(on ? "Sonido activado 🔔" : "Sonido silenciado 🔕");
+}
+function updateSoundIcon(){
+  const btn = $("#chat-sound-btn");
+  if(btn) btn.textContent = chatSoundOn() ? "🔔" : "🔕";
+}
+/* Ding de dos tonos con Web Audio API (sin archivos externos). */
+let audioCtx = null;
+function playDing(){
+  if(!chatSoundOn()) return;
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [[880, 0], [1320, 0.15]].forEach(([freq, dt]) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + dt);
+      gain.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.15);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t0 + dt);
+      osc.stop(t0 + dt + 0.16);
+    });
+  }catch(e){ /* audio no disponible: silencioso */ }
+}
+
+/* IDs de mensajes ya vistos + IDs de mis propios mensajes (para no
+ * sonar con mis publicaciones). El payload no trae user_id por anonimato. */
+const seenMsgIds = new Set();
+const myMsgIds = new Set();
+let chatPollTimer = null;
+
+function startChatPoll(){
+  stopChatPoll();
+  updateSoundIcon();
+  // Registrar los IDs actuales como vistos (sin sonido inicial).
+  fetch("/api/community", { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => { if(j && j.comentarios) j.comentarios.forEach(c => seenMsgIds.add(c.id)); })
+    .catch(()=>{});
+  chatPollTimer = setInterval(async () => {
+    try{
+      const r = await fetch("/api/community", { headers: authHeaders() });
+      if(!r.ok) return;
+      const j = await r.json();
+      const nuevos = (j.comentarios || []).filter(c => !seenMsgIds.has(c.id));
+      if(nuevos.length){
+        nuevos.forEach(c => seenMsgIds.add(c.id));
+        // Suena solo por mensajes de OTROS usuarios.
+        if(nuevos.some(c => !myMsgIds.has(c.id))) playDing();
+        renderComunidad();
+      }
+    }catch(e){ /* reintentar en el próximo ciclo */ }
+  }, 15000);
+}
+function stopChatPoll(){
+  if(chatPollTimer){ clearInterval(chatPollTimer); chatPollTimer = null; }
 }
 
 /* ---------- paywall / PayPal ---------- */

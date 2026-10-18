@@ -280,13 +280,27 @@
 
     <!-- COMUNIDAD (todos los usuarios, anónima) -->
     <div class="panel" id="panel-comunidad">
-      <div class="greet">💬 Comunidad</div>
+      <div class="greet" style="display:flex;align-items:center;justify-content:space-between">
+        <span>💬 Comunidad</span>
+        <button id="chat-sound-btn" class="sound-toggle" onclick="toggleChatSound()" title="Activar/silenciar sonido">🔔</button>
+      </div>
       <p class="greet-sub">Un espacio seguro. Todos somos anónimos aquí 💛</p>
       <div id="chat-timer"></div>
+      <!-- Temas temporales (solo con plan) -->
+      <div id="topics-bar" class="topics-bar" style="display:none">
+        <div class="topics-scroll" id="topics-scroll"></div>
+        <button id="topic-add-btn" class="topic-add-btn" onclick="openTopicModal()" title="Crear un tema (dura 2 horas)">＋ Tema</button>
+      </div>
       <div id="community-wrap">
         <div class="community-composer">
           <textarea id="community-text" class="field" rows="3" maxlength="500"
             placeholder="Comparte algo con la comunidad… (sin correos ni teléfonos)"></textarea>
+          <div class="composer-actions">
+            <button type="button" id="emoji-btn" class="composer-icon-btn" onclick="toggleEmojiPanel()" title="Emojis">😊</button>
+            <button type="button" id="photo-btn" class="composer-icon-btn" onclick="pickChatPhoto()" title="Enviar foto temporal (30s)" style="display:none">📷</button>
+            <input type="file" id="chat-photo-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" onchange="sendChatPhoto(this)">
+          </div>
+          <div id="emoji-panel" class="emoji-panel" style="display:none"></div>
           <button class="btn btn-primary btn-block" onclick="postCommunity()">Publicar 💛</button>
           <small class="community-note">Por tu seguridad, no compartas correos ni números de teléfono.</small>
         </div>
@@ -314,6 +328,17 @@
     <button class="btn btn-primary btn-block" style="margin-bottom:10px" onclick="startCheckout('monthly')">$4.99/mes — Empezar</button>
     <button class="btn btn-ghost btn-block" style="margin-bottom:10px" onclick="startCheckout('yearly')">$39.99/año — Ahorra 33%</button>
     <button class="btn btn-block" style="background:none;color:var(--cocoa-soft)" onclick="closePaywall()">Ahora no</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="topic-modal">
+  <div class="modal">
+    <h3>💬 Crear un tema</h3>
+    <p style="font-size:.85rem;color:var(--cocoa-soft)">El tema durará 2 horas. Tu mensaje se publicará como <b>#TuTema tu mensaje</b>.</p>
+    <input id="topic-name" class="field" type="text" maxlength="40" placeholder="Nombre del tema (ej. Ansiedad)">
+    <p id="topic-err" class="auth-err"></p>
+    <button class="btn btn-primary btn-block" style="margin-bottom:10px" onclick="createTopic()">Crear tema 🎉</button>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft)" onclick="closeTopicModal()">Cancelar</button>
   </div>
 </div>
 
