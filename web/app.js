@@ -1301,6 +1301,13 @@ function renderPerfil(){
     <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
     <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:1.05rem">${t("alb.title")}</h3>
+        <button class="btn btn-sm btn-primary" onclick="openCreateAlbumModal()">${t("alb.create")}</button>
+      </div>
+      <div id="perfil-albums" style="margin-top:10px"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
+    </div>
+    <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
       <button class="btn btn-ghost btn-block" onclick="togglePwForm()">🔑 Cambiar contraseña</button>
       <div id="pw-form" style="display:none;margin-top:10px">
         <input id="pw-cur" type="password" class="field" placeholder="Contraseña actual" style="margin-bottom:8px">
@@ -1310,6 +1317,7 @@ function renderPerfil(){
         <button class="btn btn-primary btn-sm" onclick="doProfilePwChange()">Guardar</button>
       </div>
     </div>`;
+  renderPerfilAlbums();
 }
 
 function togglePwForm(){
@@ -2098,6 +2106,8 @@ async function openDmWindow(uid, target){
       <div class="comment-avatar">${dmAvatarHtml(target)}</div>
       <div class="dm-win-title"><b>${esc(target.nombre)}</b><br><small class="dm-win-countdown">⏳ 48h</small></div>
       <span class="dm-win-unread" style="display:none"></span>
+      <button class="dm-win-headbtn" title="📸" aria-label="Álbumes"
+        onclick="event.stopPropagation();viewUserAlbums(${uid})">📸</button>
       <button class="dm-win-headbtn" title="${annual ? "📹" : esc(t("dm.video_only_annual"))}" aria-label="Videollamada"
         onclick="event.stopPropagation();startVideoCallWin(${uid})">${annual ? "📹" : "📹🔒"}</button>
       <button class="dm-win-headbtn" title="${esc(t("dm.win_min"))}" aria-label="${esc(t("dm.win_min"))}"
@@ -2761,5 +2771,277 @@ function shareVia(canal){
       }
     };
     copiar();
+  }
+}
+
+/* ============================================================
+   ÁLBUMES DE FOTOS EN EL PERFIL 📸 (estilo Facebook)
+   - Máx 6 álbumes por usuario, máx 50 fotos por álbum.
+   - El dueño puede crear/eliminar álbumes y agregar/eliminar fotos.
+   - Los álbumes de otros usuarios se ven en modo solo lectura.
+   ============================================================ */
+const ALB_MAX_ALBUMS = 6, ALB_MAX_PHOTOS = 50;
+
+/* Modal dinámico reutilizable (usa .modal-bg de styles.css). */
+function openDynModal(html){
+  closeDynModal();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg open";
+  bg.id = "dyn-modal";
+  bg.innerHTML = `<div class="modal" style="max-width:560px;width:100%;max-height:88vh;overflow-y:auto">
+    <button class="modal-x" onclick="closeDynModal()" aria-label="Cerrar">✕</button>
+    ${html}</div>`;
+  bg.addEventListener("click", (e) => { if(e.target === bg) closeDynModal(); });
+  document.body.appendChild(bg);
+  return bg;
+}
+function closeDynModal(){
+  const bg = document.getElementById("dyn-modal");
+  if(bg) bg.remove();
+}
+
+/* ---------- Mis álbumes (perfil propio) ---------- */
+async function renderPerfilAlbums(){
+  const box = document.getElementById("perfil-albums");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/albums", { headers: authHeaders() });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const albums = j.albums || [];
+    if(!albums.length){
+      box.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft);font-size:.9rem">${esc(t("alb.empty"))}</p>`;
+      return;
+    }
+    box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">` +
+      albums.map(albumCardHtml).join("") + `</div>`;
+  }catch(e){
+    box.innerHTML = `<p style="text-align:center;color:#a33;font-size:.9rem">${esc(e.message)}</p>`;
+  }
+}
+
+function albumCardHtml(a){
+  const cover = a.portada
+    ? `<img src="${a.portada}" alt="" style="width:100%;height:100%;object-fit:cover">`
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-soft)">📸</div>`;
+  return `<div onclick="openAlbumDetail(${a.id}, false)" style="cursor:pointer">
+    <div style="aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px solid var(--hatch-widget-border)">${cover}</div>
+    <div style="font-size:.82rem;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.title)}</div>
+    <div style="font-size:.75rem;color:var(--cocoa-soft)">${a.fotos} ${esc(t("alb.photos"))}</div>
+  </div>`;
+}
+
+function openCreateAlbumModal(){
+  openDynModal(`
+    <h3 style="margin-top:0">${esc(t("alb.create"))}</h3>
+    <input id="alb-new-title" class="field" maxlength="80" placeholder="${esc(t("alb.new_ph"))}" style="margin-bottom:10px">
+    <div id="alb-new-err" style="color:#a33;font-size:.85rem;min-height:1.2em"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeDynModal()">${esc(t("alb.cancel"))}</button>
+      <button class="btn btn-primary" onclick="doCreateAlbum()">${esc(t("alb.save"))}</button>
+    </div>`);
+  const inp = document.getElementById("alb-new-title");
+  if(inp){ inp.focus(); inp.onkeydown = (e) => { if(e.key === "Enter") doCreateAlbum(); }; }
+}
+
+async function doCreateAlbum(){
+  const inp = document.getElementById("alb-new-title");
+  const err = document.getElementById("alb-new-err");
+  const title = (inp && inp.value || "").trim();
+  if(!title){ err.textContent = t("alb.new_title"); return; }
+  err.textContent = "…";
+  try{
+    const r = await fetch("/api/albums", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ title })
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    closeDynModal();
+    toast(t("alb.created"));
+    renderPerfilAlbums();
+  }catch(e){ err.textContent = e.message; }
+}
+
+/* ---------- Detalle del álbum (fotos) ---------- */
+async function openAlbumDetail(albumId, readonly){
+  openDynModal(`<div id="alb-detail"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>`);
+  try{
+    const r = await fetch(`/api/albums/${albumId}/photos`, { headers: authHeaders() });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    renderAlbumDetail(j.album, j.dueno && !readonly, j.fotos || []);
+  }catch(e){
+    const d = document.getElementById("alb-detail");
+    if(d) d.innerHTML = `<p style="text-align:center;color:#a33">${esc(e.message)}</p>`;
+  }
+}
+
+function renderAlbumDetail(album, isOwner, fotos){
+  const d = document.getElementById("alb-detail");
+  if(!d) return;
+  const grid = fotos.length
+    ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">` +
+      fotos.map(f => `
+        <div onclick="openPhotoLightbox(${album.id}, ${f.id}, ${isOwner ? 1 : 0})" style="cursor:pointer">
+          <div style="aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--hatch-widget-border)">
+            <img src="${f.photo}" alt="" style="width:100%;height:100%;object-fit:cover">
+          </div>
+        </div>`).join("") + `</div>`
+    : `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("alb.empty"))}</p>`;
+  d.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin:0">${esc(album.title)} <small style="color:var(--cocoa-soft)">(${fotos.length}/${ALB_MAX_PHOTOS})</small></h3>
+      ${isOwner ? `<button class="btn btn-ghost btn-sm" style="color:#a33" onclick="deleteAlbum(${album.id})">🗑 ${esc(t("alb.delete_album"))}</button>` : ""}
+    </div>
+    ${grid}
+    ${isOwner ? `<div style="margin-top:12px;text-align:center">
+      <button class="btn btn-primary btn-sm" onclick="pickAlbumPhotos(${album.id})">${esc(t("alb.add_photos"))}</button>
+      <input type="file" id="alb-file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+    </div>` : ""}`;
+  // Guardar fotos en memoria para el lightbox.
+  window._albFotos = {};
+  fotos.forEach(f => { window._albFotos[f.id] = f; });
+  window._albCtx = { albumId: album.id, isOwner };
+}
+
+function pickAlbumPhotos(albumId){
+  let inp = document.getElementById("alb-file-input");
+  if(!inp){
+    inp = document.createElement("input");
+    inp.type = "file"; inp.id = "alb-file-input";
+    inp.accept = "image/jpeg,image/png,image/webp"; inp.multiple = true;
+    inp.style.display = "none";
+    document.body.appendChild(inp);
+  }
+  inp.onchange = () => handleAlbumPhotoFiles(inp, albumId);
+  inp.click();
+}
+
+/* Redimensiona a máx 1280px (lado mayor), JPEG calidad 0.8. */
+function resizeImageDataUrl(file){
+  return new Promise((resolve, reject) => {
+    if(!file.type.startsWith("image/")) return reject(new Error("No es imagen"));
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1280;
+      let w = img.width, h = img.height;
+      if(w > MAX || h > MAX){
+        const k = MAX / Math.max(w, h);
+        w = Math.round(w * k); h = Math.round(h * k);
+      }
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(cv.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo leer")); };
+    img.src = url;
+  });
+}
+
+async function handleAlbumPhotoFiles(input, albumId){
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if(!files.length) return;
+  toast("⏳ " + files.length + "…");
+  let ok = 0;
+  for(const file of files){
+    try{
+      const dataUrl = await resizeImageDataUrl(file);
+      const r = await fetch(`/api/albums/${albumId}/photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ photo: dataUrl })
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      ok++;
+    }catch(e){
+      toast(e.message);
+      break;
+    }
+  }
+  if(ok) toast(t("alb.added") + ` (${ok})`);
+  openAlbumDetail(albumId, false); // refrescar
+}
+
+/* Lightbox: foto grande + caption + eliminar (dueño). */
+function openPhotoLightbox(albumId, photoId, isOwner){
+  const f = (window._albFotos || {})[photoId];
+  if(!f) return;
+  openDynModal(`
+    <div style="text-align:center">
+      <img src="${f.photo}" alt="" style="max-width:100%;max-height:60vh;border-radius:12px">
+      ${f.caption ? `<p style="margin:10px 0 0;color:var(--cocoa-soft)">${esc(f.caption)}</p>` : ""}
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+        ${isOwner ? `<button class="btn btn-ghost btn-sm" style="color:#a33" onclick="deleteAlbumPhoto(${albumId}, ${photoId})">🗑 ${esc(t("alb.delete"))}</button>` : ""}
+        <button class="btn btn-ghost btn-sm" onclick="openAlbumDetail(${albumId}, ${isOwner ? "false" : "true"})">${esc(t("alb.back"))}</button>
+      </div>
+    </div>`);
+}
+
+async function deleteAlbumPhoto(albumId, photoId){
+  if(!confirm(t("alb.confirm_del_photo"))) return;
+  try{
+    const r = await fetch(`/api/albums/${albumId}/photos/${photoId}`, {
+      method: "DELETE", headers: authHeaders()
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    toast(t("alb.deleted"));
+    openAlbumDetail(albumId, false);
+  }catch(e){ toast(e.message); }
+}
+
+async function deleteAlbum(albumId){
+  if(!confirm(t("alb.confirm_del_album"))) return;
+  try{
+    const r = await fetch(`/api/albums/${albumId}`, {
+      method: "DELETE", headers: authHeaders()
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    closeDynModal();
+    toast(t("alb.deleted"));
+    renderPerfilAlbums();
+  }catch(e){ toast(e.message); }
+}
+
+/* ---------- Álbumes de OTRO usuario (solo lectura) ---------- */
+async function viewUserAlbums(uid){
+  uid = Number(uid);
+  const w = (typeof dmWindows !== "undefined" && dmWindows[uid]) || null;
+  const nombre = (w && w.target && w.target.nombre) || t("alb.readonly");
+  openDynModal(`<h3 style="margin-top:0">📸 ${esc(nombre)}</h3>
+    <div id="alb-other"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>`);
+  try{
+    const r = await fetch(`/api/albums/user/${uid}`, { headers: authHeaders() });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const box = document.getElementById("alb-other");
+    const albums = j.albums || [];
+    if(!box) return;
+    if(!albums.length){
+      box.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("alb.empty"))}</p>`;
+      return;
+    }
+    box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">` +
+      albums.map(a => {
+        const cover = a.portada
+          ? `<img src="${a.portada}" alt="" style="width:100%;height:100%;object-fit:cover">`
+          : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--bg-soft)">📸</div>`;
+        return `<div onclick="openAlbumDetail(${a.id}, true)" style="cursor:pointer">
+          <div style="aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px solid var(--hatch-widget-border)">${cover}</div>
+          <div style="font-size:.82rem;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.title)}</div>
+          <div style="font-size:.75rem;color:var(--cocoa-soft)">${a.fotos} ${esc(t("alb.photos"))}</div>
+        </div>`;
+      }).join("") + `</div>`;
+  }catch(e){
+    const box = document.getElementById("alb-other");
+    if(box) box.innerHTML = `<p style="text-align:center;color:#a33">${esc(e.message)}</p>`;
   }
 }
