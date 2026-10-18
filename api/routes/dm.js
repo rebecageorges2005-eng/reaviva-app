@@ -57,7 +57,9 @@ function dmConvLimit(user) {
 
 /* ¿Ya conversó con este usuario hoy? Si es un contacto nuevo y hay
  * cupo, lo registra. Devuelve { ok: true } o { ok: false, code, message, status }. */
-function checkDmDailyLimit(userId, partnerId, limit, isMonthly) {
+function checkDmDailyLimit(userId, partnerId, limit, isMonthly, isAdmin) {
+  // El admin no tiene límite diario de conversaciones.
+  if (isAdmin) return { ok: true, nueva: false };
   const day = utcDay();
   try {
     // Limpieza de filas viejas (más de 2 días) para no acumular.
@@ -122,7 +124,7 @@ function fechaCorta(iso) {
   /* Límite diario de conversaciones únicas (usuarios diferentes por día).
    * Solo el primer mensaje a un usuario nuevo ese día consume cupo. */
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, isMonthly);
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, isMonthly, req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
@@ -165,7 +167,7 @@ router.post("/voice", requireAuth, (req, res) => {
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   /* Mismo límite diario de conversaciones únicas que los mensajes de texto. */
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, plan === "monthly");
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, plan === "monthly", req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
@@ -216,10 +218,23 @@ router.post("/file", requireAuth, (req, res) => {
   if (bytesAprox > FILE_MAX_BYTES) {
     return res.status(400).json({ error: "El archivo es muy grande (máx 10MB) 📎" });
   }
+  /* Validación de magic bytes: el contenido debe coincidir con el tipo declarado.
+   * Un PDF real empieza con "%PDF". Esto evita que suban ejecutables renombrados. */
+  if (mime === "application/pdf") {
+    try {
+      const b64 = file.slice(m[0].length).replace(/\s/g, "");
+      const head = Buffer.from(b64.slice(0, 16), "base64").toString("latin1");
+      if (!head.startsWith("%PDF")) {
+        return res.status(400).json({ error: "El archivo no es un PDF válido 📎" });
+      }
+    } catch (e) {
+      return res.status(400).json({ error: "No se pudo verificar el archivo 📎" });
+    }
+  }
   const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, false);
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, false, req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
@@ -333,6 +348,35 @@ router.get("/:uid", requireAuth, (req, res) => {
   db.prepare(
     "UPDATE private_messages SET read_at = datetime('now') WHERE to_user_id = ? AND from_user_id = ? AND read_at IS NULL"
   ).run(me, other);
+  // Reacciones 👍👎: conteos por mensaje + mi reacción, en una sola consulta.
+  const dmIds = msgs.map((m) => m.id);
+  const dmReac = {};
+  if (dmIds.length) {
+    const dmPh = dmIds.map(() => "?").join(",");
+    const dmReacRows = db
+      .prepare(
+        `SELECT message_id, reaction, COUNT(*) AS n
+         FROM message_reactions
+         WHERE message_type = 'dm' AND message_id IN (${dmPh})
+         GROUP BY message_id, reaction`
+      )
+      .all(...dmIds);
+    for (const r of dmReacRows) {
+      const e = dmReac[r.message_id] || (dmReac[r.message_id] = { likes: 0, dislikes: 0 });
+      if (r.reaction === "like") e.likes = r.n;
+      else if (r.reaction === "dislike") e.dislikes = r.n;
+    }
+    const dmMisRows = db
+      .prepare(
+        `SELECT message_id, reaction FROM message_reactions
+         WHERE message_type = 'dm' AND user_id = ? AND message_id IN (${dmPh})`
+      )
+      .all(me, ...dmIds);
+    for (const r of dmMisRows) {
+      const e = dmReac[r.message_id] || (dmReac[r.message_id] = { likes: 0, dislikes: 0 });
+      e.mi_reaccion = r.reaction;
+    }
+  }
   res.json({
     mensajes: msgs.map((m) => ({
       id: m.id,
@@ -343,6 +387,9 @@ router.get("/:uid", requireAuth, (req, res) => {
       archivo: m.msg_type === "file" ? { data: m.file_data, nombre: m.file_name, tamano: m.file_size } : null,
       fecha: fechaCorta(m.created_at),
       expira: m.expires_at,
+      likes: (dmReac[m.id] && dmReac[m.id].likes) || 0,
+      dislikes: (dmReac[m.id] && dmReac[m.id].dislikes) || 0,
+      mi_reaccion: (dmReac[m.id] && dmReac[m.id].mi_reaccion) || null,
     })),
   });
 });

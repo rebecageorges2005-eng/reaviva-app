@@ -263,7 +263,7 @@ router.get("/", requireAuth, (req, res) => {
   res.json({
     chatTimeLeft: acc.left,
     muted: mutedPayload(req.user.id) !== null,
-    rv: getRV(req.user.id),
+    rv: req.user.is_admin === 1 ? -1 : getRV(req.user.id),
     onlineCount: onlineCount(),
     comentarios: rows.map((c) => {
       // Regla de visualización: con plan → INICIALES nombre + país (ej. "MG · MX") + foto;
@@ -442,7 +442,7 @@ router.post("/", requireAuth, (req, res) => {
       }
       if (msgType === "photo") {
         // Imagen promocional: bloque de 10 RV = 8 envíos.
-        const r = trySpendImageSend(req.user.id);
+        const r = trySpendImageSend(req.user.id, req.user);
         if (r.ok) {
           isPromo = 1;
         } else {
@@ -512,7 +512,7 @@ router.post("/", requireAuth, (req, res) => {
     }
   }
 
-  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: getRV(req.user.id) });
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: req.user.is_admin === 1 ? -1 : getRV(req.user.id) });
 });
 
 /* GET /api/community/online → usuarios en línea ahora mismo.
