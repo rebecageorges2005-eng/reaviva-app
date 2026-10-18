@@ -47,6 +47,59 @@ function iniciales(nombre) {
   return "??";
 }
 
+/* --- Usuarios en línea en el chat 🟢🔴 ---
+ * online_users: presencia con timestamp (segundos Unix). Se actualiza en cada
+ * heartbeat (cada 60s con la pestaña de comunidad abierta), al cargar la
+ * comunidad y al publicar. En línea = last_seen dentro de los últimos 2 min.
+ * Las filas viejas (>1 hora) se limpian al consultar. */
+const ONLINE_WINDOW = 120; // segundos: en línea si last_seen > ahora - 120
+function markOnline(userId) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      "INSERT INTO online_users (user_id, last_seen) VALUES (?, ?) " +
+      "ON CONFLICT(user_id) DO UPDATE SET last_seen = excluded.last_seen"
+    ).run(Number(userId), now);
+  } catch (e) { /* nunca bloquea */ }
+}
+function pruneOnline() {
+  try {
+    const limite = Math.floor(Date.now() / 1000) - 3600;
+    db.prepare("DELETE FROM online_users WHERE last_seen < ?").run(limite);
+  } catch (e) { /* nunca bloquea */ }
+}
+function onlineCount() {
+  try {
+    const corte = Math.floor(Date.now() / 1000) - ONLINE_WINDOW;
+    return db.prepare("SELECT COUNT(*) AS n FROM online_users WHERE last_seen > ?").get(corte).n || 0;
+  } catch (e) { return 0; }
+}
+/* Lista de usuarios en línea para el botón del chat: solo INICIALES + país
+ * (con plan) o "Guest" (sin plan) + foto/avatar. NUNCA nombres reales. */
+function onlineUsers() {
+  try {
+    pruneOnline();
+    const corte = Math.floor(Date.now() / 1000) - ONLINE_WINDOW;
+    const rows = db.prepare(
+      `SELECT u.id, u.name, u.photo, u.subscribed, u.is_admin, u.country_code
+       FROM online_users o JOIN users u ON u.id = o.user_id
+       WHERE o.last_seen > ? ORDER BY o.last_seen DESC LIMIT 100`
+    ).all(corte);
+    return rows.map((u) => {
+      const paid = u.subscribed === 1 || u.is_admin === 1;
+      const pais = String(u.country_code || "").toUpperCase();
+      const nombre = paid
+        ? (pais ? iniciales(u.name) + " · " + pais : iniciales(u.name))
+        : "Guest";
+      return {
+        nombre,
+        foto: (u.photo && String(u.photo).startsWith("data:image/")) ? u.photo : null,
+        avatar: avatarFor(u.id),
+      };
+    });
+  } catch (e) { return []; }
+}
+
 /* Fecha legible en español: "17 oct, 22:30". */
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 function fechaCorta(iso) {
@@ -153,6 +206,8 @@ function processDueReposts() {
 router.get("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
+  // Presencia: el usuario está viendo el chat ahora mismo.
+  markOnline(req.user.id);
   // Republicaciones automáticas pendientes de links pagados con RV.
   processDueReposts();
   // Limpieza: borra mensajes de texto vencidos (las fotos usan su lógica de 30s).
@@ -179,6 +234,7 @@ router.get("/", requireAuth, (req, res) => {
     chatTimeLeft: acc.left,
     muted: mutedPayload(req.user.id) !== null,
     rv: getRV(req.user.id),
+    onlineCount: onlineCount(),
     comentarios: rows.map((c) => {
       // Regla de visualización: con plan → INICIALES nombre + país (ej. "MG · MX") + foto;
       // sin plan → "Guest" + foto. NUNCA: nombres reales, email o IP.
@@ -248,6 +304,8 @@ function validarFoto(raw) {
 router.post("/", requireAuth, (req, res) => {
   const acc = chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
+  // Presencia: el usuario está activo en el chat.
+  markOnline(req.user.id);
 
   const isPaid = req.user.is_admin === 1 || req.user.subscribed === 1;
   const photoRaw = req.body && req.body.photo;
@@ -421,12 +479,24 @@ router.post("/", requireAuth, (req, res) => {
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), promo: isPromo === 1, rv: getRV(req.user.id) });
 });
 
+/* GET /api/community/online → usuarios en línea ahora mismo.
+ * Devuelve { count, usuarios: [{ nombre (iniciales+país o Guest), foto, avatar }] }.
+ * Solo para mostrar en el botón "🟢 N en línea" del chat. Sin nombres reales. */
+router.get("/online", requireAuth, (req, res) => {
+  markOnline(req.user.id);
+  const usuarios = onlineUsers();
+  res.json({ count: usuarios.length, usuarios });
+});
+
 /* POST /api/community/heartbeat → el frontend lo llama cada 60s mientras
  * la pestaña de comunidad está abierta. Acumula segundos de uso del día.
  * Devuelve { chatTimeLeft } para que el frontend muestre el temporizador.
  * Plan pagado / admin: { chatTimeLeft: null } (ilimitado). */
 router.post("/heartbeat", requireAuth, (req, res) => {
   const u = req.user;
+  // Presencia: el usuario tiene la pestaña de comunidad abierta. Va ANTES
+  // del retorno temprano para que los usuarios con plan también cuenten.
+  markOnline(u.id);
   // Republicaciones automáticas pendientes de links pagados con RV.
   processDueReposts();
   if (u.is_admin === 1 || u.subscribed === 1)
