@@ -228,6 +228,19 @@
     <div class="panel" id="panel-admin">
       <div id="admin-content"></div>
     </div>
+
+    <!-- COMUNIDAD (todos los usuarios, anónima) -->
+    <div class="panel" id="panel-comunidad">
+      <div class="greet">💬 Comunidad</div>
+      <p class="greet-sub">Un espacio seguro. Todos somos anónimos aquí 💛</p>
+      <div class="community-composer">
+        <textarea id="community-text" class="field" rows="3" maxlength="500"
+          placeholder="Comparte algo con la comunidad… (sin correos ni teléfonos)"></textarea>
+        <button class="btn btn-primary btn-block" onclick="postCommunity()">Publicar 💛</button>
+        <small class="community-note">Por tu seguridad, no compartas correos ni números de teléfono.</small>
+      </div>
+      <div id="community-list" class="community-list"></div>
+    </div>
   </main>
 
   <nav class="tabbar">
@@ -235,6 +248,7 @@
     <button class="tab" data-tab="programa" onclick="switchTab('programa')"><span class="ticon">📖</span>Programa</button>
     <button class="tab" data-tab="diario" onclick="switchTab('diario')"><span class="ticon">✍️</span>Diario</button>
     <button class="tab" data-tab="progreso" onclick="switchTab('progreso')"><span class="ticon">📊</span>Progreso</button>
+    <button class="tab" data-tab="comunidad" onclick="switchTab('comunidad')"><span class="ticon">💬</span>Comunidad</button>
     <button class="tab" data-tab="admin" onclick="switchTab('admin')" style="display:none"><span class="ticon">👑</span>Admin</button>
   </nav>
 </div>

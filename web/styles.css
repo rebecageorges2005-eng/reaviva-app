@@ -375,3 +375,22 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
   .hide-s{display:none}
   .admin-stats{grid-template-columns:repeat(2,1fr)}
 }
+
+/* ==================== COMUNIDAD ANÓNIMA 💬 ==================== */
+.community-composer{background:#fff;border:1px solid #eadfd3;border-radius:16px;padding:16px;margin:14px 0}
+.community-composer .field{width:100%;box-sizing:border-box;resize:vertical}
+.community-note{display:block;margin-top:8px;font-size:.78rem;color:var(--cocoa-soft)}
+.community-list{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.comment-card{background:#fff;border:1px solid #eadfd3;border-radius:14px;padding:14px;display:flex;gap:12px}
+.comment-avatar{font-size:1.8rem;line-height:1;flex-shrink:0}
+.comment-body{flex:1;min-width:0}
+.comment-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.comment-head b{font-size:.9rem;color:var(--cocoa)}
+.comment-head span{font-size:.78rem;color:var(--cocoa-soft)}
+.comment-body p{margin:0;font-size:.92rem;line-height:1.5;color:#4a3b32;white-space:pre-wrap;word-break:break-word}
+.comment-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn-sm{padding:6px 12px;font-size:.8rem}
+.admin-comment{border-left:4px solid var(--terracotta,#c96f4a)}
+.hidden-comment{opacity:.65;background:#faf7f3}
+.empty-state{text-align:center;padding:40px 20px;color:var(--cocoa)}
+.empty-state p{margin:8px 0}
