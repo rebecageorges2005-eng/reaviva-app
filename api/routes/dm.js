@@ -101,8 +101,7 @@ function fechaCorta(iso) {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */
-router.post("/", requireAuth, (req, res) => {
+/* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */router.post("/", requireAuth, (req, res) => {
   const plan = getPlanType(req.user);
   const isMonthly = plan === "monthly";
   const isAnnual = plan === "annual"; // el admin cuenta como annual
@@ -140,6 +139,130 @@ router.post("/", requireAuth, (req, res) => {
   res.status(201).json({ ok: true, id: info.lastInsertRowid });
 });
 
+/* Límites de audio: máx 2 minutos ≈ 2MB en base64. */
+const VOICE_MAX_BYTES = 2 * 1024 * 1024;
+
+/* POST /api/dm/voice  { to_user_id, audio } — enviar mensaje de voz.
+ * audio: data URL base64 (data:audio/...;base64,...).
+ * Permitido: plan anual y mensual. Gratuitos → 403. */
+router.post("/voice", requireAuth, (req, res) => {
+  const plan = getPlanType(req.user);
+  if (plan !== "annual" && plan !== "monthly") {
+    return res.status(403).json({ error: "Los mensajes de voz son para miembros con plan 💎" });
+  }
+  const toId = Number(req.body?.to_user_id);
+  const audio = String(req.body?.audio || "");
+  if (!toId || toId === req.user.id) {
+    return res.status(400).json({ error: "Destinatario inválido" });
+  }
+  if (!/^data:audio\/[a-z0-9.+-]+;base64,/i.test(audio)) {
+    return res.status(400).json({ error: "Formato de audio inválido" });
+  }
+  if (audio.length > VOICE_MAX_BYTES * 1.4) {
+    return res.status(400).json({ error: "El audio es muy largo (máx 2 minutos) 🎤" });
+  }
+  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
+  if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
+  /* Mismo límite diario de conversaciones únicas que los mensajes de texto. */
+  const limite = dmConvLimit(req.user);
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, plan === "monthly");
+  if (!chk.ok) {
+    return res.status(chk.status).json({ error: chk.code, message: chk.message });
+  }
+  cleanupExpired();
+  const info = db
+    .prepare(
+      `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, audio_data, expires_at)
+       VALUES (?, ?, '', 'voice', ?, datetime('now', '+48 hours'))`
+    )
+    .run(req.user.id, toId, audio);
+  res.status(201).json({ ok: true, id: info.lastInsertRowid });
+});
+
+/* Límites de archivos: máx 10MB. Solo documentos (no ejecutables). */
+const FILE_MAX_BYTES = 10 * 1024 * 1024;
+const FILE_TIPOS_PERMITIDOS = {
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "text/plain": "txt",
+};
+
+/* POST /api/dm/file  { to_user_id, file, fileName } — enviar archivo adjunto.
+ * file: data URL base64. Solo plan anual. Máx 10MB.
+ * Permitidos: PDF, DOC, DOCX, TXT. */
+router.post("/file", requireAuth, (req, res) => {
+  const plan = getPlanType(req.user);
+  if (plan !== "annual") {
+    return res.status(403).json({
+      error: "UPGRADE_ANNUAL",
+      message: "Los archivos adjuntos son exclusivos del plan anual 💎",
+    });
+  }
+  const toId = Number(req.body?.to_user_id);
+  const file = String(req.body?.file || "");
+  const fileName = String(req.body?.fileName || "archivo").slice(0, 120);
+  if (!toId || toId === req.user.id) {
+    return res.status(400).json({ error: "Destinatario inválido" });
+  }
+  const m = file.match(/^data:([^;]+);base64,/);
+  if (!m) return res.status(400).json({ error: "Formato de archivo inválido" });
+  const mime = m[1].toLowerCase();
+  if (!FILE_TIPOS_PERMITIDOS[mime]) {
+    return res.status(400).json({ error: "Solo se permiten PDF, DOC, DOCX y TXT 📎" });
+  }
+  /* Tamaño aproximado desde el base64 (×3/4). */
+  const bytesAprox = Math.floor((file.length - m[0].length) * 0.75);
+  if (bytesAprox > FILE_MAX_BYTES) {
+    return res.status(400).json({ error: "El archivo es muy grande (máx 10MB) 📎" });
+  }
+  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
+  if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
+  const limite = dmConvLimit(req.user);
+  const chk = checkDmDailyLimit(req.user.id, toId, limite, false);
+  if (!chk.ok) {
+    return res.status(chk.status).json({ error: chk.code, message: chk.message });
+  }
+  cleanupExpired();
+  const info = db
+    .prepare(
+      `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, file_data, file_name, file_size, expires_at)
+       VALUES (?, ?, '', 'file', ?, ?, ?, datetime('now', '+48 hours'))`
+    )
+    .run(req.user.id, toId, file, fileName, bytesAprox);
+  res.status(201).json({ ok: true, id: info.lastInsertRowid });
+});
+
+/* POST /api/dm/:uid/video-call — iniciar videollamada (Jitsi Meet).
+ * Solo plan anual. Genera una sala aleatoria y envía la invitación por DM.
+ * El mensual recibe 403 UPGRADE_ANNUAL. */
+router.post("/:uid/video-call", requireAuth, (req, res) => {
+  const plan = getPlanType(req.user);
+  const other = Number(req.params.uid);
+  if (!other || other === req.user.id) {
+    return res.status(400).json({ error: "Conversación inválida" });
+  }
+  if (plan !== "annual") {
+    return res.status(403).json({
+      error: "UPGRADE_ANNUAL",
+      message: "Las videollamadas son exclusivas del plan anual 💎",
+    });
+  }
+  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(other);
+  if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
+  /* Sala aleatoria e imposible de adivinar (sin datos del usuario). */
+  const crypto = require("crypto");
+  const roomId = "reaviva-" + crypto.randomBytes(8).toString("hex");
+  const roomUrl = "https://meet.jit.si/" + roomId;
+  cleanupExpired();
+  /* La invitación viaja como mensaje especial en el DM (expira en 48h igual). */
+  db.prepare(
+    `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, expires_at)
+     VALUES (?, ?, ?, 'video-invite', datetime('now', '+48 hours'))`
+  ).run(req.user.id, other, roomUrl);
+  res.json({ ok: true, roomUrl });
+});
+
 /* GET /api/dm/conversations — lista de conversaciones del usuario. */
 router.get("/conversations", requireAuth, (req, res) => {
   if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
@@ -147,7 +270,7 @@ router.get("/conversations", requireAuth, (req, res) => {
   const me = req.user.id;
   const rows = db
     .prepare(
-      `SELECT m.id, m.from_user_id, m.to_user_id, m.text, m.created_at, m.read_at,
+      `SELECT m.id, m.from_user_id, m.to_user_id, m.text, m.msg_type, m.file_name, m.created_at, m.read_at,
               u.id AS uid, u.name, u.photo, u.country_code, u.subscribed, u.is_admin
        FROM private_messages m
        JOIN users u ON u.id = CASE WHEN m.from_user_id = ? THEN m.to_user_id ELSE m.from_user_id END
@@ -159,9 +282,19 @@ router.get("/conversations", requireAuth, (req, res) => {
   for (const r of rows) {
     const otherId = r.from_user_id === me ? r.to_user_id : r.from_user_id;
     if (!map.has(otherId)) {
+      const vistaPrevia =
+        r.msg_type === "voice"
+          ? "🎤 Mensaje de voz"
+          : r.msg_type === "video-invite"
+            ? "📹 Invitación a videollamada"
+            : r.msg_type === "file"
+              ? "📎 " + String(r.file_name || "Archivo")
+              : r.text.length > 60
+                ? r.text.slice(0, 60) + "…"
+                : r.text;
       map.set(otherId, {
         ...displayProfile({ id: r.uid, name: r.name, photo: r.photo, country_code: r.country_code, subscribed: r.subscribed, is_admin: r.is_admin }),
-        ultimo: r.text.length > 60 ? r.text.slice(0, 60) + "…" : r.text,
+        ultimo: vistaPrevia,
         fecha: fechaCorta(r.created_at),
         noLeidos: 0,
       });
@@ -191,7 +324,7 @@ router.get("/:uid", requireAuth, (req, res) => {
   if (!other || other === me) return res.status(400).json({ error: "Conversación inválida" });
   const msgs = db
     .prepare(
-      `SELECT id, from_user_id, text, created_at, expires_at
+      `SELECT id, from_user_id, text, msg_type, audio_data, file_data, file_name, file_size, created_at, expires_at
        FROM private_messages
        WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)
        ORDER BY created_at ASC`
@@ -205,6 +338,9 @@ router.get("/:uid", requireAuth, (req, res) => {
       id: m.id,
       mio: m.from_user_id === me,
       texto: m.text,
+      tipo: m.msg_type || "text",
+      audio: m.msg_type === "voice" ? m.audio_data : null,
+      archivo: m.msg_type === "file" ? { data: m.file_data, nombre: m.file_name, tamano: m.file_size } : null,
       fecha: fechaCorta(m.created_at),
       expira: m.expires_at,
     })),
