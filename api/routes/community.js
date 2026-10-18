@@ -3,8 +3,8 @@
  *   GET  /api/community  → comentarios públicos
  *   POST /api/community  → publicar comentario (con validación anti-spam)
  *
- * Regla de visualización: usuarios CON plan → nombre real + foto de perfil;
- * usuarios SIN plan → "Guest" + foto de perfil. NUNCA se exponen email,
+ * Regla de visualización: usuarios CON plan → INICIALES (ej. "MG") + foto de perfil;
+ * usuarios SIN plan → "Guest" + foto de perfil. NUNCA se exponen nombres reales,
  * user_id ni IP. El admin ve la identidad real en /api/admin/community
  * (routes/admin.js), que no cambia.
  */
@@ -20,6 +20,19 @@ const router = express.Router();
 const AVATARS = ["🌻", "🌙", "🦋", "🌿", "⭐", "🍀", "🌺", "🌊", "🔥", "💫", "🌷", "🍃"];
 function avatarFor(userId) {
   return AVATARS[Math.abs(Number(userId) || 0) % AVATARS.length];
+}
+
+/* Iniciales del nombre en mayúsculas: "María González" → "MG", "Pedro" → "PE".
+ * En el chat grupal NUNCA se muestran nombres reales. */
+function iniciales(nombre) {
+  const partes = String(nombre || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length >= 2) {
+    return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+  }
+  if (partes.length === 1) {
+    return partes[0].slice(0, 2).toUpperCase();
+  }
+  return "??";
 }
 
 /* Fecha legible en español: "17 oct, 22:30". */
@@ -91,7 +104,7 @@ router.get("/", requireAuth, (req, res) => {
   const rows = db
     .prepare(
       `SELECT c.id, c.user_id, c.text, c.created_at,
-              u.name, u.photo, u.subscribed, u.is_admin
+              u.name, u.photo, u.subscribed, u.is_admin, u.country_code
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
        WHERE c.hidden = 0
@@ -102,14 +115,18 @@ router.get("/", requireAuth, (req, res) => {
   res.json({
     chatTimeLeft: acc.left,
     comentarios: rows.map((c) => {
-      // Regla de visualización: con plan → nombre real + foto;
-      // sin plan → "Guest" + foto. NUNCA: email, ip, user_id.
+      // Regla de visualización: con plan → INICIALES nombre + país (ej. "MG · MX") + foto;
+      // sin plan → "Guest" + foto. NUNCA: nombres reales, email, ip, user_id.
       const paid = c.subscribed === 1 || c.is_admin === 1;
+      const pais = String(c.country_code || "").toUpperCase();
+      const nombre = paid
+        ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
+        : "Guest";
       return {
         id: c.id,
         texto: c.text,
         fecha: fechaCorta(c.created_at),
-        nombre: paid ? c.name : "Guest",
+        nombre,
         foto: c.photo || null,
         avatar: avatarFor(c.user_id), // emoji de respaldo si no tiene foto
       };
