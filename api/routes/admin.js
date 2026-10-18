@@ -112,6 +112,16 @@ router.get("/stats", requireAdmin, (req, res) => {
     mrr: Math.round(mrr * 100) / 100,
     countriesCount,
     topCountries,
+    // Referidos: usuarios que llegaron por un link compartido + top invitadores
+    referredUsers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL").get().n,
+    topReferrers: db.prepare(`
+      SELECT u.id, u.name AS nombre, COUNT(r.id) AS referidos
+      FROM users u
+      JOIN users r ON r.referred_by = u.id
+      GROUP BY u.id, u.name
+      ORDER BY referidos DESC
+      LIMIT 10
+    `).all(),
   });
 });
 

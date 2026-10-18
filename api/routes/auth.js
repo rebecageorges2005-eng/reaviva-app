@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../db");
 const { sendVerificationEmail, sendWelcomeEmail } = require("../email");
+const { getPlanType } = require("../plan");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
@@ -28,6 +29,8 @@ function publicUser(row) {
     programStart: row.program_start,
     subscribed: row.subscribed === 1,
     isAdmin: row.is_admin === 1,
+    // Tipo de plan: 'annual' | 'monthly' | 'free' (el admin cuenta como annual).
+    planType: getPlanType(row),
     // El admin siempre se considera verificado.
     emailVerified: row.email_verified === 1 || row.is_admin === 1,
     createdAt: row.created_at,
@@ -191,9 +194,17 @@ router.post("/signup", async (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const token = newVerificationToken();
+  // Referido: ?ref=USERID en el link compartido (opcional).
+  let referredBy = null;
+  const refRaw = String(req.body?.referred_by || "").trim();
+  if (/^\d+$/.test(refRaw)) {
+    const refId = Number(refRaw);
+    const refUser = db.prepare("SELECT id FROM users WHERE id = ?").get(refId);
+    if (refUser) referredBy = refId;
+  }
   const info = db
-    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token) VALUES (?, ?, ?, 0, ?)")
-    .run(email, name, hash, token);
+    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by) VALUES (?, ?, ?, 0, ?, ?)")
+    .run(email, name, hash, token, referredBy);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
