@@ -9,6 +9,7 @@
 require("dotenv").config();
 const path = require("path");
 const express = require("express");
+const zlib = require("zlib");
 
 const db = require("./db"); // initializes schema on require
 const { router: authRouter, requireAuth, verifyToken } = require("./routes/auth");
@@ -35,6 +36,27 @@ if (paypalConfigured()) {
 }
 
 app.use(express.json({ limit: "3mb" })); // 3mb: permite la foto de perfil en base64
+
+/* --- Compresión gzip para respuestas de texto (sin dependencias externas).
+ * Reduce ~70% el tamaño de app.js, i18n.js, HTML y CSS. --- */
+app.use((req, res, next) => {
+  const accept = req.headers["accept-encoding"] || "";
+  if(!/\bgzip\b/.test(accept)) return next();
+  const origSend = res.send.bind(res);
+  res.send = (body) => {
+    if(res.getHeader("Content-Encoding")) return origSend(body);
+    const ct = String(res.getHeader("Content-Type") || "");
+    const isText = /text|javascript|json|css|html|svg|xml/.test(ct);
+    if(!isText || !body || Buffer.byteLength(String(body)) < 1024) return origSend(body);
+    try{
+      const gz = zlib.gzipSync(String(body), { level: 6 });
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Content-Length", String(gz.length));
+      return origSend(gz);
+    }catch(e){ return origSend(body); }
+  };
+  next();
+});
 
 /* --- API routes --- */
 app.use("/api/auth", authRouter);
@@ -119,7 +141,14 @@ app.use("/audio", (req, res, next) => {
 
 /* --- Serve the frontend SPA in production --- */
 const FRONTEND_DIR = path.resolve(__dirname, process.env.FRONTEND_DIR || "../web");
-app.use(express.static(FRONTEND_DIR));
+/* Archivos estáticos con caché: los JS/CSS ya usan ?v=N para invalidar. */
+app.use(express.static(FRONTEND_DIR, {
+  maxAge: "7d",
+  setHeaders(res, filePath){
+    // HTML nunca se cachea (siempre fresco); JS/CSS/imágenes sí.
+    if(filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+  }
+}));
 // SPA fallback: any non-API route serves index.html
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
