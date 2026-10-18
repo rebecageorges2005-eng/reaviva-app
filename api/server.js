@@ -23,6 +23,7 @@ const { router: dmRouter } = require("./routes/dm");
 const { router: rvRouter } = require("./routes/rv");
 const { router: reactionsRouter } = require("./routes/reactions");
 const { router: albumsRouter } = require("./routes/albums");
+const { router: flagsRouter } = require("./routes/flags");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -131,6 +132,7 @@ app.use("/api/dm", dmRouter); // /api/dm/* (mensajes privados, plan anual)
 app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
 app.use("/api/reactions", reactionsRouter); // /api/reactions/* (likes/dislikes)
 app.use("/api/albums", albumsRouter); // /api/albums/* (álbumes de fotos del perfil)
+app.use("/api/flags", flagsRouter); // /api/flags/* (banderas de advertencia)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
@@ -173,6 +175,23 @@ app.get("/api/health", (req, res) =>
 app.get("/api/config", (req, res) =>
   res.json({ recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || null })
 );
+
+/* POST /api/contact — formulario de la página de contacto.
+ * Guarda el mensaje en contact_messages y lo registra en consola. */
+app.post("/api/contact", (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
+  const message = String(req.body?.message || "").trim().slice(0, 2000);
+  if (!name) return res.status(400).json({ error: "Escribe tu nombre." });
+  if (!email || !email.includes("@")) return res.status(400).json({ error: "Correo inválido." });
+  if (!message) return res.status(400).json({ error: "Escribe tu mensaje." });
+  try {
+    db.prepare("INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)")
+      .run(name, email, message);
+  } catch (e) { /* la tabla se crea en la migración; si falla, igual se registra */ }
+  console.log(`[contacto] ${name} <${email}>: ${message.slice(0, 120)}`);
+  res.json({ ok: true });
+});
 
 /* --- Protección de audios freemium ---
  * Los audios de los días 8–30 requieren plan de pago (límite freemium:

@@ -820,3 +820,18 @@ try {
 } catch (e) {
   console.error("[db] migración birthdate:", e.message);
 }
+
+/* --- Mensajes del formulario de contacto ---
+ * contact_messages: mensajes enviados desde contacto.html. */
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS contact_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  console.log("[db] migración: tabla contact_messages lista");
+} catch (e) {
+  console.error("[db] migración contact_messages:", e.message);
+}
