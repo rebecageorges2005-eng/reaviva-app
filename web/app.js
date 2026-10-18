@@ -136,7 +136,11 @@ function enterApp(){
   showView("app");
   const u = currentUser();
   $("#user-chip").textContent = "Hola, " + esc(u.name);
+  // Mostrar pestaña Admin solo para administradores
+  const adminTab = document.querySelector('[data-tab="admin"]');
+  if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
   switchTab("hoy");
+  checkUserMessages();
 }
 function switchTab(tab){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
@@ -145,6 +149,257 @@ function switchTab(tab){
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
   if(tab==="progreso") renderProgreso();
+  if(tab==="admin") renderAdmin();
+}
+
+/* ---------- auth header helper ---------- */
+function authHeaders(){
+  const t = store.get("reaviva_token", null);
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+
+/* ============================================================
+   MENSAJES DEL ADMINISTRADOR (para usuarios normales)
+   ============================================================ */
+async function checkUserMessages(){
+  if(isAdmin()) return; // el admin no recibe sus propios mensajes
+  try{
+    const r = await fetch("/api/messages", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    const box = $("#user-messages");
+    if(!box) return;
+    if(!j.messages || !j.messages.length){ box.innerHTML = ""; box.style.display = "none"; return; }
+    box.innerHTML = j.messages.map(m=>`
+      <div class="admin-msg" data-mid="${m.id}">
+        <div class="am-head"><b>📢 ${esc(m.titulo)}</b>
+          <button class="am-close" onclick="dismissMessage(${m.id})" aria-label="Cerrar">✕</button></div>
+        <p>${esc(m.cuerpo)}</p>
+      </div>`).join("");
+    box.style.display = "";
+  }catch(e){ /* sin conexión: no mostrar nada */ }
+}
+async function dismissMessage(id){
+  try{
+    await fetch("/api/messages/" + id + "/read", { method: "POST", headers: authHeaders() });
+  }catch(e){}
+  const el = document.querySelector(`.admin-msg[data-mid="${id}"]`);
+  if(el) el.remove();
+  const box = $("#user-messages");
+  if(box && !box.querySelector(".admin-msg")) box.style.display = "none";
+}
+
+/* ============================================================
+   PANEL DE ADMINISTRADOR
+   ============================================================ */
+let adminUsersCache = [];
+let adminGrowthDays = 30;
+
+async function renderAdmin(){
+  if(!isAdmin()){ switchTab("hoy"); return; }
+  const wrap = $("#admin-content");
+  wrap.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando panel…</p>`;
+  try{
+    const r = await fetch("/api/admin/stats", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+    wrap.innerHTML = `
+      <div class="greet">👑 Panel de administrador</div>
+      <p class="greet-sub">Todo tu negocio de un vistazo.</p>
+      <div class="admin-stats">
+        <div class="stat-card"><b>${s.totalUsers}</b><span>👥 Usuarios registrados</span></div>
+        <div class="stat-card ok"><b>${s.subscribedUsers}</b><span>💳 Con plan pagado</span></div>
+        <div class="stat-card"><b>${s.trialUsers}</b><span>🆓 En prueba / sin plan</span></div>
+        <div class="stat-card live"><b>${s.onlineNow}</b><span>🟢 Conectados ahora</span></div>
+        <div class="stat-card"><b>${s.signupsToday}</b><span>📝 Registros hoy</span></div>
+        <div class="stat-card money"><b>$${s.mrr}</b><span>💰 Ingreso mensual est.</span></div>
+      </div>
+      <div class="admin-section">
+        <div class="admin-section-head">
+          <h3>📈 Crecimiento</h3>
+          <select id="growth-period" class="field field-inline" onchange="loadGrowth(this.value)">
+            <option value="8">Últimos 8 días</option>
+            <option value="15">Últimos 15 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="60">Últimos 60 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="180">Últimos 6 meses</option>
+            <option value="365">Último año</option>
+          </select>
+        </div>
+        <div id="growth-chart" class="growth-chart"></div>
+        <div class="table-wrap"><table class="admin-table">
+          <thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead>
+          <tbody id="growth-body"></tbody>
+        </table></div>
+      </div>
+      <div class="admin-section">
+        <h3>👥 Usuarios</h3>
+        <div class="table-wrap"><table class="admin-table">
+          <thead><tr><th>Nombre</th><th>Email</th><th>Plan</th><th>Última conexión</th></tr></thead>
+          <tbody id="admin-users-body"><tr><td colspan="4" style="text-align:center">Cargando…</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="admin-section">
+        <h3>✉️ Enviar mensaje</h3>
+        <div class="block">
+          <select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>
+          <input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">
+          <textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>
+          <button class="btn btn-primary btn-block" onclick="sendAdminMessage()">Enviar mensaje</button>
+        </div>
+        <h3 style="margin-top:20px">📨 Mensajes enviados</h3>
+        <div id="admin-sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>
+      </div>
+      <div id="admin-user-detail"></div>`;
+    await Promise.all([loadGrowth(adminGrowthDays), loadAdminUsers(), loadSentMessages()]);
+    // restaurar selector al período actual
+    const sel = $("#growth-period");
+    if(sel) sel.value = String(adminGrowthDays);
+  }catch(e){
+    wrap.innerHTML = `<p style="color:#a33;text-align:center">No se pudo cargar el panel: ${esc(e.message)}</p>`;
+  }
+}
+
+async function loadGrowth(days){
+  adminGrowthDays = Number(days) || 30;
+  const chart = $("#growth-chart"), body = $("#growth-body");
+  if(!chart || !body) return;
+  chart.innerHTML = `<p style="color:var(--cocoa-soft)">Cargando…</p>`;
+  try{
+    const r = await fetch("/api/admin/growth?days=" + adminGrowthDays, { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const g = await r.json();
+    const periods = g.periods || [];
+    const max = Math.max(1, ...periods.map(p=>p.nuevosUsuarios));
+    // Mini gráfico de barras con divs/CSS (sin librerías)
+    chart.innerHTML = `
+      <div class="bars" title="Nuevos usuarios por período">
+        ${periods.map(p=>{
+          const h = Math.round((p.nuevosUsuarios / max) * 100);
+          const cls = p.nuevosConPlan > 0 ? "bar has-plan" : "bar";
+          return `<div class="${cls}" style="height:${Math.max(h,3)}%" title="${esc(p.etiqueta)}: ${p.nuevosUsuarios} usuarios, ${p.nuevosConPlan} con plan"><span>${p.nuevosUsuarios||""}</span></div>`;
+        }).join("")}
+      </div>
+      <div class="bars-legend"><span><i class="dot"></i> Usuarios</span><span><i class="dot plan"></i> Con plan ese período</span>
+      <span style="margin-left:auto">Total: ${g.totalSignups} usuarios · ${g.totalSubs} con plan</span></div>`;
+    // Tabla (últimos 10 períodos para no alargar; el gráfico muestra todo)
+    const rows = g.porSemana ? periods.slice(-10) : periods.slice(-14);
+    body.innerHTML = rows.map(p=>`
+      <tr><td>${esc(p.etiqueta)}</td><td><b>${p.nuevosUsuarios}</b></td><td>${p.nuevosConPlan>0?'<span class="tag-plan">'+p.nuevosConPlan+'</span>':'0'}</td></tr>`).join("")
+      || `<tr><td colspan="3" style="text-align:center">Sin datos</td></tr>`;
+  }catch(e){
+    chart.innerHTML = `<p style="color:#a33">Error cargando crecimiento</p>`;
+  }
+}
+
+async function loadAdminUsers(){
+  const body = $("#admin-users-body");
+  const sel = $("#msg-user");
+  try{
+    const r = await fetch("/api/admin/users", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    adminUsersCache = j.users || [];
+    body.innerHTML = adminUsersCache.map(u=>`
+      <tr onclick="openAdminUser(${u.id})" class="clickable">
+        <td>${esc(u.nombre)} ${u.esAdmin?'👑':''} ${u.enLinea?'<span class="dot-online" title="En línea"></span>':''}</td>
+        <td class="hide-s">${esc(u.email)}</td>
+        <td>${u.conPlan?'<span class="tag-plan">CON PLAN</span>':'<span class="tag-free">SIN PLAN</span>'}</td>
+        <td>${esc(u.ultimaConexion)}</td>
+      </tr>`).join("") || `<tr><td colspan="4" style="text-align:center">Sin usuarios</td></tr>`;
+    // Llenar selector del composer (conservar opción "todos")
+    if(sel){
+      sel.innerHTML = `<option value="all">📢 Todos los usuarios</option>` +
+        adminUsersCache.filter(u=>!u.esAdmin).map(u=>`<option value="${u.id}">${esc(u.nombre)} (${esc(u.email)})</option>`).join("");
+    }
+  }catch(e){
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#a33">Error cargando usuarios</td></tr>`;
+  }
+}
+
+async function openAdminUser(id){
+  const box = $("#admin-user-detail");
+  box.innerHTML = `<p style="text-align:center">Cargando usuario…</p>`;
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  try{
+    const r = await fetch("/api/admin/users/" + id, { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const u = await r.json();
+    box.innerHTML = `
+      <div class="admin-section">
+        <div class="admin-section-head">
+          <h3>👤 ${esc(u.nombre)}</h3>
+          <button class="btn btn-ghost" style="padding:8px 16px;font-size:.85rem" onclick="document.querySelector('#admin-user-detail').innerHTML=''">Cerrar ✕</button>
+        </div>
+        <div class="user-detail-card ${u.conPlan?'has-plan':'no-plan'}">
+          <div class="plan-badge">${u.conPlan ? "✅ TIENE PLAN" : "⚠️ SIN PLAN"}</div>
+          <div class="ud-grid">
+            <div><small>Email</small><b>${esc(u.email)}</b></div>
+            <div><small>Estado suscripción</small><b>${esc(u.plan)}${u.planDetalle?` (${esc(u.planDetalle)})`:""}</b></div>
+            <div><small>Próximo cobro</small><b>${esc(u.proximoCobro || "—")}</b></div>
+            <div><small>Registrado</small><b>${esc(u.registrado)}</b></div>
+            <div><small>Última conexión</small><b>${esc(u.ultimaConexion)} ${u.enLinea?'🟢':''}</b></div>
+            <div><small>Inicio programa</small><b>${esc(u.inicioPrograma || "—")}</b></div>
+            <div><small>Días completados</small><b>${u.diasCompletados}/30</b></div>
+            <div><small>Entradas diario</small><b>${u.entradasDiario}</b></div>
+          </div>
+          <button class="btn btn-primary btn-block" style="margin-top:14px"
+            onclick="prefillMessage(${u.id})">✉️ Enviarle un mensaje</button>
+        </div>
+      </div>`;
+  }catch(e){
+    box.innerHTML = `<p style="color:#a33;text-align:center">Error: ${esc(e.message)}</p>`;
+  }
+}
+
+function prefillMessage(userId){
+  const sel = $("#msg-user");
+  if(sel) sel.value = String(userId);
+  const title = $("#msg-title");
+  if(title) title.focus();
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+async function sendAdminMessage(){
+  const sel = $("#msg-user"), title = $("#msg-title"), bodyEl = $("#msg-body");
+  const userId = sel ? sel.value : "all";
+  const titleV = title ? title.value.trim() : "";
+  const bodyV = bodyEl ? bodyEl.value.trim() : "";
+  if(!titleV){ toast("Escribe un título"); return; }
+  if(!bodyV){ toast("Escribe el mensaje"); return; }
+  try{
+    const r = await fetch("/api/admin/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ userId: userId === "all" ? "all" : Number(userId), title: titleV, body: bodyV })
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    toast(j.para === "todos" ? `📢 Mensaje enviado a ${j.destinatarios} usuarios` : "✉️ Mensaje enviado");
+    if(title) title.value = "";
+    if(bodyEl) bodyEl.value = "";
+    loadSentMessages();
+  }catch(e){
+    toast("Error: " + e.message);
+  }
+}
+
+async function loadSentMessages(){
+  const box = $("#admin-sent-list");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/admin/messages", { headers: authHeaders() });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    box.innerHTML = (j.messages||[]).map(m=>`
+      <div class="entry">
+        <div class="ehead"><span>Para: <b>${esc(m.para)}</b> · ${esc(m.enviado)}</span><span>${m.leido?"👁️":""}</span></div>
+        <p><b>${esc(m.titulo)}</b><br>${esc(m.cuerpo)}</p>
+      </div>`).join("") || `<p style="color:var(--cocoa-soft)">Aún no enviaste mensajes.</p>`;
+  }catch(e){
+    box.innerHTML = `<p style="color:#a33">Error cargando mensajes</p>`;
+  }
 }
 
 /* ---------- HOY ---------- */
