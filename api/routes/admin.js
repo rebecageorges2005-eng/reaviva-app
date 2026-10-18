@@ -81,6 +81,21 @@ router.get("/stats", requireAdmin, (req, res) => {
     else if (p.plan === "yearly") mrr += p.n * (39.99 / 12);
   }
 
+  // Países: cuántos países distintos y top 5
+  const countriesCount = db
+    .prepare("SELECT COUNT(DISTINCT country) AS n FROM users WHERE country IS NOT NULL")
+    .get().n;
+  const topCountries = db
+    .prepare(
+      `SELECT country AS pais, country_code AS codigo, COUNT(*) AS usuarios
+       FROM users
+       WHERE country IS NOT NULL
+       GROUP BY country, country_code
+       ORDER BY usuarios DESC
+       LIMIT 5`
+    )
+    .all();
+
   res.json({
     totalUsers,
     subscribedUsers,
@@ -89,6 +104,8 @@ router.get("/stats", requireAdmin, (req, res) => {
     signupsToday,
     activeSubscriptions,
     mrr: Math.round(mrr * 100) / 100,
+    countriesCount,
+    topCountries,
   });
 });
 
@@ -179,6 +196,7 @@ router.get("/users", requireAdmin, (req, res) => {
   const users = db
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
+              u.ip, u.country, u.country_code,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -202,6 +220,9 @@ router.get("/users", requireAdmin, (req, res) => {
       registradoRaw: u.created_at,
       ultimaConexion: fmtDateTime(u.last_seen),
       enLinea: !!u.last_seen && new Date(u.last_seen.replace(" ", "T") + "Z").getTime() > Date.now() - 5 * 60000,
+      ip: u.ip || null,
+      pais: u.country || null,
+      codigoPais: u.country_code || null,
     })),
   });
 });
@@ -214,7 +235,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
   const u = db
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
-              u.program_start,
+              u.program_start, u.ip, u.country, u.country_code,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -247,6 +268,9 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     diasCompletados: progressCount,
     ultimoDiaCompletado: lastProgress || 0,
     entradasDiario: journalCount,
+    ip: u.ip || null,
+    pais: u.country || null,
+    codigoPais: u.country_code || null,
   });
 });
 

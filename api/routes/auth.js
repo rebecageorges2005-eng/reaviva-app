@@ -30,6 +30,66 @@ function publicUser(row) {
   };
 }
 
+/* ============================================================
+   IP Y PAÍS DEL USUARIO (para saber desde qué país se conectan)
+   ============================================================ */
+/* IP real del cliente: Render está detrás de un proxy, así que
+ * x-forwarded-for (primera IP) es lo más fiable; si no existe,
+ * se usa la conexión directa. */
+function getClientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (xff) {
+    const first = String(xff).split(",")[0].trim();
+    if (first) return first;
+  }
+  const ra = req.socket && req.socket.remoteAddress;
+  if (ra) {
+    // Normaliza el formato IPv4-mapeado-en-IPv6 (::ffff:1.2.3.4)
+    const m = String(ra).match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    return m ? m[1] : String(ra);
+  }
+  return null;
+}
+
+function isPrivateIp(ip) {
+  if (!ip) return true;
+  if (ip === "::1" || ip === "::ffff:127.0.0.1") return true;
+  return (
+    /^127\./.test(ip) ||
+    /^10\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^169\.254\./.test(ip)
+  );
+}
+
+/* Geo-lookup asíncrono (ip-api.com, gratis, sin API key).
+ * NO bloquea la respuesta: se dispara y se olvida. */
+function trackGeoAsync(userId, ip) {
+  if (!userId || !ip || isPrivateIp(ip)) return;
+  setTimeout(() => {
+    fetch("http://ip-api.com/json/" + encodeURIComponent(ip) + "?fields=country,countryCode,status", { signal: AbortSignal.timeout(8000) })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.status === "success" && j.country) {
+          db.prepare("UPDATE users SET country = ?, country_code = ? WHERE id = ?")
+            .run(j.country, j.countryCode || null, userId);
+        }
+      })
+      .catch(() => { /* falla silenciosamente: el país queda null */ });
+  }, 0);
+}
+
+/* Guarda/actualiza la IP del usuario y dispara el lookup de país. */
+function trackUserIp(userId, req) {
+  const ip = getClientIp(req);
+  if (!userId || !ip) return;
+  try {
+    db.prepare("UPDATE users SET ip = ? WHERE id = ? AND (ip IS NULL OR ip != ?)").run(ip, userId, ip);
+  } catch (e) { /* no bloquea */ }
+  trackGeoAsync(userId, ip);
+}
+
 /* Middleware: require a valid Bearer token. Attaches req.user = full DB row. */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -59,8 +119,8 @@ router.post("/signup", (req, res) => {
   if (!name) return res.status(400).json({ error: "El nombre es requerido" });
   if (!email || !email.includes("@"))
     return res.status(400).json({ error: "Correo inválido" });
-  if (password.length < 8)
-    return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+  if (password.length < 6)
+    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
 
   const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (exists) return res.status(409).json({ error: "Ese correo ya está registrado" });
@@ -70,6 +130,7 @@ router.post("/signup", (req, res) => {
     .prepare("INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)")
     .run(email, name, hash);
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
   res.status(201).json({ token: signToken(row), user: publicUser(row) });
 });
@@ -83,6 +144,7 @@ router.post("/login", (req, res) => {
   if (!row || !bcrypt.compareSync(password, row.password_hash))
     return res.status(401).json({ error: "Correo o contraseña incorrectos" });
 
+  trackUserIp(row.id, req); // actualiza IP y país (asíncrono)
   res.json({ token: signToken(row), user: publicUser(row) });
 });
 
@@ -113,7 +175,13 @@ router.post("/admin-login", (req, res) => {
     row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
   }
 
+  trackUserIp(row.id, req); // registra IP y país (asíncrono)
   res.json({ token: signToken(row), user: publicUser(row) });
+});
+
+/* GET /api/auth/me → devuelve el usuario actual (valida la sesión) */
+router.get("/me", requireAuth, (req, res) => {
+  res.json({ user: publicUser(req.user) });
 });
 
 module.exports = { router, requireAuth };
