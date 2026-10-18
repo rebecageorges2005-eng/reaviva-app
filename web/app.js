@@ -210,7 +210,8 @@ async function loadRVBalance(){
     if(!r.ok) return;
     const j = await r.json();
     const bal = $("#rv-balance");
-    if(bal) bal.textContent = Number(j.rv) || 0;
+    // El admin tiene RV ilimitado: muestra ∞.
+    if(bal) bal.textContent = (j.unlimited || isAdmin()) ? "∞" : (Number(j.rv) || 0);
   }catch(e){ /* sin conexión */ }
 }
 
@@ -330,7 +331,7 @@ async function handleRVReturn(){
     toast("Error: " + e.message);
   }
 }
-function esc(s){ return String(s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function esc(s){ return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* ---------- auth (placeholder) ----------
  * MVP: email stored locally only. Replace with real backend auth later.
@@ -1242,6 +1243,11 @@ async function renderComunidad(){
     // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
     communityUsers = {};
     list.innerHTML = items.map(c=>{
+      // Mensaje de sistema (ej. "👑 El administrador se ha conectado"):
+      // banner centrado, sin avatar ni acciones.
+      if(c.msg_type === "system"){
+        return `<div class="system-msg"><span>${esc(c.texto)}</span></div>`;
+      }
       if(c.uid) communityUsers[c.uid] = { nombre: c.nombre, foto: c.foto, avatar: c.avatar };
       // Sin plan → "Guest" + foto; con plan → nombre real + foto.
       // La foto viene validada del servidor (data:image/...); esc() la protege.

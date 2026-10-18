@@ -382,6 +382,9 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .community-note{display:block;margin-top:8px;font-size:.78rem;color:var(--cocoa-soft)}
 .community-list{display:flex;flex-direction:column;gap:12px;margin-top:6px}
 .comment-card{background:#fff;border:1px solid #eadfd3;border-radius:14px;padding:14px;display:flex;gap:12px}
+/* Mensaje de sistema (ej. admin conectado): banner centrado dorado. */
+.system-msg{text-align:center;margin:8px 0}
+.system-msg span{display:inline-block;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-weight:700;font-size:.85rem;padding:8px 18px;border-radius:999px;box-shadow:0 2px 8px rgba(245,158,11,.25)}
 .comment-avatar{font-size:1.8rem;line-height:1;flex-shrink:0}
 .comment-photo{width:40px;height:40px;border-radius:50%;object-fit:cover;display:block}
 .comment-body{flex:1;min-width:0}
