@@ -191,4 +191,36 @@ try {
   console.error("[db] migración email_verified:", e.message);
 }
 
+/* --- Migration: Oct 2026 — foto de perfil y límite de chat ---
+ * users.photo: foto de perfil del usuario (data URL base64, máx ~2MB).
+ *   La IP NUNCA se expone a no-admins; el país sí es visible para el
+ *   propio usuario en su perfil.
+ * chat_usage: segundos de chat usados por día por usuario (límite
+ *   freemium de 2 horas diarias en la comunidad). */
+try {
+  const cols7 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols7.includes("photo")) {
+    db.exec("ALTER TABLE users ADD COLUMN photo TEXT");
+    console.log("[db] migración: columna users.photo agregada");
+  }
+} catch (e) {
+  console.error("[db] migración photo:", e.message);
+}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_usage (
+      user_id        INTEGER NOT NULL,
+      date           TEXT NOT NULL,              -- YYYY-MM-DD (UTC)
+      seconds_used   INTEGER NOT NULL DEFAULT 0,
+      last_heartbeat INTEGER,                   -- unix timestamp del último heartbeat
+      PRIMARY KEY (user_id, date),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  console.log("[db] migración: tabla chat_usage lista");
+} catch (e) {
+  console.error("[db] migración chat_usage:", e.message);
+}
+
 module.exports = db;
