@@ -44,8 +44,6 @@ function isPrivateIp(ip) {
 
 /* ============ IPs bloqueadas ============ */
 function isBlockedIp(ip) {
-  // TEMPORAL: desactivado para diagnosticar cuelgue de DB en producción.
-  return false;
   if (!ip) return false;
   try {
     const row = db.prepare("SELECT ip FROM blocked_ips WHERE ip = ?").get(ip);
