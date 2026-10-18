@@ -24,6 +24,7 @@ const {
   trySpendImageSend,
   getRV,
 } = require("../spam");
+const { verifyLinks, mensajeBloqueo } = require("../linkverify");
 
 const router = express.Router();
 
@@ -321,6 +322,23 @@ router.post("/", requireAuth, (req, res) => {
   if (violacion) {
     const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
     if (conPlan) {
+      /* --- Verificación de enlaces 🔒 ---
+       * Antes de descontar RV: el enlace debe ser de una página
+       * verificada (anti-phishing/hackers). Si no pasa, se bloquea
+       * SIN descontar RV y se registra para revisión del admin. */
+      const verif = verifyLinks(finalText);
+      if (!verif.ok) {
+        try {
+          db.prepare(
+            `INSERT INTO chat_violations (user_id, attempted_text, violation_type, detail, created_at)
+             VALUES (?, ?, 'link no verificado', ?, datetime('now'))`
+          ).run(req.user.id, String(finalText || "").slice(0, 500), "motivo: " + verif.motivo + " (" + verif.url + ")");
+        } catch (e) { /* no bloquea */ }
+        return res.status(403).json({
+          error: "LINK_NO_VERIFICADO",
+          message: mensajeBloqueo(verif),
+        });
+      }
       if (msgType === "photo") {
         // Imagen promocional: bloque de 10 RV = 8 envíos.
         const r = trySpendImageSend(req.user.id);

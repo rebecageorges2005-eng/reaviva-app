@@ -10,6 +10,9 @@
  *   POST /api/admin/messages         → enviar mensaje a un usuario o a todos
  *   POST /api/admin/users/:id/unmute → reactiva el chat de un usuario muteado
  *   GET  /api/admin/chat-violations   → intentos bloqueados por anti-spam
+ *   GET  /api/admin/verified-domains  → lista de dominios verificados
+ *   POST /api/admin/verified-domains  → agregar dominio verificado
+ *   DELETE /api/admin/verified-domains/:id → quitar dominio verificado
  */
 "use strict";
 
@@ -534,6 +537,51 @@ router.get("/chat-violations", requireAdmin, (req, res) => {
 });
 
 /* ---------- GET /api/admin/messages ---------- */
+
+/* ---------- Dominios verificados 🔒 ----------
+ * Solo se permiten links de páginas verificadas en mensajes
+ * promocionales (anti-phishing/hackers). */
+router.get("/verified-domains", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare("SELECT id, domain, approved_by, approved_at FROM verified_domains ORDER BY domain ASC")
+    .all();
+  res.json({
+    dominios: rows.map((d) => ({
+      id: d.id,
+      dominio: d.domain,
+      aprobadoPor: d.approved_by || null,
+      fecha: d.approved_at,
+    })),
+  });
+});
+
+router.post("/verified-domains", requireAdmin, (req, res) => {
+  const { normalizarDominio, invalidarCache } = require("../linkverify");
+  const dominio = normalizarDominio(req.body && req.body.domain);
+  if (!dominio || !/^[a-z0-9][a-z0-9\-.]*\.[a-z]{2,}$/.test(dominio)) {
+    return res.status(400).json({ error: "Dominio inválido. Ejemplo: mitienda.com" });
+  }
+  try {
+    db.prepare(
+      "INSERT INTO verified_domains (domain, approved_by) VALUES (?, ?)"
+    ).run(dominio, (req.user && (req.user.name || req.user.email)) || "admin");
+  } catch (e) {
+    if (String(e.message || "").includes("UNIQUE")) {
+      return res.status(409).json({ error: "Ese dominio ya está verificado." });
+    }
+    throw e;
+  }
+  invalidarCache();
+  res.status(201).json({ ok: true, dominio });
+});
+
+router.delete("/verified-domains/:id", requireAdmin, (req, res) => {
+  const { invalidarCache } = require("../linkverify");
+  const r = db.prepare("DELETE FROM verified_domains WHERE id = ?").run(req.params.id);
+  invalidarCache();
+  if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  res.json({ ok: true });
+});
 router.get("/messages", requireAdmin, (req, res) => {
   const rows = db
     .prepare(
