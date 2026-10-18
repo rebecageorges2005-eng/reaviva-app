@@ -86,4 +86,52 @@ try {
   console.error("[db] migración is_admin:", e.message);
 }
 
+/* --- Migration: Oct 2026 — admin dashboard ---
+ * Adds last_seen to users (who is online now), admin_messages table
+ * (admin → user messages; user_id NULL = broadcast to all), and
+ * next_billing_date + reminder_sent to paypal_subscriptions (for the
+ * automatic "your plan expires soon" reminder job). */
+try {
+  const cols3 = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols3.includes("last_seen")) {
+    db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT");
+    console.log("[db] migración: columna users.last_seen agregada");
+  }
+} catch (e) {
+  console.error("[db] migración last_seen:", e.message);
+}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS admin_messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER,                 -- NULL = mensaje para todos
+      email      TEXT,
+      title      TEXT NOT NULL,
+      body       TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      read_at    TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_messages_user ON admin_messages(user_id);
+  `);
+  console.log("[db] migración: tabla admin_messages lista");
+} catch (e) {
+  console.error("[db] migración admin_messages:", e.message);
+}
+
+try {
+  const cols4 = db.prepare("PRAGMA table_info(paypal_subscriptions)").all().map((c) => c.name);
+  if (!cols4.includes("next_billing_date")) {
+    db.exec("ALTER TABLE paypal_subscriptions ADD COLUMN next_billing_date TEXT");
+    console.log("[db] migración: columna paypal_subscriptions.next_billing_date agregada");
+  }
+  if (!cols4.includes("reminder_sent")) {
+    db.exec("ALTER TABLE paypal_subscriptions ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0");
+    console.log("[db] migración: columna paypal_subscriptions.reminder_sent agregada");
+  }
+} catch (e) {
+  console.error("[db] migración paypal_subscriptions:", e.message);
+}
+
 module.exports = db;
