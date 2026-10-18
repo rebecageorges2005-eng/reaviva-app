@@ -751,3 +751,32 @@ try {
 } catch (e) {
   console.error("[db] migración seguridad cuenta:", e.message);
 }
+
+/* --- Álbumes de fotos en el perfil (estilo Facebook) ---
+ * albums: máx 6 por usuario. album_photos: máx 50 por álbum.
+ * La foto se guarda como data URL (base64) en photo.
+ * ON DELETE CASCADE: al eliminar un álbum se eliminan sus fotos. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS albums (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      title      TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_albums_user ON albums(user_id);
+    CREATE TABLE IF NOT EXISTS album_photos (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      album_id   INTEGER NOT NULL,
+      photo      TEXT NOT NULL,
+      caption    TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_album_photos_album ON album_photos(album_id);
+  `);
+  console.log("[db] migración: tablas albums y album_photos listas");
+} catch (e) {
+  console.error("[db] migración álbumes:", e.message);
+}

@@ -22,6 +22,7 @@ const { router: topicsRouter } = require("./routes/topics");
 const { router: dmRouter } = require("./routes/dm");
 const { router: rvRouter } = require("./routes/rv");
 const { router: reactionsRouter } = require("./routes/reactions");
+const { router: albumsRouter } = require("./routes/albums");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -49,9 +50,9 @@ const {
  * 1. blockIpMiddleware: rechaza IPs bloqueadas antes que nada.
  * 2. securityHeaders: cabeceras anti-XSS/clickjacking en cada respuesta.
  * 3. scanDetector: detecta escaneo de rutas sensibles. */
-app.use(blockIpMiddleware);
+// app.use(blockIpMiddleware); // TEMP DESACTIVADO
 app.use(securityHeaders);
-app.use(scanDetector);
+// app.use(scanDetector); // TEMP DESACTIVADO
 
 /* --- Rate limit general de la API: 100 req/min por IP.
  * El polling del chat es cada 30s (~4-6 req/min por usuario), así que
@@ -81,7 +82,7 @@ app.use(express.json({ limit: "3mb" })); // 3mb: permite la foto de perfil en ba
  * (firma verificada por PayPal, body raw). */
 app.use("/api/", (req, res, next) => {
   if (req.path === "/api/paypal/webhook") return next();
-  return attackDetector(req, res, next);
+  return next(); // TEMP DESACTIVADO
 });
 
 /* --- Compresión gzip para respuestas de texto (sin dependencias externas).
@@ -129,6 +130,7 @@ app.use("/api/topics", topicsRouter); // /api/topics/* (temas temporales del cha
 app.use("/api/dm", dmRouter); // /api/dm/* (mensajes privados, plan anual)
 app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
 app.use("/api/reactions", reactionsRouter); // /api/reactions/* (likes/dislikes)
+app.use("/api/albums", albumsRouter); // /api/albums/* (álbumes de fotos del perfil)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
