@@ -235,6 +235,28 @@ router.get("/users", requireAdmin, (req, res) => {
   });
 });
 
+/* ============================================================
+   DETALLE COMPLETO DE USUARIO (para la vista de actividad)
+   ============================================================ */
+
+/* Calcula la racha de días consecutivos completados (igual que el frontend).
+ * doneDays: lista ordenada de días completados; currentDay: día actual del programa. */
+function calcularRacha(doneDays, currentDay) {
+  const arr = doneDays.slice().sort((a, b) => a - b);
+  let max = 0;
+  for (const x of arr) if (x <= currentDay) max = Math.max(max, x);
+  let n = 0;
+  while (arr.includes(max - n)) n++;
+  return n;
+}
+
+/* Día actual del programa según program_start (YYYY-MM-DD). Sin inicio → 1. */
+function diaActual(programStart) {
+  if (!programStart) return 1;
+  const diff = Math.floor((Date.now() - new Date(programStart + "T12:00:00").getTime()) / 86400000) + 1;
+  return Math.min(Math.max(diff, 1), 30);
+}
+
 /* ---------- GET /api/admin/users/:id ---------- */
 router.get("/users/:id", requireAdmin, (req, res) => {
   const id = Number(req.params.id);
@@ -243,7 +265,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
   const u = db
     .prepare(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
-              u.program_start, u.ip, u.country, u.country_code,
+              u.program_start, u.ip, u.country, u.country_code, u.photo,
               u.email_verified, u.verification_token,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
@@ -253,11 +275,44 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     .get(id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  const progressCount = db.prepare("SELECT COUNT(*) AS n FROM progress WHERE user_id = ?").get(id).n;
-  const journalCount = db.prepare("SELECT COUNT(*) AS n FROM journal WHERE user_id = ?").get(id).n;
-  const lastProgress = db
-    .prepare("SELECT MAX(day) AS d FROM progress WHERE user_id = ?")
-    .get(id).d;
+  const doneRows = db
+    .prepare("SELECT day FROM progress WHERE user_id = ? ORDER BY day")
+    .all(id)
+    .map((r) => r.day);
+  const currentDay = diaActual(u.program_start);
+  const racha = calcularRacha(doneRows, currentDay);
+
+  const journalRows = db
+    .prepare("SELECT date, mood, text FROM journal WHERE user_id = ? ORDER BY date DESC LIMIT 10")
+    .all(id);
+
+  const communityCount = db
+    .prepare("SELECT COUNT(*) AS n FROM community_comments WHERE user_id = ?")
+    .get(id).n;
+  const communityRows = db
+    .prepare(
+      "SELECT id, text, msg_type, created_at, hidden FROM community_comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 10"
+    )
+    .all(id);
+
+  const topicsRows = db
+    .prepare("SELECT id, name, created_at, expires_at FROM chat_topics WHERE user_id = ? ORDER BY created_at DESC LIMIT 20")
+    .all(id);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const chatToday = db
+    .prepare("SELECT seconds_used FROM chat_usage WHERE user_id = ? AND date = ?")
+    .get(id, today);
+  const chatHistory = db
+    .prepare("SELECT date, seconds_used FROM chat_usage WHERE user_id = ? ORDER BY date DESC LIMIT 7")
+    .all(id);
+
+  const messagesRows = db
+    .prepare(
+      `SELECT id, title, body, created_at, read_at FROM admin_messages
+       WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
+    )
+    .all(id);
 
   const emailOk = isEmailConfigured();
 
@@ -265,6 +320,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     id: u.id,
     email: u.email,
     nombre: u.name,
+    foto: u.photo || null,
     conPlan: u.subscribed === 1,
     plan: planLabel(u.sub_status ? { status: u.sub_status } : null),
     planDetalle: u.plan || null,
@@ -276,9 +332,52 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     ultimaConexion: fmtDateTime(u.last_seen),
     enLinea: !!u.last_seen && new Date(u.last_seen.replace(" ", "T") + "Z").getTime() > Date.now() - 5 * 60000,
     inicioPrograma: u.program_start ? fmtDay(u.program_start) : null,
-    diasCompletados: progressCount,
-    ultimoDiaCompletado: lastProgress || 0,
-    entradasDiario: journalCount,
+    programa: {
+      diasCompletados: doneRows,
+      totalCompletados: doneRows.length,
+      diaActual: currentDay,
+      racha,
+    },
+    diasCompletados: doneRows.length,
+    ultimoDiaCompletado: doneRows.length ? Math.max(...doneRows) : 0,
+    diario: {
+      total: db.prepare("SELECT COUNT(*) AS n FROM journal WHERE user_id = ?").get(id).n,
+      entradas: journalRows.map((j) => ({
+        fecha: fmtDay(j.date),
+        animo: j.mood || "—",
+        texto: (j.text || "").slice(0, 300),
+      })),
+    },
+    entradasDiario: journalRows.length,
+    comunidad: {
+      total: communityCount,
+      mensajes: communityRows.map((c) => ({
+        id: c.id,
+        texto: c.msg_type === "photo" ? "📷 Foto" : (c.text || "").slice(0, 200),
+        fecha: fmtDateTime(c.created_at),
+        oculto: c.hidden === 1,
+      })),
+      temas: topicsRows.map((t) => ({
+        id: t.id,
+        nombre: t.name,
+        creado: fmtDateTime(t.created_at),
+        expirado: new Date(String(t.expires_at).replace(" ", "T") + "Z").getTime() < Date.now(),
+      })),
+    },
+    chat: {
+      segundosHoy: chatToday ? chatToday.seconds_used : 0,
+      historial: chatHistory.map((h) => ({
+        fecha: fmtDay(h.date),
+        segundos: h.seconds_used,
+      })),
+    },
+    mensajes: messagesRows.map((m) => ({
+      id: m.id,
+      titulo: m.title,
+      cuerpo: m.body,
+      enviado: fmtDateTime(m.created_at),
+      leido: !!m.read_at,
+    })),
     ip: u.ip || null,
     pais: u.country || null,
     codigoPais: u.country_code || null,
@@ -299,6 +398,27 @@ router.post("/users/:id/verify", requireAdmin, (req, res) => {
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
   db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(id);
   res.json({ ok: true, verificado: true, email: u.email });
+});
+
+/* ---------- POST /api/admin/users/:id/message ----------
+ * Envía un mensaje PRIVADO a un usuario (aparece en su app vía GET /api/messages).
+ * Body: { text, title? } — title por defecto: "Mensaje privado 💛" */
+router.post("/users/:id/message", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const text = String(req.body?.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Escribe el mensaje primero" });
+  if (text.length > 2000)
+    return res.status(400).json({ error: "El mensaje es muy largo (máximo 2000 caracteres)" });
+  const title = String(req.body?.title || "").trim() || "Mensaje privado 💛";
+
+  const r = db
+    .prepare("INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)")
+    .run(u.id, u.email, title, text);
+  res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), para: u.email });
 });
 
 /* ---------- GET /api/admin/messages ---------- */
