@@ -153,14 +153,64 @@ router.post("/paypal/create-subscription", async (req, res) => {
   }
 });
 
-/* GET /api/paypal/status?email=… → { subscribed } */
+/* GET /api/paypal/status?email=… → { subscribed, planType } */
 router.get("/paypal/status", (req, res) => {
   const email = String(req.query.email || "").trim().toLowerCase();
   if (!email) return res.status(400).json({ error: "Email requerido" });
   const row = db
     .prepare("SELECT status FROM paypal_subscriptions WHERE email = ?")
     .get(email);
-  res.json({ subscribed: row?.status === "ACTIVE" });
+  const subscribed = row?.status === "ACTIVE";
+  let planType = "free";
+  if (subscribed) {
+    const u = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    if (u) {
+      try {
+        planType = require("../plan").getPlanType(u);
+      } catch (e) { planType = "monthly"; }
+    }
+  }
+  res.json({ subscribed, planType });
+});
+
+/* GET /api/billing/upgrade-quote → cotización prorrateada mensual → anual.
+ * Requiere sesión. El usuario mensual ya pagó $4.99 del mes en curso:
+ * solo paga la diferencia ($35.00) para subir a anual.
+ * Limitación documentada: PayPal no permite "actualizar" una suscripción
+ * cambiando de plan con prorrateo automático desde nuestra integración;
+ * el flujo es: el usuario se suscribe al plan anual (link de PayPal) y
+ * puede cancelar el mensual. La cotización muestra el descuento aplicado. */
+router.get("/billing/upgrade-quote", (req, res, next) => {
+  const { requireAuth } = require("./auth");
+  requireAuth(req, res, () => {
+    const { getPlanType } = require("../plan");
+    const plan = getPlanType(req.user);
+    const ANNUAL = 39.99;
+    const MONTHLY = 4.99;
+    const yearlyPlanId = isPlaceholder(PAYPAL_PLAN_YEARLY) ? null : PAYPAL_PLAN_YEARLY;
+    if (plan === "annual") {
+      return res.json({ plan: "annual", mensaje: "Ya tienes el plan anual 🎉" });
+    }
+    if (plan === "monthly") {
+      const quote = (ANNUAL - MONTHLY).toFixed(2); // 35.00
+      return res.json({
+        plan: "monthly",
+        precioAnual: ANNUAL.toFixed(2),
+        pagadoEsteMes: MONTHLY.toFixed(2),
+        quote,
+        moneda: "USD",
+        mensaje: `Ya pagaste $${MONTHLY.toFixed(2)} este mes. Solo pagas $${quote} para subir a anual.`,
+        yearlyPlanId,
+      });
+    }
+    return res.json({
+      plan: "free",
+      precioAnual: ANNUAL.toFixed(2),
+      moneda: "USD",
+      mensaje: `El plan anual cuesta $${ANNUAL.toFixed(2)} al año.`,
+      yearlyPlanId,
+    });
+  });
 });
 
 /* POST /api/paypal/webhook — PayPal event notifications.
@@ -219,9 +269,31 @@ async function webhookHandler(req, res) {
            updated_at = datetime('now')`
       ).run(email, subId, resource.plan_id || null, nextBilling);
       // also flip the users row if the buyer has an account
+      const yearly = resource.plan_id === PAYPAL_PLAN_YEARLY;
       db.prepare(
-        "UPDATE users SET subscribed = 1, paypal_subscription_id = ? WHERE email = ?"
-      ).run(subId, email);
+        "UPDATE users SET subscribed = 1, paypal_subscription_id = ?, plan_type = ? WHERE email = ?"
+      ).run(subId, yearly ? "yearly" : "monthly", email);
+      /* Bono de bienvenida RV 💰: se SUMA al saldo existente (no lo reemplaza).
+       * Mensual: +50 RV. Anual: +200 RV. Idempotente: solo una vez por
+       * suscripción (rv_bonus_for guarda el subscription_id que ya lo recibió). */
+      try {
+        const u = db
+          .prepare("SELECT id, credits, rv_bonus_for FROM users WHERE email = ?")
+          .get(email);
+        if (u && u.rv_bonus_for !== subId) {
+          const bonus = yearly ? 200 : 50;
+          db.prepare(
+            "UPDATE users SET credits = credits + ?, rv_bonus_for = ? WHERE id = ?"
+          ).run(bonus, subId, u.id);
+          db.prepare(
+            `INSERT INTO credit_purchases (user_id, pack_credits, amount_usd, paypal_order_id, status, created_at)
+             VALUES (?, ?, 0, ?, 'welcome_bonus', datetime('now'))`
+          ).run(u.id, bonus, "BONO-" + subId);
+          console.log(`[paypal] bono bienvenida: +${bonus} RV para ${email}`);
+        }
+      } catch (e) {
+        console.error("[paypal] error bono bienvenida:", e.message);
+      }
       console.log(`[paypal] ${email} suscrito (${subId}), próximo cobro ${nextBilling}`);
     }
 
@@ -244,7 +316,7 @@ async function webhookHandler(req, res) {
         db.prepare("UPDATE paypal_subscriptions SET status = ?, updated_at = datetime('now') WHERE email = ?")
           .run(status, targetEmail);
         if (status === "CANCELLED")
-          db.prepare("UPDATE users SET subscribed = 0 WHERE email = ?").run(targetEmail);
+          db.prepare("UPDATE users SET subscribed = 0, plan_type = NULL WHERE email = ?").run(targetEmail);
         console.log(`[paypal] ${targetEmail} → ${type}`);
       }
     }
@@ -274,4 +346,19 @@ async function verifySignature(req, event) {
   return j.verification_status === "SUCCESS";
 }
 
-module.exports = { router, webhookHandler, paypalConfigured };
+/* Helpers exportados para reutilizar la API de PayPal en otros módulos
+ * (p. ej. pagos únicos de paquetes de créditos en routes/credits.js). */
+function paypalOrdersConfigured() {
+  return !isPlaceholder(PAYPAL_CLIENT_ID) && !isPlaceholder(PAYPAL_CLIENT_SECRET);
+}
+
+module.exports = {
+  router,
+  webhookHandler,
+  paypalConfigured,
+  paypalOrdersConfigured,
+  paypalToken,
+  paypalFetch,
+  PAYPAL_API,
+  APP_URL,
+};

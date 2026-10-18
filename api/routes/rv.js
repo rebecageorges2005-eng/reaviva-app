@@ -1,7 +1,8 @@
 /* Reaviva API — RV: moneda para mensajes promocionales 💰
  *
- * Tasa: 10 RV = 5 publicaciones con enlaces, redes sociales o publicidad
- * en el chat grupal. Es decir: 1 mensaje promocional cuesta 2 RV.
+ * Tasa con plan: 10 RV = 5 publicaciones (2 RV c/u).
+ * Tasa sin plan: 10 RV = 3 publicaciones (3 RV c/u).
+ * Todos pueden comprar RV; los gratuitos solo pueden usarlos en texto.
  * Sin RV suficientes, el filtro anti-spam bloquea ese contenido.
  * Los RV nunca vencen, no son reembolsables ni transferibles.
  *
@@ -41,13 +42,11 @@ const PACKS = {
   700: { rv: 700, amount: "50.00", label: "700 RV", detalle: "350 links o 560 imágenes · Mejor valor" },
 };
 
-/* Solo usuarios con plan pagado (o admin) pueden comprar RV. */
+/* Todos los usuarios (con plan, sin plan, admin) pueden comprar RV.
+ * Los gratuitos pagan 3 RV por publicación (10 RV = 3); con plan pagan
+ * 2 RV (10 RV = 5). */
 function paidOnly(req, res, next) {
-  const u = req.user;
-  if (u && (u.is_admin === 1 || u.subscribed === 1)) return next();
-  return res.status(403).json({
-    error: "Los RV son para miembros con plan 💎",
-  });
+  return next();
 }
 
 /* GET /api/rv/balance → { rv } */
@@ -85,7 +84,7 @@ router.get("/packs", (req, res) => {
       detalle: p.detalle,
       popular: !!p.popular,
     })),
-    tasa: "10 RV = 5 links · 10 RV = 8 imágenes",
+    tasa: "Con plan: 10 RV = 5 links · Sin plan: 10 RV = 3 links · 10 RV = 8 imágenes",
   });
 });
 

@@ -365,9 +365,9 @@ router.post("/", requireAuth, (req, res) => {
   }
 
   /* --- Filtro anti-spam: correos, teléfonos y redes sociales ---
-   * Usuarios GRATUITOS: solo pueden enviar texto plano. Si intentan
-   * compartir enlaces, fotos, etc. → bloqueo INFORMATIVO (sin strikes):
-   * "Esta función es para miembros con plan 💎".
+   * Usuarios GRATUITOS: solo texto plano, PERO pueden gastar RV para
+   * publicar enlaces (3 RV por mensaje, 10 RV = 3 publicaciones).
+   * No pueden enviar fotos ni temas.
    * Usuarios CON PLAN: pueden gastar RV para publicar contenido promocional:
    *   - Mensaje de texto con enlaces: 2 RV por mensaje (10 RV = 5 links).
    *   - Imagen con contenido promocional: bloque de 10 RV = 8 envíos.
@@ -379,7 +379,17 @@ router.post("/", requireAuth, (req, res) => {
   const violacion = detectSpam(finalText);
   if (violacion) {
     const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
-    if (conPlan) {
+    // Gratuitos: no pueden enviar fotos promocionales (solo texto con RV).
+    if (!conPlan && msgType === "photo") {
+      return res.status(403).json({
+        error: "SOLO_PLAN",
+        message: "💎 Las fotos son para miembros con plan. Actualiza tu plan para enviar fotos.",
+      });
+    }
+    /* Con plan O gratuito con RV: verificar enlaces y descontar.
+     * Gratuitos pagan 3 RV por mensaje (10 RV = 3 publicaciones). */
+    /* Todos pueden gastar RV (con plan o sin plan). La tasa depende del plan. */
+    {
       /* --- Verificación de enlaces 🔒 ---
        * Antes de descontar RV: el enlace debe ser de una página
        * verificada (anti-phishing/hackers). Si no pasa, se bloquea
@@ -413,25 +423,18 @@ router.post("/", requireAuth, (req, res) => {
         }
       } else {
         // Mensaje de texto promocional: 2 RV por mensaje.
-        if (trySpendRV(req.user.id)) {
+        if (trySpendRV(req.user.id, req.user)) {
           isPromo = 1;
         } else {
+          const tasa = conPlan ? "10 RV = 5 publicaciones" : "10 RV = 3 publicaciones";
           return res.status(402).json({
             error: "NO_RV",
             tipo: "texto",
-            message:
-              "💰 Necesitas RV para compartir enlaces. Recarga aquí (10 RV = 5 publicaciones).",
+            message: `💰 Necesitas RV para compartir enlaces. Recarga aquí (${tasa}).`,
             needsRecharge: true,
           });
         }
       }
-    } else {
-      // Gratuito: bloqueo informativo, sin strikes. Solo texto plano.
-      return res.status(403).json({
-        error: "SOLO_PLAN",
-        message:
-          "💎 Esta función es para miembros con plan. Actualiza tu plan para compartir enlaces, fotos y más.",
-      });
     }
   }
 
