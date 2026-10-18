@@ -168,6 +168,10 @@
           <input id="signup-password" class="field" type="password" placeholder="Crea una contraseña (mín. 6 caracteres)" required autocomplete="new-password" minlength="6">
           <button type="button" class="pwd-toggle" onclick="togglePassword('signup-password')" aria-label="Mostrar contraseña">👁️</button>
         </div>
+        <div class="pwd-wrap">
+          <input id="signup-password2" class="field" type="password" placeholder="Confirma tu contraseña" required autocomplete="new-password" minlength="6">
+          <button type="button" class="pwd-toggle" onclick="togglePassword('signup-password2')" aria-label="Mostrar contraseña">👁️</button>
+        </div>
         <p id="signup-err" class="auth-err"></p>
         <div id="recaptcha-box" style="margin:10px 0;display:flex;justify-content:center"></div>
         <button class="btn btn-primary btn-block" type="submit">Crear mi cuenta gratis →</button>

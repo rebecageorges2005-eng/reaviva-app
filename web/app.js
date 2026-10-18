@@ -177,11 +177,13 @@ async function doSignup(ev){
   const name = $("#signup-name").value.trim();
   const email = $("#signup-email").value.trim().toLowerCase();
   const password = $("#signup-password").value;
+  const password2 = $("#signup-password2").value;
   const errBox = $("#signup-err");
   errBox.textContent = "";
   if(!name){ errBox.textContent = "Escribe tu nombre."; return; }
   if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
   if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+  if(password !== password2){ errBox.textContent = "Las contraseñas no coinciden."; return; }
   // Si el captcha está visible, exigir que lo marquen.
   let recaptchaToken = null;
   if(recaptchaWidgetId !== null){
