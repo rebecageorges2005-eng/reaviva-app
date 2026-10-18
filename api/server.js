@@ -16,6 +16,7 @@ const progressRouter = require("./routes/progress");
 const journalRouter = require("./routes/journal");
 const { router: billingRouter, webhookHandler, paypalConfigured } = require("./routes/billing");
 const { router: adminRouter } = require("./routes/admin");
+const { router: communityRouter } = require("./routes/community");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -51,6 +52,7 @@ app.use("/api/progress", progressRouter);
 app.use("/api/journal", journalRouter);
 app.use("/api", billingRouter); // /api/paypal/*
 app.use("/api/admin", adminRouter); // /api/admin/* (solo administradores)
+app.use("/api/community", communityRouter); // /api/community/* (comunidad anónima)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).

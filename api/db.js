@@ -134,4 +134,26 @@ try {
   console.error("[db] migración paypal_subscriptions:", e.message);
 }
 
+/* --- Migration: Oct 2026 — comunidad anónima ---
+ * community_comments: comentarios públicos de la comunidad.
+ * Los usuarios son anónimos entre sí; solo el admin ve quién escribió
+ * cada comentario (user_id). hidden=1 → oculto por el admin. */
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS community_comments (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      text       TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      hidden     INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_community_user ON community_comments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_community_created ON community_comments(created_at);
+  `);
+  console.log("[db] migración: tabla community_comments lista");
+} catch (e) {
+  console.error("[db] migración community_comments:", e.message);
+}
+
 module.exports = db;
