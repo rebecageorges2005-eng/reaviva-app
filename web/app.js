@@ -306,7 +306,7 @@ async function buyRV(pack){
 async function handleRVReturn(){
   const q = new URLSearchParams(location.search);
   if(q.get("rv") === "cancel"){
-    toast("Pago cancelado.");
+    toast(t("t.payment_cancel"));
     history.replaceState(null, "", location.pathname + location.hash);
     return;
   }
@@ -428,7 +428,7 @@ async function doLogin(ev){
     }
     saveSession(j.token, j.user);
     enterApp();
-    toast("¡Bienvenido/a de nuevo, " + j.user.name + "! 💛");
+    toast(t("t.welcome_back"));
   }catch(e){
     errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
   }
@@ -498,7 +498,7 @@ async function doSignup(ev){
     // La cuenta se crea SIN verificar: no se entra a la app hasta confirmar el correo.
     try{ if(recaptchaWidgetId !== null && window.grecaptcha) grecaptcha.reset(recaptchaWidgetId); }catch(e){}
     showVerifyEmail(j.email || email);
-    toast("¡Cuenta creada! Revisa tu correo 📧");
+    toast(t("t.account_created"));
   }catch(e){
     errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
   }
@@ -637,6 +637,7 @@ function enterApp(){
   try{ switchTab("hoy"); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
+  try{ startDmWinPoll(); }catch(e){}
 }
 function switchTab(tab){
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
@@ -1048,7 +1049,7 @@ function backToList(){
 }
 function completeDay(d){
   markDone(d);
-  toast("¡Día " + d + " completado! 💛");
+  toast(t("t.day_done", {d: d}));
   openDay(d);
 }
 
@@ -1081,7 +1082,7 @@ function saveJournal(){
   const j = store.get(LS.journal, {});
   j[todayKey()] = { mood: selMood || "", text };
   store.set(LS.journal, j);
-  toast("Guardado en tu diario 💛");
+  toast(t("t.diary_saved"));
   renderDiario();
 }
 function fmtDate(k){
@@ -1221,7 +1222,7 @@ async function renderComunidad(){
 async function postCommunity(){
   const box = $("#community-text");
   const text = box ? box.value.trim() : "";
-  if(!text){ toast("Escribe algo para compartir 💛"); return; }
+  if(!text){ toast(t("t.write_something")); return; }
   try{
     const body = { text };
     if(selectedTopicId) body.topic_id = selectedTopicId;
@@ -1340,7 +1341,7 @@ function updateTopicHint(){
 }
 
 function openTopicModal(){
-  if(!isPaid()){ toast("Solo los miembros con plan pueden crear temas 💎"); return; }
+  if(!isPaid()){ toast(t("chat.upgrade_topic")); return; }
   $("#topic-modal").classList.add("open");
   const inp = $("#topic-name");
   if(inp){ inp.value = ""; $("#topic-err").textContent = ""; setTimeout(()=>inp.focus(), 100); }
@@ -1401,7 +1402,7 @@ function insertEmoji(e){
 
 /* Fotos temporales: solo usuarios con plan. */
 function pickChatPhoto(){
-  if(!isPaid()){ toast("Solo los miembros con plan pueden enviar fotos 💎"); return; }
+  if(!isPaid()){ toast(t("chat.upgrade_photo")); return; }
   const inp = $("#chat-photo-input");
   if(inp) inp.click();
 }
@@ -1433,7 +1434,7 @@ function sendChatPhoto(input){
 }
 
 async function postChatPhoto(dataUrl){
-  toast("Enviando foto… 📷");
+  toast(t("chat.sending_photo"));
   try{
     const body = { photo: dataUrl };
     const box = $("#community-text");
@@ -1452,7 +1453,7 @@ async function postChatPhoto(dataUrl){
     }
     if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
     if(box) box.value = "";
-    toast("¡Foto enviada! Se eliminará en 30 segundos ⏳");
+    toast(t("chat.photo_sent"));
     renderComunidad();
   }catch(e){
     toast(e.message);
@@ -1547,7 +1548,7 @@ function startChatPoll(){
         renderComunidad();
       }
     }catch(e){ /* reintentar en el próximo ciclo */ }
-  }, 15000);
+  }, 30000); // 30s: suficiente para mensajes y presencia en línea
 }
 function stopChatPoll(){
   if(chatPollTimer){ clearInterval(chatPollTimer); chatPollTimer = null; }
@@ -1562,7 +1563,6 @@ function stopChatPoll(){
    - Cada mensaje se elimina a las 48 horas.
    ============================================================ */
 let communityUsers = {}; // uid → { nombre, foto, avatar }
-let dmActiveUid = null;
 let dmPollTimer = null;
 
 function dmAvatarHtml(p){
@@ -1571,37 +1571,23 @@ function dmAvatarHtml(p){
     : esc(p.avatar || "💛");
 }
 
-/* Clic en avatar/nombre de la comunidad. */
-function onCommunityUserClick(uid){
-  uid = Number(uid);
-  const me = currentUser();
-  if(me && Number(me.id) === uid){ toast("Ese eres tú 😄"); return; }
-  const target = communityUsers[uid] || { nombre: "Usuario", foto: null, avatar: "💛" };
-  if(planType() !== "free"){
-    openDmChat(uid, target);
-    switchTab("privados");
-  }else{
-    toast("Los mensajes privados son para miembros con plan 💎");
-  }
-}
-
-/* ---------- lista de conversaciones ---------- */
+/* ---------- lista de conversaciones (pestaña "Privados") ---------- */
+/* Al tocar una conversación se abre la ventana flotante. */
 async function renderDmList(){
   const list = $("#dm-list");
   const chat = $("#dm-chat");
   if(chat) chat.style.display = "none";
   if(list) list.style.display = "";
-  dmActiveUid = null;
   if(planType() === "free"){
     if(list) list.innerHTML = `
       <div class="empty-state"><div style="font-size:2.5rem">💎</div>
-      <p><b>Mensajes privados</b></p>
-      <p style="font-size:.85rem;color:var(--cocoa-soft)">Solo para miembros con plan.</p>
-      <button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">Ver planes</button>
+      <p><b>${esc(t("dm.title"))}</b></p>
+      <p style="font-size:.85rem;color:var(--cocoa-soft)">${esc(t("dm.only_plan"))}</p>
+      <button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">💎</button>
       </div>`;
     return;
   }
-  if(list) list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando conversaciones…</p>`;
+  if(list) list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">…</p>`;
   try{
     const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
@@ -1610,12 +1596,12 @@ async function renderDmList(){
     if(!convs.length){
       list.innerHTML = `
         <div class="empty-state"><div style="font-size:2.5rem">💬</div>
-        <p><b>Sin conversaciones todavía</b></p>
-        <p style="font-size:.85rem;color:var(--cocoa-soft)">Toca la foto o el nombre de alguien en la comunidad para escribirle en privado.</p></div>`;
+        <p><b>${esc(t("dm.title"))}</b></p>
+        <p style="font-size:.85rem;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p></div>`;
       return;
     }
     list.innerHTML = convs.map(c => `
-      <div class="dm-conv" onclick="openDmChat(${Number(c.uid)})">
+      <div class="dm-conv" onclick="openDmWindow(${Number(c.uid)})">
         <div class="comment-avatar">${dmAvatarHtml(c)}</div>
         <div class="dm-conv-body">
           <div class="dm-conv-head"><b>${esc(c.nombre)}</b><span>${esc(c.fecha || "")}</span></div>
@@ -1624,14 +1610,51 @@ async function renderDmList(){
         ${c.noLeidos ? `<span class="dm-unread">${c.noLeidos}</span>` : ""}
       </div>`).join("");
   }catch(e){
-    if(list) list.innerHTML = `<p style="text-align:center;color:#a33">Error cargando conversaciones</p>`;
+    if(list) list.innerHTML = `<p style="text-align:center;color:#a33">⚠️</p>`;
   }
 }
 
-/* ---------- chat privado con un usuario ---------- */
-async function openDmChat(uid, target){
+/* Clic en avatar/nombre de la comunidad → ventana flotante de chat. */
+function onCommunityUserClick(uid){
   uid = Number(uid);
-  dmActiveUid = uid;
+  const me = currentUser();
+  if(me && Number(me.id) === uid){ toast(t("dm.is_you")); return; }
+  const target = communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
+  if(planType() !== "free"){
+    openDmWindow(uid, target);
+  }else{
+    toast(t("dm.only_plan"));
+  }
+}
+
+/* ============================================================
+   VENTANAS FLOTANTES DE CHAT PRIVADO (estilo Messenger) 💬
+   - Clic en un usuario → ventana flotante (sin salir de la pestaña).
+   - Hasta 3 ventanas abiertas; la 4ª minimiza la más antigua.
+   - Cada ventana: minimizar (—), cerrar (✕), insignia de no leídos.
+   - La pestaña "Privados" sigue como lista de conversaciones.
+   ============================================================ */
+const dmWindows = {};   // uid → { el, target, minimized }
+let dmWinOrder = [];    // uids por orden de foco (el último = más reciente)
+const DM_MAX_OPEN = 3;
+let dmWinPollTimer = null;
+let dmWinCountdownTimer = null;
+let dmVoiceUid = null;  // uid de la ventana que está grabando voz
+
+function dmWinBox(){
+  let box = $("#dm-windows");
+  if(!box){
+    box = document.createElement("div");
+    box.id = "dm-windows";
+    document.body.appendChild(box);
+  }
+  return box;
+}
+
+/* Abre (o enfoca) la ventana flotante de chat con un usuario. */
+async function openDmWindow(uid, target){
+  uid = Number(uid);
+  if(planType() === "free"){ toast(t("dm.only_plan")); return; }
   if(!target){
     try{
       const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
@@ -1640,95 +1663,194 @@ async function openDmChat(uid, target){
       if(c) target = c;
     }catch(e){}
   }
-  target = target || communityUsers[uid] || { nombre: "Usuario", foto: null, avatar: "💛" };
-  const list = $("#dm-list");
-  const chat = $("#dm-chat");
-  if(list) list.style.display = "none";
-  if(!chat) return;
-  chat.style.display = "";
-  chat.innerHTML = `
-    <div class="dm-chat-head">
-      <button class="dm-back" onclick="renderDmList()" aria-label="Volver">←</button>
+  target = target || communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
+  const me = currentUser();
+  if(me && Number(me.id) === uid){ toast(t("dm.is_you")); return; }
+
+  let w = dmWindows[uid];
+  if(w){
+    // Ya existe: restaurar y traer al frente.
+    w.target = target;
+    restoreDmWindow(uid);
+    focusDmWindow(uid);
+    updateDmWinHead(uid);
+    await loadDmWinMessages(uid);
+    return;
+  }
+  // Límite de ventanas abiertas: minimizar la más antigua.
+  const abiertas = dmWinOrder.filter(id => dmWindows[id] && !dmWindows[id].minimized);
+  if(abiertas.length >= DM_MAX_OPEN){
+    minimizeDmWindow(abiertas[0]);
+  }
+  // Crear la ventana.
+  const annual = isAnnual();
+  const el = document.createElement("div");
+  el.className = "dm-win";
+  el.dataset.dmUid = uid;
+  el.innerHTML = `
+    <div class="dm-win-head" onclick="toggleMinDmWindow(${uid})">
       <div class="comment-avatar">${dmAvatarHtml(target)}</div>
-      <div style="flex:1"><b>${esc(target.nombre)}</b><br><small id="dm-countdown" style="color:var(--cocoa-soft)">⏳ Los mensajes se eliminan en 48h</small></div>
-      <button id="dm-video-btn" class="dm-icon-btn" title="${isAnnual() ? "Videollamada 📹" : "Actualiza a plan anual 💎"}" aria-label="Videollamada">${isAnnual() ? "📹" : "📹🔒"}</button>
+      <div class="dm-win-title"><b>${esc(target.nombre)}</b><br><small class="dm-win-countdown">⏳ 48h</small></div>
+      <span class="dm-win-unread" style="display:none"></span>
+      <button class="dm-win-headbtn" title="${annual ? "📹" : esc(t("dm.video_only_annual"))}" aria-label="Videollamada"
+        onclick="event.stopPropagation();startVideoCallWin(${uid})">${annual ? "📹" : "📹🔒"}</button>
+      <button class="dm-win-headbtn" title="${esc(t("dm.win_min"))}" aria-label="${esc(t("dm.win_min"))}"
+        onclick="event.stopPropagation();minimizeDmWindow(${uid})">—</button>
+      <button class="dm-win-headbtn" title="${esc(t("dm.win_close"))}" aria-label="${esc(t("dm.win_close"))}"
+        onclick="event.stopPropagation();closeDmWindow(${uid})">✕</button>
     </div>
-    <div id="dm-messages" class="dm-messages"><p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p></div>
-    <div class="dm-composer">
-      <input id="dm-voice-file" type="file" accept=".pdf,.doc,.docx,.txt" style="display:none" onchange="sendDmFile(this)">
-      <button id="dm-voice-btn" class="dm-icon-btn" title="Mensaje de voz 🎤" aria-label="Mensaje de voz">🎤</button>
-      <button id="dm-file-btn" class="dm-icon-btn" title="${isAnnual() ? "Adjuntar archivo 📎" : "Actualiza a plan anual 💎"}" aria-label="Adjuntar archivo">${isAnnual() ? "📎" : "📎🔒"}</button>
-      <input id="dm-input" class="field" maxlength="1000" placeholder="Escribe un mensaje privado…"
-        onkeydown="if(event.key==='Enter')sendDm()">
-      <button class="btn btn-primary" onclick="sendDm()">➤</button>
-    </div>
-    <div id="dm-rec-ind" class="dm-rec-ind" style="display:none">🔴 Grabando… <span id="dm-rec-time">0:00</span> <button class="btn btn-sm" onclick="toggleDmVoice()">Detener</button></div>`;
-  /* Botón de videollamada según el plan. */
-  const vbtn = $("#dm-video-btn");
-  if(vbtn){
-    if(isAnnual()){ vbtn.onclick = startVideoCall; }
-    else { vbtn.onclick = function(){ openUpgradeModal("Las videollamadas son exclusivas del plan anual 💎"); }; vbtn.classList.add("locked-feature"); }
-  }
-  /* Botón de archivo: solo anual. */
-  const fbtn = $("#dm-file-btn");
-  if(fbtn){
-    if(isAnnual()){ fbtn.onclick = function(){ $("#dm-voice-file").click(); }; }
-    else { fbtn.onclick = function(){ openUpgradeModal("Los archivos adjuntos son exclusivos del plan anual 💎"); }; fbtn.classList.add("locked-feature"); }
-  }
-  /* Botón de voz: anual y mensual (los gratuitos no llegan al DM). */
-  const mic = $("#dm-voice-btn");
-  if(mic){ mic.onclick = toggleDmVoice; }
-  await loadDmMessages();
+    <div class="dm-win-body">
+      <div class="dm-win-msgs"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
+      <div class="dm-win-rec" style="display:none">🔴 <span class="dm-win-rec-time">0:00</span>
+        <button class="btn btn-sm" onclick="detenerDmVoiceWin()">⏹</button></div>
+      <div class="dm-win-composer">
+        <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
+          onchange="sendDmFileWin(${uid}, this)">
+        <button class="dm-icon-btn" title="${esc(t("dm.voice_msg"))}" aria-label="Voz"
+          onclick="toggleDmVoiceWin(${uid})">🎤</button>
+        <button class="dm-icon-btn ${annual ? "" : "locked-feature"}" title="${annual ? "📎" : esc(t("dm.file_only_annual"))}"
+          aria-label="Archivo" onclick="dmWinFileClick(${uid})">${annual ? "📎" : "📎🔒"}</button>
+        <input class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
+          onkeydown="if(event.key==='Enter')sendDmWin(${uid})">
+        <button class="dm-win-send" onclick="sendDmWin(${uid})" aria-label="Enviar">➤</button>
+      </div>
+    </div>`;
+  dmWinBox().appendChild(el);
+  dmWindows[uid] = { el, target, minimized: false };
+  dmWinOrder = dmWinOrder.filter(id => id !== uid);
+  dmWinOrder.push(uid);
+  await loadDmWinMessages(uid);
   updateDmBadge();
-  startDmCountdown();
 }
 
-async function loadDmMessages(){
-  const box = $("#dm-messages");
-  if(!box || !dmActiveUid) return;
+/* Botón 📎: solo anual puede adjuntar. */
+function dmWinFileClick(uid){
+  if(!isAnnual()){ openUpgradeModal(t("dm.file_only_annual")); return; }
+  const w = dmWindows[uid];
+  const inp = w && w.el.querySelector(".dm-win-file");
+  if(inp) inp.click();
+}
+
+function focusDmWindow(uid){
+  dmWinOrder = dmWinOrder.filter(id => id !== uid);
+  dmWinOrder.push(uid);
+  const w = dmWindows[uid];
+  if(w){
+    dmWinBox().appendChild(w.el); // la trae al frente
+    const inp = w.el.querySelector(".dm-win-input");
+    if(inp && !w.minimized) inp.focus();
+  }
+}
+
+function toggleMinDmWindow(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  if(w.minimized) restoreDmWindow(uid); else minimizeDmWindow(uid);
+}
+
+function minimizeDmWindow(uid){
+  const w = dmWindows[uid];
+  if(!w || w.minimized) return;
+  w.minimized = true;
+  w.el.classList.add("minimized");
+}
+
+function restoreDmWindow(uid){
+  const w = dmWindows[uid];
+  if(!w || !w.minimized) return;
+  // Al restaurar, respetar el máximo de ventanas abiertas.
+  const abiertas = dmWinOrder.filter(id => dmWindows[id] && !dmWindows[id].minimized && id !== uid);
+  if(abiertas.length >= DM_MAX_OPEN) minimizeDmWindow(abiertas[0]);
+  w.minimized = false;
+  w.el.classList.remove("minimized");
+  const badge = w.el.querySelector(".dm-win-unread");
+  if(badge) badge.style.display = "none";
+  focusDmWindow(uid);
+  loadDmWinMessages(uid);
+}
+
+function closeDmWindow(uid){
+  const w = dmWindows[uid];
+  if(w){
+    if(dmVoiceUid === uid) detenerDmVoiceWin();
+    w.el.remove();
+    delete dmWindows[uid];
+  }
+  dmWinOrder = dmWinOrder.filter(id => id !== uid);
+}
+
+/* Actualiza el encabezado (nombre/foto) de una ventana. */
+function updateDmWinHead(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  const t = w.target;
+  const head = w.el.querySelector(".dm-win-head");
+  if(!head) return;
+  const av = head.querySelector(".comment-avatar");
+  if(av) av.innerHTML = dmAvatarHtml(t);
+  const b = head.querySelector(".dm-win-title b");
+  if(b) b.textContent = t.nombre || t("dm.win_user");
+}
+
+/* HTML de un mensaje (texto, voz, video-invite, archivo). */
+function dmMessageHtml(m){
+  const tipo = m.tipo || "text";
+  let cuerpo = "";
+  if(tipo === "voice" && m.audio){
+    cuerpo = `<audio controls preload="metadata" src="${esc(m.audio)}" style="max-width:100%"></audio>`;
+  }else if(tipo === "video-invite" && m.texto){
+    cuerpo = `<p>📹 <b>${esc(t("dm.join_call").replace(" 📹", ""))}</b></p>
+      <button class="btn btn-primary btn-sm" onclick="window.open('${esc(m.texto)}','_blank')">${esc(t("dm.join_call"))}</button>`;
+  }else if(tipo === "file" && m.archivo){
+    const kb = m.archivo.tamano ? (m.archivo.tamano/1024).toFixed(0) + " KB" : "";
+    cuerpo = `<a class="dm-file-card" href="${esc(m.archivo.data)}" download="${esc(m.archivo.nombre)}">
+      <span class="dm-file-icon">📎</span>
+      <span><b>${esc(m.archivo.nombre)}</b><br><small>${kb}</small></span>
+    </a>`;
+  }else{
+    cuerpo = `<p>${esc(m.texto)}</p>`;
+  }
+  return `
+    <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""}>
+      ${cuerpo}
+      <span class="dm-meta">${esc(m.fecha)} · ${esc(t("dm.expires_in"))} 48h</span>
+    </div>`;
+}
+
+/* Carga los mensajes de una ventana (conserva la posición del scroll). */
+async function loadDmWinMessages(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  const box = w.el.querySelector(".dm-win-msgs");
+  if(!box) return;
+  const prevTop = box.scrollTop;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   try{
-    const r = await fetch("/api/dm/" + dmActiveUid, { headers: authHeaders() });
+    const r = await fetch("/api/dm/" + uid, { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     const msgs = j.mensajes || [];
-    box.innerHTML = msgs.map(m => {
-      const tipo = m.tipo || "text";
-      let cuerpo = "";
-      if(tipo === "voice" && m.audio){
-        cuerpo = `<audio controls preload="metadata" src="${esc(m.audio)}" style="max-width:100%"></audio>`;
-      }else if(tipo === "video-invite" && m.texto){
-        cuerpo = `<p>📹 <b>Invitación a videollamada</b></p>
-          <button class="btn btn-primary btn-sm" onclick="window.open('${esc(m.texto)}','_blank')">Unirse a la videollamada</button>`;
-      }else if(tipo === "file" && m.archivo){
-        const kb = m.archivo.tamano ? (m.archivo.tamano/1024).toFixed(0) + " KB" : "";
-        cuerpo = `<a class="dm-file-card" href="${esc(m.archivo.data)}" download="${esc(m.archivo.nombre)}">
-          <span class="dm-file-icon">📎</span>
-          <span><b>${esc(m.archivo.nombre)}</b><br><small>${kb} · clic para descargar</small></span>
-        </a>`;
-      }else{
-        cuerpo = `<p>${esc(m.texto)}</p>`;
-      }
-      return `
-      <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""}>
-        ${cuerpo}
-        <span class="dm-meta">${esc(m.fecha)} · ⏳ se elimina en 48h</span>
-      </div>`;
-    }).join("") || `<p style="text-align:center;color:var(--cocoa-soft)">Sin mensajes todavía. ¡Saluda! 👋</p>`;
-    box.scrollTop = box.scrollHeight;
+    box.innerHTML = msgs.map(dmMessageHtml).join("")
+      || `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`;
+    box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
+    updateDmWinCountdowns();
   }catch(e){
-    box.innerHTML = `<p style="text-align:center;color:#a33">Error cargando mensajes</p>`;
+    box.innerHTML = `<p style="text-align:center;color:#a33">⚠️</p>`;
   }
 }
 
-async function sendDm(){
-  const inp = $("#dm-input");
+/* Enviar texto desde una ventana. */
+async function sendDmWin(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  const inp = w.el.querySelector(".dm-win-input");
   const text = inp ? inp.value.trim() : "";
-  if(!text || !dmActiveUid) return;
+  if(!text) return;
   try{
     const r = await fetch("/api/dm", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ to_user_id: dmActiveUid, text })
+      body: JSON.stringify({ to_user_id: uid, text })
     });
     const j = await r.json().catch(() => ({}));
     if(!r.ok){
@@ -1736,20 +1858,20 @@ async function sendDm(){
       if(handleSpamError(j)) return;
       throw new Error(j.message || j.error || ("HTTP " + r.status));
     }
-    if(inp) inp.value = "";
+    inp.value = "";
     playDing();
-    await loadDmMessages();
+    await loadDmWinMessages(uid);
+    updateDmBadge();
   }catch(e){
     toast(e.message);
   }
 }
 
-/* ---------- videollamada (solo plan anual, vía Jitsi Meet) ---------- */
-async function startVideoCall(){
-  if(!dmActiveUid) return;
-  if(!isAnnual()){ openUpgradeModal("Las videollamadas son exclusivas del plan anual 💎"); return; }
+/* Videollamada (solo plan anual) desde una ventana. */
+async function startVideoCallWin(uid){
+  if(!isAnnual()){ openUpgradeModal(t("dm.video_only_annual")); return; }
   try{
-    const r = await fetch("/api/dm/" + dmActiveUid + "/video-call", {
+    const r = await fetch("/api/dm/" + uid + "/video-call", {
       method: "POST", headers: authHeaders()
     });
     const j = await r.json().catch(() => ({}));
@@ -1758,53 +1880,63 @@ async function startVideoCall(){
       throw new Error(j.message || j.error || ("HTTP " + r.status));
     }
     window.open(j.roomUrl, "_blank");
-    await loadDmMessages();
+    await loadDmWinMessages(uid);
   }catch(e){
     toast(e.message);
   }
 }
 
-/* ---------- mensajes de voz (plan anual y mensual) ---------- */
+/* ---------- mensajes de voz (plan anual y mensual), por ventana ---------- */
 let dmRecorder = null, dmAudioChunks = [], dmRecTimer = null, dmRecSecs = 0;
 
-async function toggleDmVoice(){
-  if(dmRecorder && dmRecorder.state === "recording"){ detenerDmVoice(); return; }
+async function toggleDmVoiceWin(uid){
+  if(dmRecorder && dmRecorder.state === "recording"){
+    if(dmVoiceUid === uid){ detenerDmVoiceWin(); return; }
+    detenerDmVoiceWin(); // detiene la grabación de otra ventana antes de empezar
+  }
+  dmVoiceUid = uid;
   try{
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     dmRecorder = new MediaRecorder(stream);
     dmAudioChunks = [];
     dmRecorder.ondataavailable = e => { if(e.data && e.data.size) dmAudioChunks.push(e.data); };
-    dmRecorder.onstop = enviarDmVoice;
+    dmRecorder.onstop = enviarDmVoiceWin;
     dmRecorder.start();
     dmRecSecs = 0;
-    const ind = $("#dm-rec-ind"), t = $("#dm-rec-time");
+    const w = dmWindows[uid];
+    const ind = w && w.el.querySelector(".dm-win-rec");
+    const tm = w && w.el.querySelector(".dm-win-rec-time");
     if(ind) ind.style.display = "";
     dmRecTimer = setInterval(() => {
       dmRecSecs++;
-      if(t) t.textContent = Math.floor(dmRecSecs/60) + ":" + String(dmRecSecs%60).padStart(2, "0");
-      if(dmRecSecs >= 120) detenerDmVoice(); /* máx 2 minutos */
+      if(tm) tm.textContent = Math.floor(dmRecSecs/60) + ":" + String(dmRecSecs%60).padStart(2, "0");
+      if(dmRecSecs >= 120) detenerDmVoiceWin(); /* máx 2 minutos */
     }, 1000);
   }catch(e){
-    toast("No se pudo acceder al micrófono 🎤");
+    dmVoiceUid = null;
+    toast(t("dm.mic_error"));
   }
 }
 
-function detenerDmVoice(){
+function detenerDmVoiceWin(){
   if(dmRecTimer){ clearInterval(dmRecTimer); dmRecTimer = null; }
-  const ind = $("#dm-rec-ind");
+  const w = dmVoiceUid != null ? dmWindows[dmVoiceUid] : null;
+  const ind = w && w.el.querySelector(".dm-win-rec");
   if(ind) ind.style.display = "none";
   if(dmRecorder && dmRecorder.state === "recording"){
     dmRecorder.stop();
   }else{
     dmRecorder = null;
+    dmVoiceUid = null;
   }
   try{ dmRecorder && dmRecorder.stream && dmRecorder.stream.getTracks().forEach(tr => tr.stop()); }catch(e){}
 }
 
-async function enviarDmVoice(){
+async function enviarDmVoiceWin(){
   const rec = dmRecorder; dmRecorder = null;
+  const uid = dmVoiceUid; dmVoiceUid = null;
   try{ rec && rec.stream && rec.stream.getTracks().forEach(tr => tr.stop()); }catch(e){}
-  if(!dmAudioChunks.length || !dmActiveUid){ dmAudioChunks = []; return; }
+  if(!dmAudioChunks.length || uid == null){ dmAudioChunks = []; return; }
   const blob = new Blob(dmAudioChunks, { type: (rec && rec.mimeType) || "audio/webm" });
   dmAudioChunks = [];
   const reader = new FileReader();
@@ -1813,7 +1945,7 @@ async function enviarDmVoice(){
       const r = await fetch("/api/dm/voice", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ to_user_id: dmActiveUid, audio: reader.result })
+        body: JSON.stringify({ to_user_id: uid, audio: reader.result })
       });
       const j = await r.json().catch(() => ({}));
       if(!r.ok){
@@ -1821,7 +1953,8 @@ async function enviarDmVoice(){
         throw new Error(j.message || j.error || ("HTTP " + r.status));
       }
       playDing();
-      await loadDmMessages();
+      await loadDmWinMessages(uid);
+      updateDmBadge();
     }catch(e){
       toast(e.message);
     }
@@ -1829,20 +1962,20 @@ async function enviarDmVoice(){
   reader.readAsDataURL(blob);
 }
 
-/* ---------- archivos adjuntos (solo plan anual) ---------- */
-async function sendDmFile(input){
+/* ---------- archivos adjuntos (solo plan anual), por ventana ---------- */
+async function sendDmFileWin(uid, input){
   const f = input && input.files && input.files[0];
-  input.value = "";
-  if(!f || !dmActiveUid) return;
-  if(!isAnnual()){ openUpgradeModal("Los archivos adjuntos son exclusivos del plan anual 💎"); return; }
+  if(input) input.value = "";
+  if(!f) return;
+  if(!isAnnual()){ openUpgradeModal(t("dm.file_only_annual")); return; }
   const permitidos = ["application/pdf", "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
   if(!permitidos.includes(f.type)){
-    toast("Solo se permiten PDF, DOC, DOCX y TXT 📎");
+    toast(t("dm.file_types"));
     return;
   }
   if(f.size > 10 * 1024 * 1024){
-    toast("El archivo es muy grande (máx 10MB) 📎");
+    toast(t("dm.file_big"));
     return;
   }
   const reader = new FileReader();
@@ -1851,7 +1984,7 @@ async function sendDmFile(input){
       const r = await fetch("/api/dm/file", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ to_user_id: dmActiveUid, file: reader.result, fileName: f.name })
+        body: JSON.stringify({ to_user_id: uid, file: reader.result, fileName: f.name })
       });
       const j = await r.json().catch(() => ({}));
       if(!r.ok){
@@ -1859,7 +1992,7 @@ async function sendDmFile(input){
         throw new Error(j.message || j.error || ("HTTP " + r.status));
       }
       playDing();
-      await loadDmMessages();
+      await loadDmWinMessages(uid);
     }catch(e){
       toast(e.message);
     }
@@ -1867,73 +2000,79 @@ async function sendDmFile(input){
   reader.readAsDataURL(f);
 }
 
-/* ---------- insignia + aviso de mensajes sin leer ---------- */
-async function updateDmBadge(){
+/* ---------- cronómetro 48h: un solo intervalo para todas las ventanas ---------- */
+function updateDmWinCountdowns(){
+  Object.keys(dmWindows).forEach(uid => {
+    const w = dmWindows[uid];
+    const el = w && w.el.querySelector(".dm-win-countdown");
+    if(!el) return;
+    const msgs = w.el.querySelectorAll(".dm-win-msgs [data-expira]");
+    if(!msgs.length){ el.textContent = "⏳ 48h"; return; }
+    let proxima = Infinity;
+    msgs.forEach(m => {
+      const t = new Date(m.getAttribute("data-expira").replace(" ", "T") + "Z").getTime();
+      if(!isNaN(t) && t < proxima) proxima = t;
+    });
+    if(proxima === Infinity){ el.textContent = "⏳ 48h"; return; }
+    const restante = proxima - Date.now();
+    if(restante <= 0){ el.textContent = "⏳…"; return; }
+    const h = Math.floor(restante / 3600000);
+    const m = Math.floor((restante % 3600000) / 60000);
+    el.textContent = h >= 24 ? `⏳ ${Math.floor(h/24)}d ${h%24}h` : `⏳ ${h}h ${m}m`;
+  });
+}
+
+/* ---------- sondeo de ventanas: mensajes nuevos + insignias ---------- */
+async function refreshDmWindows(){
+  const ids = Object.keys(dmWindows).map(Number);
+  if(!ids.length) return;
   try{
-    const r = await fetch("/api/dm/unread-count", { headers: authHeaders() });
+    const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
     if(!r.ok) return;
     const j = await r.json();
-    const n = j.count || 0;
-    const badge = $("#dm-badge");
-    if(badge){
-      badge.style.display = n ? "" : "none";
-      badge.textContent = n > 99 ? "99+" : n;
-    }
-    const notif = $("#dm-notif");
-    if(notif){
-      if(n && planType() === "free"){
-        notif.style.display = "";
-        notif.innerHTML = `💬 Tienes ${n} mensaje${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} sin leer.
-          <button class="btn btn-primary btn-sm" onclick="openUpgradeModal()">Actualizar a anual 💎</button>`;
-      }else if(n){
-        notif.style.display = "";
-        notif.innerHTML = `💬 Tienes ${n} mensaje${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} sin leer.
-          <button class="btn btn-primary btn-sm" onclick="switchTab('privados')">Ver</button>`;
-      }else{
-        notif.style.display = "none";
-        notif.innerHTML = "";
+    const porUid = {};
+    (j.conversaciones || []).forEach(c => { porUid[Number(c.uid)] = c; });
+    for(const uid of ids){
+      const w = dmWindows[uid];
+      if(!w) continue;
+      const c = porUid[uid];
+      const badge = w.el.querySelector(".dm-win-unread");
+      const n = c && c.noLeidos ? Number(c.noLeidos) : 0;
+      if(badge){
+        badge.style.display = n ? "" : "none";
+        badge.textContent = n > 99 ? "99+" : n;
+      }
+      if(!w.minimized){
+        await loadDmWinMessages(uid); // el GET marca como leídos
+      }
+      if(c){
+        w.target = { ...w.target, nombre: c.nombre || w.target.nombre, foto: c.foto, avatar: c.avatar };
+        updateDmWinHead(uid);
       }
     }
-  }catch(e){ /* sin conexión: no mostrar nada */ }
-}
-
-function startDmPoll(){
-  stopDmPoll();
+    updateDmWinCountdowns();
+  }catch(e){ /* sin conexión: no hacer nada */ }
   updateDmBadge();
-  dmPollTimer = setInterval(updateDmBadge, 30000);
 }
 
-/* Cronómetro de 48h en el chat privado: muestra el tiempo restante
- * del mensaje más antiguo visible. Se actualiza cada minuto. */
-let dmCountdownTimer = null;
-function startDmCountdown(){
-  stopDmCountdown();
-  updateDmCountdown();
-  dmCountdownTimer = setInterval(updateDmCountdown, 60000);
+function startDmWinPoll(){
+  stopDmWinPoll();
+  refreshDmWindows();
+  dmWinPollTimer = setInterval(refreshDmWindows, 20000);
+  if(!dmWinCountdownTimer) dmWinCountdownTimer = setInterval(updateDmWinCountdowns, 60000);
 }
-function stopDmCountdown(){
-  if(dmCountdownTimer){ clearInterval(dmCountdownTimer); dmCountdownTimer = null; }
+function stopDmWinPoll(){
+  if(dmWinPollTimer){ clearInterval(dmWinPollTimer); dmWinPollTimer = null; }
 }
-function updateDmCountdown(){
-  const el = $("#dm-countdown");
-  if(!el || !dmActiveUid) return;
-  // Busca el mensaje con expiración más próxima (tiene data-expira).
-  const msgs = document.querySelectorAll("#dm-messages [data-expira]");
-  if(!msgs.length){ el.textContent = "⏳ Los mensajes se eliminan en 48h"; return; }
-  let proxima = Infinity;
-  msgs.forEach(m => {
-    const t = new Date(m.getAttribute("data-expira").replace(" ", "T") + "Z").getTime();
-    if(!isNaN(t) && t < proxima) proxima = t;
-  });
-  if(proxima === Infinity){ el.textContent = "⏳ Los mensajes se eliminan en 48h"; return; }
-  const restante = proxima - Date.now();
-  if(restante <= 0){ el.textContent = "⏳ Eliminando mensajes…"; return; }
-  const h = Math.floor(restante / 3600000);
-  const m = Math.floor((restante % 3600000) / 60000);
-  el.textContent = h >= 24
-    ? `⏳ Se eliminan en ${Math.floor(h/24)}d ${h%24}h`
-    : `⏳ Se eliminan en ${h}h ${m}m`;
+
+/* ---------- compatibilidad: la pestaña "Privados" ---------- */
+/* La pestaña "Privados" muestra la lista de conversaciones; al tocar
+ * una se abre la ventana flotante. Se conserva openDmChat como alias. */
+function openDmChat(uid, target){
+  openDmWindow(uid, target);
 }
+
+
 function stopDmPoll(){
   if(dmPollTimer){ clearInterval(dmPollTimer); dmPollTimer = null; }
 }
@@ -2035,16 +2174,16 @@ async function handlePayPalReturn(){
   // limpia la URL para no reprocesar al recargar
   history.replaceState(null, "", location.pathname + "#app");
   if(ret === "cancel"){
-    toast("Pago cancelado — puedes intentarlo cuando quieras");
+    toast(t("t.payment_cancel"));
     return;
   }
-  toast("¡Pago recibido! Activando tu membresía… 💛");
+  toast(t("t.payment_ok"));
   await refreshPaidStatus();
   if(isPaid()){
-    toast("¡Membresía activa! Bienvenido/a a tu proceso 💛");
+    toast(t("t.member_active"));
   } else {
     // el webhook puede tardar unos segundos: reintenta un par de veces
-    setTimeout(async ()=>{ await refreshPaidStatus(); if(isPaid()) toast("¡Membresía activa! 💛"); }, 4000);
+    setTimeout(async ()=>{ await refreshPaidStatus(); if(isPaid()) toast(t("t.member_active")); }, 4000);
   }
   if(currentUser()) enterApp(); else showView("auth");
 }
@@ -2053,31 +2192,11 @@ async function handlePayPalReturn(){
 
 /* ============ TOUR DE BIENVENIDA (se muestra una vez) ============ */
 const TOUR_STEPS = [
-  {
-    emoji: "🎉",
-    titulo: "¡Bienvenido a Reaviva!",
-    texto: "Tu espacio de sanación emocional. Te mostramos lo esencial en unos segundos."
-  },
-  {
-    emoji: "📅",
-    titulo: "Tu programa de 30 días",
-    texto: "Cada día tienes una reflexión, un ejercicio y un audio para sanar tu corazón. Completa un día a la vez, a tu ritmo."
-  },
-  {
-    emoji: "💬",
-    titulo: "Chat de la comunidad",
-    texto: "Conversa con otros en proceso de sanación. Todos aparecen con iniciales y país: tu identidad está protegida."
-  },
-  {
-    emoji: "💰",
-    titulo: "Moneda RV",
-    texto: "Con RV puedes compartir enlaces y fotos en el chat. Recarga desde $12 tocando el botón 💰. Al registrarte con plan mensual recibes 50 RV, con plan anual 200 RV."
-  },
-  {
-    emoji: "⭐",
-    titulo: "Tu perfil y planes",
-    texto: "En tu perfil ves tu progreso, tu país y tu plan. Actualiza a un plan para desbloquear fotos, temas, mensajes privados ¡y más!"
-  }
+  { emoji: "🎉", key: "1" },
+  { emoji: "📅", key: "2" },
+  { emoji: "💬", key: "3" },
+  { emoji: "💰", key: "4" },
+  { emoji: "⭐", key: "5" },
 ];
 let tourStep = 0;
 
@@ -2094,12 +2213,14 @@ function maybeShowTour(){
 function renderTourStep(){
   const s = TOUR_STEPS[tourStep];
   const c = document.getElementById("tour-content");
-  if(c) c.innerHTML = `<div class="tour-emoji">${s.emoji}</div><h3>${s.titulo}</h3><p>${s.texto}</p>`;
+  if(c) c.innerHTML = `<div class="tour-emoji">${s.emoji}</div><h3>${t("tour."+s.key+"t")}</h3><p>${t("tour."+s.key+"d")}</p>`;
   const dots = document.getElementById("tour-dots");
   if(dots) dots.innerHTML = TOUR_STEPS.map((_, i) =>
     `<span class="tour-dot${i === tourStep ? " active" : ""}"></span>`).join("");
   const next = document.getElementById("tour-next");
-  if(next) next.textContent = tourStep === TOUR_STEPS.length - 1 ? "¡Empezar! 💛" : "Siguiente →";
+  if(next) next.textContent = tourStep === TOUR_STEPS.length - 1 ? t("tour.done") : t("tour.next");
+  const skip = document.getElementById("tour-skip");
+  if(skip) skip.textContent = t("tour.skip");
 }
 
 function nextTourStep(){
@@ -2120,6 +2241,8 @@ function finishTour(){
 }
 
 document.addEventListener("DOMContentLoaded", ()=>{
+  // Aplicar idioma guardado (o detectado) a toda la UI estática.
+  try{ applyI18n(); }catch(e){}
   // landing CTAs
   $$("[data-go-app]").forEach(b=>b.addEventListener("click", async ()=>{
     afterRestore(await restoreSession());
@@ -2161,7 +2284,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
 /* ============================================================
    COMPARTIR REAVIVA
    ============================================================ */
-const SHARE_MSG = "🌅 ¿Sientes que tu corazón necesita sanar? Descubrí Reaviva, un programa de 30 días que me está ayudando a soltar el dolor y recuperar mi paz. ¡Tienes 7 días gratis! 💛";
 
 function myShareLink(){
   const u = currentUser();
@@ -2172,7 +2294,7 @@ function myShareLink(){
 
 function openShareModal(){
   const link = myShareLink();
-  const txt = SHARE_MSG + " " + link;
+  const txt = t("share.msg") + " " + link;
   const el = $("#share-text");
   if(el) el.textContent = txt;
   const m = $("#share-modal");
@@ -2186,22 +2308,23 @@ function closeShareModal(){
 
 function shareVia(canal){
   const link = myShareLink();
-  const txt = SHARE_MSG + " " + link;
+  const shareMsg = t("share.msg");
+  const txt = shareMsg + " " + link;
   const msg = $("#share-copy-msg");
-  const done = (t) => { if(msg) msg.textContent = t; };
+  const done = (tx) => { if(msg) msg.textContent = tx; };
   if(canal === "whatsapp"){
     window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
   }else if(canal === "facebook"){
-    window.open("https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(link) + "&quote=" + encodeURIComponent(SHARE_MSG), "_blank");
+    window.open("https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(link) + "&quote=" + encodeURIComponent(shareMsg), "_blank");
   }else if(canal === "telegram"){
-    window.open("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent(SHARE_MSG), "_blank");
+    window.open("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent(shareMsg), "_blank");
   }else if(canal === "x"){
     window.open("https://twitter.com/intent/tweet?text=" + encodeURIComponent(txt), "_blank");
   }else if(canal === "copy"){
     const copiar = async () => {
       try{
         await navigator.clipboard.writeText(txt);
-        done("✅ ¡Link copiado! Pégalo donde quieras 💛");
+        done(t("m.share_copied"));
       }catch(e){
         // Fallback para navegadores sin clipboard API.
         const ta = document.createElement("textarea");

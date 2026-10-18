@@ -498,6 +498,59 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .upgrade-total{border-top:1px solid var(--border,#eee);margin-top:6px;padding-top:10px;font-size:1.05rem}
 .modal-x{position:absolute;top:10px;right:14px;background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--cocoa-soft)}
 .modal{position:relative}
+
+/* ============================================================
+   VENTANAS FLOTANTES DE CHAT PRIVADO (estilo Messenger) 💬
+   ============================================================ */
+#dm-windows{
+  position:fixed;bottom:76px;right:12px;z-index:90;
+  display:flex;flex-direction:row;align-items:flex-end;gap:10px;
+  pointer-events:none;
+}
+.dm-win{
+  pointer-events:auto;width:320px;max-width:calc(100vw - 24px);
+  background:var(--card,#fff);border:1px solid var(--border,#eee);
+  border-radius:16px 16px 0 0;box-shadow:0 8px 28px rgba(74,55,40,.25);
+  display:flex;flex-direction:column;overflow:hidden;
+  animation:dmWinIn .18s ease-out;
+}
+@keyframes dmWinIn{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}
+.dm-win-head{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;
+  background:var(--terra,#c2703d);color:#fff;user-select:none;
+}
+.dm-win-head .comment-avatar{width:34px;height:34px;flex:none}
+.dm-win-title{flex:1;min-width:0;line-height:1.25}
+.dm-win-title b{display:block;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dm-win-title small{font-size:.68rem;opacity:.85}
+.dm-win-headbtn{
+  background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:8px;
+  width:30px;height:30px;font-size:.95rem;cursor:pointer;line-height:1;flex:none;
+}
+.dm-win-headbtn:hover{background:rgba(255,255,255,.32)}
+.dm-win-unread{
+  background:#ef4444;color:#fff;font-size:.72rem;font-weight:800;min-width:22px;height:22px;
+  border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 6px;flex:none;
+}
+.dm-win-body{display:flex;flex-direction:column;gap:8px;padding:10px;max-height:420px}
+.dm-win.minimized .dm-win-body{display:none}
+.dm-win.minimized{width:240px}
+.dm-win-msgs{display:flex;flex-direction:column;gap:8px;height:300px;overflow-y:auto;padding:2px}
+.dm-win-composer{display:flex;gap:6px;align-items:center}
+.dm-win-composer .field{flex:1;font-size:.88rem;padding:9px 10px}
+.dm-win-send{
+  background:var(--accent,#f59e0b);border:none;color:#fff;border-radius:10px;
+  font-size:1.05rem;padding:9px 12px;cursor:pointer;line-height:1;flex:none;
+}
+.dm-win-rec{
+  display:flex;align-items:center;gap:8px;background:#fef2f2;border:1px solid #fca5a5;
+  color:#b91c1c;border-radius:10px;padding:8px 10px;font-size:.82rem;
+}
+@media (max-width:480px){
+  #dm-windows{left:8px;right:8px;bottom:74px;flex-direction:column;align-items:stretch}
+  .dm-win,.dm-win.minimized{width:100%}
+  .dm-win-msgs{height:44vh}
+}
 .comment-avatar[onclick],.comment-head b[onclick]{transition:opacity .15s}
 .comment-avatar[onclick]:hover,.comment-head b[onclick]:hover{opacity:.75}
 
@@ -553,3 +606,10 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .share-btn:hover{transform:scale(1.03);border-color:var(--coral)}
 .share-btn span{font-size:1.2rem}
 .share-preview{margin:6px 0}
+
+/* ============ SELECTOR DE IDIOMA (footer) ============ */
+.lang-selector{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+.lang-opt{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#f7eadd;
+  padding:6px 12px;border-radius:20px;font-size:.82rem;cursor:pointer;transition:all .15s}
+.lang-opt:hover{background:rgba(255,255,255,.22);transform:scale(1.03)}
+.lang-opt.active{background:var(--coral);border-color:var(--coral);font-weight:700;color:#fff}
