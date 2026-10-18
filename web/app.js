@@ -1064,9 +1064,9 @@ async function renderComunidad(){
           ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
           : `<p>${esc(c.texto)}</p>`;
       }
-      // Avatar y nombre clicables → mensaje privado (según el plan).
-      // Tooltip al pasar el mouse: "💬 Chat privado" solo para plan anual.
-      const tipText = isAnnual() ? "💬 Chat privado" : (planType() === "monthly" ? "Actualiza a plan anual 💎" : "");
+      // Avatar y nombre clicables → mensaje privado (usuarios con plan).
+      // Tooltip al pasar el mouse: "💬 Chat privado".
+      const tipText = planType() === "free" ? "" : "💬 Chat privado";
       const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
       // Indicador sutil de expiración del mensaje (según el plan del autor).
       const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
@@ -1076,7 +1076,7 @@ async function renderComunidad(){
       <div class="comment-card">
         <div class="comment-avatar"${clickAttr}>${avatar}</div>
         <div class="comment-body">
-          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span></div>
+          <div class="comment-head"><b${clickAttr}>${esc(c.nombre || "Guest")}</b>${c.promo ? `<span class="promo-badge" title="Mensaje promocional">📢</span>` : ""}${c.repost ? `<span class="repost-badge" title="Republicación automática">🔁</span>` : ""}${expiryTag}<span>${esc(c.fecha)}</span></div>
           ${body}
         </div>
       </div>`;}).join("") ||
@@ -1407,10 +1407,11 @@ function stopChatPoll(){
 }
 
 /* ============================================================
-   MENSAJES PRIVADOS (DM) 💬 — solo plan anual
+   MENSAJES PRIVADOS (DM) 💬 — usuarios con plan (mensual o anual)
    - Clic en un usuario de la comunidad → chat privado (sin ver su
      nombre real: solo iniciales + país + foto).
-   - Plan mensual → modal de actualización con cotización prorrateada.
+   - Límite diario de conversaciones únicas: anual 90/día, mensual 15/día.
+     Al excederlo, el mensual ve el modal de actualización a anual.
    - Cada mensaje se elimina a las 48 horas.
    ============================================================ */
 let communityUsers = {}; // uid → { nombre, foto, avatar }
@@ -1429,13 +1430,11 @@ function onCommunityUserClick(uid){
   const me = currentUser();
   if(me && Number(me.id) === uid){ toast("Ese eres tú 😄"); return; }
   const target = communityUsers[uid] || { nombre: "Usuario", foto: null, avatar: "💛" };
-  if(isAnnual()){
+  if(planType() !== "free"){
     openDmChat(uid, target);
     switchTab("privados");
-  }else if(planType() === "monthly"){
-    openUpgradeModal();
   }else{
-    toast("Los mensajes privados son para miembros con plan anual 💎");
+    toast("Los mensajes privados son para miembros con plan 💎");
   }
 }
 
@@ -1446,14 +1445,12 @@ async function renderDmList(){
   if(chat) chat.style.display = "none";
   if(list) list.style.display = "";
   dmActiveUid = null;
-  if(!isAnnual()){
+  if(planType() === "free"){
     if(list) list.innerHTML = `
       <div class="empty-state"><div style="font-size:2.5rem">💎</div>
       <p><b>Mensajes privados</b></p>
-      <p style="font-size:.85rem;color:var(--cocoa-soft)">Solo para miembros con plan anual.</p>
-      ${planType() === "monthly"
-        ? `<button class="btn btn-primary" onclick="openUpgradeModal()" style="margin-top:10px">Actualizar a anual 💎</button>`
-        : `<button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">Ver planes</button>`}
+      <p style="font-size:.85rem;color:var(--cocoa-soft)">Solo para miembros con plan.</p>
+      <button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">Ver planes</button>
       </div>`;
     return;
   }
@@ -1550,7 +1547,7 @@ async function sendDm(){
     });
     const j = await r.json().catch(() => ({}));
     if(!r.ok){
-      if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(); return; }
+      if(j.error === "UPGRADE_ANNUAL"){ openUpgradeModal(j.message); return; }
       if(handleSpamError(j)) return;
       throw new Error(j.message || j.error || ("HTTP " + r.status));
     }
@@ -1576,7 +1573,7 @@ async function updateDmBadge(){
     }
     const notif = $("#dm-notif");
     if(notif){
-      if(n && !isAnnual()){
+      if(n && planType() === "free"){
         notif.style.display = "";
         notif.innerHTML = `💬 Tienes ${n} mensaje${n === 1 ? "" : "s"} privado${n === 1 ? "" : "s"} sin leer.
           <button class="btn btn-primary btn-sm" onclick="openUpgradeModal()">Actualizar a anual 💎</button>`;
@@ -1633,8 +1630,10 @@ function stopDmPoll(){
   if(dmPollTimer){ clearInterval(dmPollTimer); dmPollTimer = null; }
 }
 
-/* ---------- modal de actualización mensual → anual ---------- */
-async function openUpgradeModal(){
+/* ---------- modal de actualización mensual → anual ----------
+ * mensaje (opcional): título personalizado, ej. el aviso de límite
+ * diario de DMs ("Actualiza tu plan para conversar con más personas 💎"). */
+async function openUpgradeModal(mensaje){
   const modal = $("#upgrade-modal");
   const body = $("#upgrade-body");
   if(!modal || !body) return;
@@ -1649,7 +1648,7 @@ async function openUpgradeModal(){
     }
     body.innerHTML = `
       <div style="text-align:center;font-size:2.5rem">💎</div>
-      <h3 style="text-align:center">Actualiza a un plan anual para enviar mensajes privados 💎</h3>
+      <h3 style="text-align:center">${esc(mensaje || "Actualiza a un plan anual para enviar mensajes privados 💎")}</h3>
       <p style="text-align:center">${esc(j.mensaje || "")}</p>
       <div class="upgrade-quote">
         <div><span>Plan anual</span><b>$${esc(j.precioAnual || "39.99")}</b></div>

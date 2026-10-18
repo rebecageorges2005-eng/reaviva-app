@@ -284,7 +284,9 @@
       <div class="greet" style="display:flex;align-items:center;justify-content:space-between">
         <span>💬 Comunidad</span>
         <button id="chat-sound-btn" class="sound-toggle" onclick="toggleChatSound()" title="Activar/silenciar sonido">🔔</button>
+        <button id="rv-btn" class="rv-btn" onclick="openRVModal()" title="Mis RV — recargar" style="display:none">💰 <span id="rv-balance">0</span> RV</button>
       </div>
+      <div id="rv-error" class="rv-error" style="display:none"></div>
       <p class="greet-sub">Un espacio seguro. Todos somos anónimos aquí 💛</p>
       <div id="chat-timer"></div>
       <!-- Temas temporales (solo con plan) -->
@@ -357,6 +359,17 @@
     <button class="modal-x" onclick="closeUpgradeModal()" aria-label="Cerrar">✕</button>
     <div id="upgrade-body"></div>
     <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeUpgradeModal()">Ahora no</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="rv-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeRVModal()" aria-label="Cerrar">✕</button>
+    <h3>💰 Recargar RV</h3>
+    <p style="font-size:.85rem;color:var(--cocoa-soft)">Los RV te permiten compartir enlaces, redes sociales y publicidad en el chat.<br><b>10 RV = 5 links</b> · <b>10 RV = 8 imágenes</b>.<br>Los RV nunca vencen.</p>
+    <div id="rv-packs" class="rv-packs"><p style="color:var(--cocoa-soft)">Cargando paquetes…</p></div>
+    <p id="rv-modal-err" class="auth-err"></p>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeRVModal()">Cerrar</button>
   </div>
 </div>
 

@@ -496,4 +496,5 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .rv-pack-detalle{font-size:.82rem;color:var(--cocoa-soft,#8a6f5c);margin:4px 0 8px}
 .rv-pack-precio{font-size:1.15rem;font-weight:700;margin-bottom:10px}
 .promo-badge{display:inline-block;font-size:.75rem;margin-left:6px;cursor:help}
+.repost-badge{display:inline-block;font-size:.75rem;margin-left:4px;cursor:help;opacity:.75}
 .msg-expiry{font-size:.72rem;color:var(--cocoa-soft);opacity:.75;margin-left:6px;white-space:nowrap}
