@@ -68,6 +68,7 @@ tr.clickable:hover{background:var(--sand)}
   <a class="logo" href="/">Reaviva<span>.</span></a>
   <span style="font-size:.85rem;color:var(--cocoa-soft)">👑 Panel de administrador</span>
   <div class="spacer"></div>
+  <button class="btn btn-ghost btn-sm" onclick="refreshAll()" title="Recargar todos los datos">🔄 Actualizar</button>
   <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>
 </div>
 <div class="wrap" id="app"><p class="center">Cargando…</p></div>
@@ -82,6 +83,14 @@ function token(){ try{ return JSON.parse(localStorage.getItem("reaviva_token")||
 function isAdmin(){ try{ return JSON.parse(localStorage.getItem("reaviva_admin")||"false")===true; }catch(e){ return false; } }
 function headers(){ var t=token(); return t?{"Authorization":"Bearer "+t,"Content-Type":"application/json"}:{"Content-Type":"application/json"}; }
 function logout(){ localStorage.removeItem("reaviva_user"); localStorage.removeItem("reaviva_token"); localStorage.removeItem("reaviva_admin"); localStorage.removeItem("reaviva_paid"); location.href="/"; }
+/* Recarga todas las secciones sin recargar la página. */
+async function refreshAll(){
+  var btn = event && event.target ? event.target : null;
+  var old = btn ? btn.textContent : null;
+  if(btn){ btn.textContent = "⏳ Actualizando…"; btn.disabled = true; }
+  try{ await render(); }catch(e){}
+  if(btn){ btn.textContent = old; btn.disabled = false; }
+}
 
 async function api(method, path, body){
   var opts={method:method,headers:headers()};
@@ -96,6 +105,19 @@ function authFail(){
 }
 
 /* ---------- boot ---------- */
+/* Bandera emoji desde código ISO (ej. "BO" → 🇧🇴). */
+function flagEmoji(code){
+  if(!code||code.length!==2) return "";
+  try{
+    return String(code).toUpperCase().split("").map(function(c){
+      return String.fromCodePoint(127397+c.charCodeAt(0));
+    }).join("");
+  }catch(e){ return ""; }
+}
+function paisCell(u){
+  if(u.pais) return flagEmoji(u.codigoPais)+" "+esc(u.pais);
+  return '<span style="color:#bbb">—</span>';
+}
 document.addEventListener("DOMContentLoaded", function(){
   if(!isAdmin()||!token()){
     $("#app").innerHTML='<div class="center"><h2>Acceso denegado 🔒</h2><p>Esta página es solo para administradores.</p><p style="margin-top:16px"><a class="btn" href="/admin/ingzoe" style="text-decoration:none">Ir al acceso admin</a></p></div>';
@@ -116,7 +138,13 @@ async function render(){
       '<div class="card"><b>'+s.onlineNow+'</b><span>🟢 Conectados ahora</span></div>'+
       '<div class="card"><b>'+s.signupsToday+'</b><span>📝 Registros hoy</span></div>'+
       '<div class="card"><b>$'+(s.mrr||0)+'</b><span>💰 MRR estimado</span></div>'+
+      '<div class="card"><b>'+(s.countriesCount||0)+'</b><span>🌍 Países</span></div>'+
       '</div>'+
+      (s.topCountries&&s.topCountries.length?
+        '<h2 class="sec">🌍 Top países</h2><div class="block">'+
+        s.topCountries.map(function(c,i){
+          return '<p style="font-size:.9rem;padding:4px 0">'+(i+1)+'. '+flagEmoji(c.codigo)+' <b>'+esc(c.pais)+'</b> — '+c.usuarios+' usuario'+(c.usuarios===1?'':'s')+'</p>';
+        }).join("")+'</div>':'')+
       '<h2 class="sec">📈 Crecimiento</h2>'+
       '<div class="toolbar"><select id="growth-days" class="field" onchange="loadGrowth()">'+
       '<option value="8">Últimos 8 días</option><option value="15">Últimos 15 días</option>'+
@@ -127,7 +155,7 @@ async function render(){
       '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
       '<div id="user-detail"></div>'+
-      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Plan</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="4">Cargando…</td></tr></tbody></table>'+
+      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Plan</th><th>País</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
       '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
@@ -167,8 +195,8 @@ async function loadUsers(){
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
     $("#users-body").innerHTML=usersCache.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+planBadge(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
-    }).join("")||'<tr><td colspan="4">Sin usuarios</td></tr>';
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+'</td><td>'+esc(u.email)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+    }).join("")||'<tr><td colspan="5">Sin usuarios</td></tr>';
     var sel=$("#msg-user");
     sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
       return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+')</option>';
@@ -185,6 +213,7 @@ async function showUser(id){
       '<p><b>'+esc(u.nombre)+'</b> · '+esc(u.email)+'</p>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">Plan: '+esc(u.plan||'—')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">Registrado: '+esc(u.registrado||'—')+' · Última conexión: '+esc(u.ultimaConexion||'—')+'</p>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft)">🌍 País: '+(u.pais?flagEmoji(u.codigoPais)+' '+esc(u.pais):'—')+(u.ip?' · IP: '+esc(u.ip):'')+'</p>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft)">Días completados: '+(u.diasCompletados||0)+' · Entradas de diario: '+(u.entradasDiario||0)+'</p>'+
       '<div style="margin-top:10px"><button class="btn btn-sm" onclick="messageUser('+u.id+')">✉️ Enviar mensaje</button></div></div>';
     box.scrollIntoView({behavior:"smooth",block:"nearest"});
