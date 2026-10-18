@@ -159,10 +159,13 @@ module.exports = {
    RV — MONEDA PARA MENSAJES PROMOCIONALES \U0001f4b0
    Tasa: 10 RV = 5 publicaciones con enlaces/redes sociales.
    Es decir: 1 mensaje promocional cuesta 2 RV.
-   Solo usuarios con plan pagado pueden tener y gastar RV.
+   Tasa con plan: 10 RV = 5 publicaciones (2 RV c/u).
+   Tasa sin plan: 10 RV = 3 publicaciones (3 RV c/u).
+   Los gratuitos SÍ pueden comprar y gastar RV, pero solo en texto.
    ============================================================ */
 
-const RV_POR_MENSAJE = 2;
+const RV_POR_MENSAJE = 2;          // con plan
+const RV_POR_MENSAJE_GRATIS = 3;   // sin plan (10 RV = 3 publicaciones)
 
 /* Saldo actual de RV del usuario. */
 function getRV(userId) {
@@ -174,23 +177,31 @@ function getRV(userId) {
   }
 }
 
-/* Intenta gastar 2 RV por un mensaje promocional. Devuelve true si se
+/* Costo en RV de un mensaje promocional según el plan del usuario. */
+function costoMensajeRV(user) {
+  const esPagado = user && (user.is_admin === 1 || user.subscribed === 1);
+  return esPagado ? RV_POR_MENSAJE : RV_POR_MENSAJE_GRATIS;
+}
+
+/* Intenta gastar RV por un mensaje promocional. Devuelve true si se
  * descontaron (y lo registra en credit_spending), false si no hay saldo
- * suficiente. Nunca deja saldo negativo. */
-function trySpendRV(userId) {
+ * suficiente. El costo depende del plan: 2 RV con plan, 3 RV sin plan.
+ * Nunca deja saldo negativo. */
+function trySpendRV(userId, user) {
   try {
     const row = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
+    const costo = costoMensajeRV(user);
     const saldo = Math.max(0, Number(row && row.credits) || 0);
-    if (saldo < RV_POR_MENSAJE) return false;
+    if (saldo < costo) return false;
     db.prepare("UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?").run(
-      RV_POR_MENSAJE,
+      costo,
       userId,
-      RV_POR_MENSAJE
+      costo
     );
     db.prepare(
       `INSERT INTO credit_spending (user_id, credits_used, reason, created_at)
        VALUES (?, ?, 'promo_message', datetime('now'))`
-    ).run(userId, RV_POR_MENSAJE);
+    ).run(userId, costo);
     return true;
   } catch (e) {
     return false;
@@ -200,6 +211,8 @@ function trySpendRV(userId) {
 module.exports.getRV = getRV;
 module.exports.trySpendRV = trySpendRV;
 module.exports.RV_POR_MENSAJE = RV_POR_MENSAJE;
+module.exports.RV_POR_MENSAJE_GRATIS = RV_POR_MENSAJE_GRATIS;
+module.exports.costoMensajeRV = costoMensajeRV;
 // Alias (compatibilidad interna).
 module.exports.getCredits = getRV;
 module.exports.trySpendCredit = trySpendRV;

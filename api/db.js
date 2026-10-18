@@ -354,6 +354,9 @@ try {
   add("chat_strikes_date", "TEXT");
   add("chat_muted", "INTEGER NOT NULL DEFAULT 0");
   add("chat_mutes", "INTEGER NOT NULL DEFAULT 0");
+  /* Bono de bienvenida RV: guarda el subscription_id que ya recibió el bono
+   * para no darlo dos veces (idempotente). */
+  add("rv_bonus_for", "TEXT");
 } catch (e) {
   console.error("[db] migración chat_strikes:", e.message);
 }
