@@ -425,15 +425,119 @@ async function doLogin(ev){
     if(!r.ok){
       // Cuenta sin confirmar: mostrar la pantalla de verificación con reenvío.
       if(j.needsVerification){ showVerifyEmail(email); return; }
+      // Cuenta desactivada 48h o deshabilitada 15 días.
+      if(j.locked || j.disabled){
+        errBox.innerHTML = `${esc(j.error)}<br><br><a href="#" onclick="showForgotPassword('${esc(email)}');return false;" style="color:var(--terra)">¿Olvidaste tu contraseña? Recupérala aquí 🔑</a>`;
+        return;
+      }
       errBox.textContent = j.error || "No se pudo entrar. Inténtalo de nuevo.";
+      // Tras el 2do intento fallido: ofrecer "¿Olvidaste tu contraseña?".
+      if((j.failedAttempts || 0) >= 2){
+        const link = document.createElement("div");
+        link.style.marginTop = "8px";
+        link.innerHTML = `<a href="#" onclick="showForgotPassword('${esc(email)}');return false;" style="color:var(--terra)">¿Olvidaste tu contraseña? 🔑</a>`;
+        errBox.appendChild(link);
+      }
       return;
     }
     saveSession(j.token, j.user);
+    // El login no es una "página" a la que volver con "atrás": reemplazar
+    // la entrada #entrar por #hoy en vez de apilar una nueva.
+    try{ history.replaceState(null, "", location.pathname + location.search + "#hoy"); }catch(e){}
     enterApp();
     toast(t("t.welcome_back"));
   }catch(e){
     errBox.textContent = "Sin conexión con el servidor. Revisa tu internet.";
   }
+}
+
+/* ---------- "Olvidé mi contraseña": código temporal de 10 segundos ----------
+ * Tras el 2do intento fallido se ofrece este flujo. El código llega al
+ * correo y vence en 10 segundos. Con el código se entra en modo
+ * "solo cambiar contraseña". */
+function showForgotPassword(email){
+  const box = $("#login-err");
+  box.innerHTML = `
+    <div style="text-align:center;padding:8px 0;">
+      <p><b>🔑 Recuperar acceso</b></p>
+      <p style="font-size:.85rem">Te enviaremos un código de <b>10 segundos</b> a tu correo.</p>
+      <button class="btn btn-primary btn-sm" onclick="sendResetCode('${esc(email)}')">Enviar código</button>
+      <div id="forgot-status" style="margin-top:8px;font-size:.85rem"></div>
+    </div>`;
+}
+async function sendResetCode(email){
+  const st = $("#forgot-status");
+  st.textContent = "Enviando…";
+  try{
+    const r = await fetch("/api/auth/forgot-password", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    const j = await r.json();
+    if(!r.ok){ st.textContent = j.error || "No se pudo enviar."; return; }
+    st.innerHTML = `Revisa tu correo <b>ahora mismo</b> ⏳ El código vence en 10 segundos.<br><br>
+      <input id="reset-code" class="field" inputmode="numeric" maxlength="6"
+        placeholder="Código de 6 dígitos" style="text-align:center;letter-spacing:6px;font-size:1.3rem;max-width:220px;margin:0 auto;">
+      <div style="margin-top:8px"><button class="btn btn-primary btn-sm" onclick="doCodeLogin('${esc(email)}')">Entrar con código</button></div>
+      <div id="code-status" style="margin-top:8px;font-size:.85rem"></div>`;
+    const inp = $("#reset-code");
+    if(inp) inp.focus();
+  }catch(e){ st.textContent = "Sin conexión."; }
+}
+async function doCodeLogin(email){
+  const code = ($("#reset-code") || {}).value || "";
+  const st = $("#code-status");
+  if(code.length < 6){ st.textContent = "Escribe el código de 6 dígitos."; return; }
+  st.textContent = "Verificando…";
+  try{
+    const r = await fetch("/api/auth/login-with-code", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code: code.trim() })
+    });
+    const j = await r.json();
+    if(!r.ok){ st.textContent = j.error || "Código inválido."; return; }
+    // Entró con código temporal → modo "solo cambiar contraseña".
+    saveSession(j.token, j.user);
+    showMustChangePassword();
+  }catch(e){ st.textContent = "Sin conexión."; }
+}
+/* Pantalla de cambio obligatorio de contraseña (única opción activa). */
+function showMustChangePassword(){
+  showView("auth");
+  const card = document.querySelector("#view-auth .auth-card") || $("#view-auth");
+  card.innerHTML = `
+    <div style="text-align:center;padding:12px 0;">
+      <div style="font-size:2.5rem">🔑</div>
+      <h3>Cambia tu contraseña</h3>
+      <p style="font-size:.9rem;color:var(--cocoa-soft)">Por seguridad, crea una contraseña nueva para seguir usando Reaviva.</p>
+      <input id="new-pw1" type="password" class="field" placeholder="Nueva contraseña (mín. 6 caracteres)" style="margin-bottom:8px">
+      <input id="new-pw2" type="password" class="field" placeholder="Repite la nueva contraseña" style="margin-bottom:8px">
+      <div id="pw-change-err" style="color:#a33;font-size:.85rem;min-height:1.2em"></div>
+      <button class="btn btn-primary" onclick="doMustChangePassword()">Guardar nueva contraseña</button>
+    </div>`;
+}
+async function doMustChangePassword(){
+  const p1 = ($("#new-pw1") || {}).value || "";
+  const p2 = ($("#new-pw2") || {}).value || "";
+  const err = $("#pw-change-err");
+  if(p1.length < 6){ err.textContent = "Mínimo 6 caracteres."; return; }
+  if(p1 !== p2){ err.textContent = "Las contraseñas no coinciden."; return; }
+  err.textContent = "Guardando…";
+  try{
+    const r = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ newPassword: p1 })
+    });
+    const j = await r.json();
+    if(!r.ok){
+      err.textContent = j.error || "No se pudo cambiar.";
+      if(j.disabled) setTimeout(()=>location.reload(), 4000);
+      return;
+    }
+    toast("Contraseña actualizada ✅");
+    location.reload(); // recarga con sesión normal
+  }catch(e){ err.textContent = "Sin conexión."; }
 }
 
 /* ---------- reCAPTCHA v2 ("No soy un robot") en el registro ----------
@@ -611,6 +715,7 @@ async function doAdminLogin(ev){
     store.set("reaviva_admin", true);
     store.set("reaviva_paid", true); // admin nunca ve el paywall
     if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
+    try{ history.replaceState(null, "", location.pathname + location.search + "#hoy"); }catch(e){}
     enterApp();
     toast("¡Acceso de administrador! 👑");
   }catch(e){
@@ -657,11 +762,22 @@ function syncHash(){
 }
 
 /* Aplica un hash de la URL a la vista/pestaña correspondiente. Devuelve true si lo manejó. */
+function landingVisible(){
+  const el = $("#view-landing");
+  return el && el.style.display !== "none";
+}
 function applyHashRoute(){
   const h = (location.hash || "").replace(/^#/, "").toLowerCase();
-  if(!h) return false;
-  // Vistas de auth
+  // Sin hash → página principal. (El botón "atrás" desde #entrar/#registro vuelve aquí.)
+  if(!h){ showView("landing", true); return true; }
+  // Vistas de auth — si ya hay sesión, ir directo a la app (no tiene sentido
+  // mostrarle el login a alguien que ya entró).
   if(h === "entrar" || h === "registro"){
+    if(currentUser()){
+      try{ history.replaceState(null, "", location.pathname + location.search + "#hoy"); }catch(e){}
+      enterApp();
+      return true;
+    }
     showView("auth", true);
     switchAuthMode(h === "registro" ? "signup" : "login", true);
     return true;
@@ -669,6 +785,12 @@ function applyHashRoute(){
   // Vistas sueltas
   if(h === "inicio"){ showView("landing", true); return true; }
   if(h === "verificar"){ showView("verify-email", true); return true; }
+  // Secciones del landing (Programa, Precios, Preguntas): scroll suave cuando
+  // el landing está visible, en vez de mandar al login.
+  if(landingVisible()){
+    const sec = document.getElementById(h);
+    if(sec){ try{ sec.scrollIntoView({behavior:"smooth"}); }catch(e){} return true; }
+  }
   // Pestañas de la app (requieren sesión)
   const tabByHash = Object.keys(TAB_HASHES).find(t => TAB_HASHES[t] === h);
   if(tabByHash){
@@ -1177,7 +1299,47 @@ function renderPerfil(){
       <div style="color:var(--cocoa-soft);font-size:.9rem;margin:4px 0">${planLabel}</div>
     </div>
     <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
-    <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>`;
+    <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
+    <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
+      <button class="btn btn-ghost btn-block" onclick="togglePwForm()">🔑 Cambiar contraseña</button>
+      <div id="pw-form" style="display:none;margin-top:10px">
+        <input id="pw-cur" type="password" class="field" placeholder="Contraseña actual" style="margin-bottom:8px">
+        <input id="pw-new1" type="password" class="field" placeholder="Nueva contraseña (mín. 6)" style="margin-bottom:8px">
+        <input id="pw-new2" type="password" class="field" placeholder="Repite la nueva" style="margin-bottom:8px">
+        <div id="pw-form-err" style="color:#a33;font-size:.85rem;min-height:1.2em"></div>
+        <button class="btn btn-primary btn-sm" onclick="doProfilePwChange()">Guardar</button>
+      </div>
+    </div>`;
+}
+
+function togglePwForm(){
+  const f = $("#pw-form");
+  if(f) f.style.display = f.style.display === "none" ? "" : "none";
+}
+async function doProfilePwChange(){
+  const cur = ($("#pw-cur") || {}).value || "";
+  const p1 = ($("#pw-new1") || {}).value || "";
+  const p2 = ($("#pw-new2") || {}).value || "";
+  const err = $("#pw-form-err");
+  if(p1.length < 6){ err.textContent = "Mínimo 6 caracteres."; return; }
+  if(p1 !== p2){ err.textContent = "No coinciden."; return; }
+  err.textContent = "Guardando…";
+  try{
+    const r = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ currentPassword: cur, newPassword: p1 })
+    });
+    const j = await r.json();
+    if(!r.ok){
+      err.textContent = j.error || "No se pudo cambiar.";
+      if(j.disabled) err.innerHTML += "<br>Tu saldo RV se perdió por la deshabilitación.";
+      return;
+    }
+    err.style.color = "green";
+    err.textContent = "Contraseña actualizada ✅";
+    $("#pw-cur").value = $("#pw-new1").value = $("#pw-new2").value = "";
+  }catch(e){ err.textContent = "Sin conexión."; }
 }
 
 function renderProgreso(){
@@ -2493,7 +2655,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
   // Aplicar idioma guardado (o detectado) a toda la UI estática.
   try{ applyI18n(); }catch(e){}
   // landing CTAs
-  $$("[data-go-app]").forEach(b=>b.addEventListener("click", async ()=>{
+  $$("[data-go-app]").forEach(b=>b.addEventListener("click", async (e)=>{
+    // Evitar la navegación nativa del <a href="#"> (creaba una entrada
+    // fantasma "/#" en el historial que rompía el botón "atrás").
+    if(e && e.preventDefault) e.preventDefault();
     afterRestore(await restoreSession());
   }));
   $("#logout-btn").addEventListener("click", ()=>{

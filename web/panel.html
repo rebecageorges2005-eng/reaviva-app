@@ -74,6 +74,14 @@ tr.clickable:hover{background:var(--sand)}
 .modal-tab.active{color:var(--terra-dark);border-bottom-color:var(--terra)}
 .modal-body{padding:18px 20px;max-height:60vh;overflow-y:auto}
 .modal-body h4{margin:0 0 8px;font-size:.95rem}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:14px 18px;background:#fff;border-top:1px solid var(--sand-2)}
+.kv{font-size:.9rem;margin:5px 0}
+.kv b{color:var(--cocoa)}
+.kv .val{color:var(--cocoa-soft)}
+.card.clickable{cursor:pointer;transition:transform .12s}
+.card.clickable:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(74,55,40,.14)}
+.rowline{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--sand-2);font-size:.88rem}
+.rowline:last-child{border-bottom:none}
 .progbar{height:14px;background:#eee;border-radius:999px;overflow:hidden;margin:8px 0}
 .progbar i{display:block;height:100%;background:linear-gradient(90deg,var(--terra),var(--terra-dark));border-radius:999px}
 .daygrid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin-top:10px}
@@ -106,7 +114,7 @@ tr.clickable:hover{background:var(--sand)}
 /* ---------- helpers ---------- */
 var $ = function(s){ return document.querySelector(s); };
 var $$ = function(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); };
-function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
 function token(){ try{ return JSON.parse(localStorage.getItem("reaviva_token")||"null"); }catch(e){ return null; } }
 function isAdmin(){ try{ return JSON.parse(localStorage.getItem("reaviva_admin")||"false")===true; }catch(e){ return false; } }
 function headers(){ var t=token(); return t?{"Authorization":"Bearer "+t,"Content-Type":"application/json"}:{"Content-Type":"application/json"}; }
@@ -131,6 +139,34 @@ async function api(method, path, body){
 function authFail(){
   $("#app").innerHTML='<div class="center"><h2>Sesión expirada 🔒</h2><p>Vuelve a entrar como administrador.</p><p style="margin-top:16px"><a class="btn" href="/admin/ingzoe" style="text-decoration:none">Ir al acceso admin</a></p></div>';
 }
+
+/* ---------- modal genérico de detalle / confirmación ----------
+ * Toda opción clicable del panel abre una ventana con detalles.
+ * showDetailModal(titulo, cuerpoHtml, botones)
+ *   botones: [{label, cls, onClick}] — cls opcional ("btn-danger", "btn-ghost") */
+function showDetailModal(title, bodyHtml, buttons){
+  closeDetailModal();
+  var btnHtml=(buttons||[]).map(function(b,i){
+    return '<button class="btn btn-sm '+(b.cls||"")+'" data-act="'+i+'">'+esc(b.label)+'</button>';
+  }).join("");
+  document.body.insertAdjacentHTML("beforeend",
+    '<div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()">'+
+    '<div class="modal" style="max-width:560px">'+
+    '<div class="modal-head" style="padding:14px 18px"><div class="who"><b style="font-size:1rem">'+esc(title)+'</b></div>'+
+    '<button class="btn btn-ghost btn-sm" onclick="closeDetailModal()">✕</button></div>'+
+    '<div class="modal-body">'+bodyHtml+'</div>'+
+    (btnHtml?'<div class="modal-foot">'+btnHtml+'</div>':'')+
+    '</div></div>');
+  Array.prototype.forEach.call(document.querySelectorAll("#detail-modal [data-act]"), function(el){
+    el.addEventListener("click", function(){ buttons[Number(el.getAttribute("data-act"))].onClick(); });
+  });
+}
+function closeDetailModal(){ var m=$("#detail-modal"); if(m) m.remove(); }
+/* Fila clave/valor para los detalles. value ya viene escapado o es HTML seguro. */
+function kv(label, value){ return '<p class="kv"><b>'+esc(label)+':</b> <span class="val">'+value+'</span></p>'; }
+function kvRaw(label, html){ return '<p class="kv"><b>'+esc(label)+':</b> '+html+'</p>'; }
+/* Botón Cancelar estándar para los modales de confirmación. */
+function cancelBtn(){ return {label:"Cancelar", cls:"btn-ghost", onClick:closeDetailModal}; }
 
 /* ---------- boot ---------- */
 /* Bandera emoji desde código ISO (ej. "BO" → 🇧🇴). */
@@ -157,16 +193,18 @@ document.addEventListener("DOMContentLoaded", function(){
 async function render(){
   try{
     var s=await api("GET","/api/admin/stats");
+    statsCache=s;
     $("#app").innerHTML=
       '<h2 class="sec">📊 Estadísticas</h2>'+
       '<div class="cards">'+
-      '<div class="card"><b>'+s.totalUsers+'</b><span>👥 Usuarios registrados</span></div>'+
-      '<div class="card"><b>'+s.subscribedUsers+'</b><span>💳 Con plan pagado</span></div>'+
-      '<div class="card"><b>'+s.trialUsers+'</b><span>🆓 En prueba / sin plan</span></div>'+
-      '<div class="card"><b>'+s.onlineNow+'</b><span>🟢 Conectados ahora</span></div>'+
-      '<div class="card"><b>'+s.signupsToday+'</b><span>📝 Registros hoy</span></div>'+
-      '<div class="card"><b>$'+(s.mrr||0)+'</b><span>💰 MRR estimado</span></div>'+
-      '<div class="card"><b>'+(s.countriesCount||0)+'</b><span>🌍 Países</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'total\')" title="Ver detalles"><b>'+s.totalUsers+'</b><span>👥 Usuarios registrados</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'plan\')" title="Ver detalles"><b>'+s.subscribedUsers+'</b><span>💳 Con plan pagado</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'trial\')" title="Ver detalles"><b>'+s.trialUsers+'</b><span>🆓 En prueba / sin plan</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'online\')" title="Ver detalles"><b>'+s.onlineNow+'</b><span>🟢 Conectados ahora</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'today\')" title="Ver detalles"><b>'+s.signupsToday+'</b><span>📝 Registros hoy</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'mrr\')" title="Ver detalles"><b>$'+(s.mrr||0)+'</b><span>💰 MRR estimado</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'countries\')" title="Ver detalles"><b>'+(s.countriesCount||0)+'</b><span>🌍 Países</span></div>'+
+      (s.referredUsers?'<div class="card clickable" onclick="showCardDetail(\'referrals\')" title="Ver detalles"><b>'+s.referredUsers+'</b><span>📤 Llegaron por referido</span></div>':'')+
       '</div>'+
       (s.topCountries&&s.topCountries.length?
         '<h2 class="sec">🌍 Top países</h2><div class="block">'+
@@ -189,9 +227,211 @@ async function render(){
       '<textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>'+
       '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
       '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
-      '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity();
+      '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
+      '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
+      '<input id="pw-current" type="password" class="field" placeholder="Contraseña actual o código de admin" autocomplete="current-password">'+
+      '<input id="pw-new" type="password" class="field" placeholder="Nueva contraseña (mín. 6 caracteres)" autocomplete="new-password">'+
+      '<input id="pw-confirm" type="password" class="field" placeholder="Confirmar nueva contraseña" autocomplete="new-password">'+
+      '<input id="pw-backup" type="email" class="field" placeholder="Correo de respaldo (opcional, para recuperar tu cuenta) 📧">'+
+      '<p id="pw-backup-now" style="font-size:.8rem;color:var(--cocoa-soft)"></p>'+
+      '<button class="btn" onclick="changePassword()">Guardar nueva contraseña</button><div id="pw-result"></div></div>'+
+      '<h2 class="sec">🛡️ Seguridad: IPs bloqueadas</h2>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">IPs bloqueadas automáticamente por intentos de hackeo, o manualmente por ti.</p>'+
+      '<div style="display:flex;gap:8px;margin-bottom:10px"><input id="block-ip" class="field" placeholder="IP a bloquear (ej. 1.2.3.4)" style="flex:1">'+
+      '<input id="block-reason" class="field" placeholder="Motivo" style="flex:2">'+
+      '<button class="btn" onclick="blockIpManual()">Bloquear</button></div>'+
+      '<table><thead><tr><th>IP</th><th>Motivo</th><th>Bloqueada</th><th>Por</th><th></th></tr></thead><tbody id="blocked-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>'+
+      '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
+      '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
+}
+
+/* ---------- detalle de tarjetas de estadísticas ---------- */
+function userLine(u){
+  return '<div class="rowline"><span>'+esc(u.nombre||u.name||"—")+' <small style="color:var(--cocoa-soft)">'+esc(u.email||"")+'</small></span>'+
+    '<span>'+(u.conPlan?'<span class="badge ok">💳</span>':'<span class="badge warn">gratis</span>')+'</span></div>';
+}
+function showCardDetail(kind){
+  var s=statsCache||{};
+  var users=usersCache||[];
+  var title="", body="";
+  if(kind==="total"){
+    var ver=users.filter(function(u){return u.emailVerificado;}).length;
+    var mut=users.filter(function(u){return u.chatMuted;}).length;
+    var ban=(bannedCache||[]).length;
+    title="👥 Usuarios registrados";
+    body=kv("Total", "<b>"+s.totalUsers+"</b>")+
+      kv("Correos verificados", ver)+kv("Sin verificar", users.length-ver)+
+      kv("Con chat deshabilitado", mut)+kv("Baneados", ban)+
+      '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Toca cualquier fila de la tabla de usuarios para ver su detalle completo.</p>';
+  }else if(kind==="plan"){
+    var con=users.filter(function(u){return u.conPlan;});
+    title="💳 Usuarios con plan pagado";
+    body=kv("Total con plan", "<b>"+con.length+"</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (con.map(userLine).join("")||'<p style="color:var(--cocoa-soft)">Sin usuarios con plan aún.</p>')+'</div>';
+  }else if(kind==="trial"){
+    var sin=users.filter(function(u){return !u.conPlan;});
+    title="🆓 Usuarios en prueba / sin plan";
+    body=kv("Total sin plan", "<b>"+sin.length+"</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (sin.map(userLine).join("")||'<p style="color:var(--cocoa-soft)">Todos tienen plan. 🎉</p>')+'</div>';
+  }else if(kind==="online"){
+    var on=users.filter(function(u){return u.enLinea;});
+    title="🟢 Conectados ahora";
+    body=kv("En línea (últimos 5 min)", "<b>"+on.length+"</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (on.map(function(u){
+        return '<div class="rowline"><span>🟢 '+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span style="font-size:.8rem;color:var(--cocoa-soft)">'+esc(u.ultimaConexion||"")+'</span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Nadie conectado ahora mismo.</p>')+'</div>';
+  }else if(kind==="today"){
+    var hoy=new Date().toISOString().slice(0,10);
+    var reg=users.filter(function(u){return (u.registradoRaw||"").slice(0,10)===hoy;});
+    title="📝 Registros de hoy";
+    body=kv("Nuevos hoy", "<b>"+reg.length+"</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (reg.map(function(u){
+        return '<div class="rowline"><span>'+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span style="font-size:.8rem;color:var(--cocoa-soft)">'+esc(u.registrado||"")+'</span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Sin registros hoy todavía.</p>')+'</div>';
+  }else if(kind==="mrr"){
+    var mens=users.filter(function(u){return u.conPlan&&(u.planDetalle==="monthly"||/mes/i.test(u.plan||""));}).length;
+    var anu=users.filter(function(u){return u.conPlan&&(u.planDetalle==="yearly"||u.planDetalle==="annual"||/año/i.test(u.plan||""));}).length;
+    var otros=users.filter(function(u){return u.conPlan;}).length-mens-anu;
+    title="💰 MRR estimado";
+    body=kv("MRR total", "<b>$"+(s.mrr||0)+"</b>")+
+      kv("Planes mensuales ($4.99)", mens+" → $"+(mens*4.99).toFixed(2))+
+      kv("Planes anuales ($39.99/año)", anu+" → $"+(anu*39.99/12).toFixed(2)+"/mes")+
+      (otros>0?kv("Otros planes", otros):"")+
+      kv("Suscripciones activas", s.activeSubscriptions!=null?s.activeSubscriptions:"—")+
+      '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Estimación: mensual $4.99 · anual $39.99/12 por mes.</p>';
+  }else if(kind==="countries"){
+    var tops=s.topCountries||[];
+    title="🌍 Países";
+    body=kv("Países distintos", "<b>"+(s.countriesCount||0)+"</b>")+
+      '<div style="margin-top:8px">'+tops.map(function(c,i){
+        return '<div class="rowline"><span>'+(i+1)+'. '+flagEmoji(c.codigo)+' <b>'+esc(c.pais)+'</b></span><span>'+c.usuarios+' usuario'+(c.usuarios===1?"":"s")+'</span></div>';
+      }).join("")+'</div>';
+  }else if(kind==="referrals"){
+    var tops=s.topReferrers||[];
+    title="📤 Llegaron por referido";
+    body=kv("Total por referido", "<b>"+(s.referredUsers||0)+"</b>")+
+      '<h4 style="margin-top:10px">🏆 Top invitadores</h4>'+
+      (tops.map(function(r,i){
+        return '<div class="rowline"><span>'+(i+1)+'. '+esc(r.nombre)+'</span><span>'+r.referidos+' referido'+(r.referidos===1?"":"s")+'</span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Aún no hay referidos.</p>');
+  }
+  showDetailModal(title, body, [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
+}
+
+/* ---------- seguridad: IPs bloqueadas y baneados ---------- */
+async function loadBlockedIps(){
+  try{
+    var r = await api("GET","/api/admin/blocked-ips");
+    var rows = r.ips || [];
+    blockedCache = rows;
+    $("#blocked-body").innerHTML = rows.length ? rows.map(function(x,i){
+      return '<tr><td><code>'+esc(x.ip)+'</code></td><td>'+esc(x.reason||"")+'</td><td>'+esc(x.blocked_at||"")+'</td><td>'+esc(x.blocked_by||"")+'</td>'+
+        '<td><button class="btn btn-sm" onclick="unblockIpDetail('+i+')">Ver / Desbloquear</button></td></tr>';
+    }).join("") : '<tr><td colspan="5" style="text-align:center;color:var(--cocoa-soft)">Ninguna IP bloqueada 🎉</td></tr>';
+  }catch(e){ $("#blocked-body").innerHTML = '<tr><td colspan="5">Error cargando.</td></tr>'; }
+}
+async function blockIpManual(){
+  var ip = ($("#block-ip").value||"").trim();
+  var reason = ($("#block-reason").value||"").trim() || "Bloqueo manual";
+  if(!ip){ alert("Escribe una IP."); return; }
+  try{ await api("POST","/api/admin/blocked-ips",{ip:ip,reason:reason}); $("#block-ip").value=""; $("#block-reason").value=""; loadBlockedIps(); }
+  catch(e){ alert("Error: "+e.message); }
+}
+async function unblockIp(ip){
+  if(!confirm("¿Desbloquear "+ip+"?")) return;
+  try{ await api("DELETE","/api/admin/blocked-ips/"+encodeURIComponent(ip)); loadBlockedIps(); }
+  catch(e){ alert("Error: "+e.message); }
+}
+/* Detalle de IP bloqueada con confirmación para desbloquear. */
+function unblockIpDetail(i){
+  var x=(blockedCache||[])[i]; if(!x) return;
+  showDetailModal("🛡️ IP bloqueada",
+    kv("IP", "<code>"+esc(x.ip)+"</code>")+
+    kv("Motivo", esc(x.reason||"—"))+
+    kv("Bloqueada", esc(x.blocked_at||"—"))+
+    kv("Bloqueada por", esc(x.blocked_by||"—"))+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Al desbloquear, esta IP podrá volver a entrar a la plataforma.</p>',
+    [cancelBtn(), {label:"🔓 Desbloquear IP", cls:"", onClick:function(){
+      closeDetailModal();
+      api("DELETE","/api/admin/blocked-ips/"+encodeURIComponent(x.ip)).then(loadBlockedIps).catch(function(e){ alert("Error: "+e.message); });
+    }}]);
+}
+async function loadBannedUsers(){
+  try{
+    var r = await api("GET","/api/admin/banned-users");
+    var rows = r.usuarios || [];
+    bannedCache = rows;
+    $("#banned-body").innerHTML = rows.length ? rows.map(function(u,i){
+      return '<tr><td>'+esc(u.name||"")+'</td><td>'+esc(u.email||"")+'</td><td>'+esc(u.country||"—")+'</td><td>'+esc(u.ban_reason||"")+'</td>'+
+        '<td><button class="btn btn-sm" onclick="unbanUserDetail('+i+')">Ver / Desbanear</button></td></tr>';
+    }).join("") : '<tr><td colspan="5" style="text-align:center;color:var(--cocoa-soft)">Ningún usuario baneado 🎉</td></tr>';
+  }catch(e){ $("#banned-body").innerHTML = '<tr><td colspan="5">Error cargando.</td></tr>'; }
+}
+async function unbanUser(id){
+  if(!confirm("¿Quitar el baneo a este usuario?")) return;
+  try{ await api("POST","/api/admin/users/"+id+"/unban",{}); loadBannedUsers(); loadUsers(); }
+  catch(e){ alert("Error: "+e.message); }
+}
+/* Detalle de usuario baneado con confirmación para quitar el baneo. */
+function unbanUserDetail(i){
+  var u=(bannedCache||[])[i]; if(!u) return;
+  showDetailModal("🚫 Usuario baneado",
+    kv("Nombre", esc(u.name||"—"))+
+    kv("Email", esc(u.email||"—"))+
+    kv("País", esc(u.country||"—"))+
+    kv("Motivo del baneo", esc(u.ban_reason||"—"))+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Al quitar el baneo, esta cuenta podrá volver a entrar a la plataforma.</p>',
+    [cancelBtn(), {label:"✅ Quitar baneo", cls:"", onClick:function(){
+      closeDetailModal();
+      api("POST","/api/admin/users/"+u.id+"/unban",{}).then(function(){ loadBannedUsers(); loadUsers(); }).catch(function(e){ alert("Error: "+e.message); });
+    }}]);
+}
+async function banUserModal(id){
+  var u=null;
+  try{ u=await api("GET","/api/admin/users/"+id); }catch(e){ alert("Error: "+e.message); return; }
+  showDetailModal("🚫 Banear permanentemente",
+    kv("Nombre", esc(u.nombre||"—"))+
+    kv("Email", esc(u.email||"—"))+
+    kv("País", u.pais?flagEmoji(u.codigoPais)+" "+esc(u.pais):"—")+
+    kv("Plan", u.conPlan?"💳 Con plan":"Sin plan")+
+    '<p style="font-size:.8rem;color:#991b1b;margin-top:8px"><b>El baneo es permanente:</b> la cuenta no podrá volver a entrar y sus sesiones quedarán invalidadas. El admin <b>no puede eliminar</b> la cuenta, solo suspenderla.</p>'+
+    '<label style="font-size:.85rem;font-weight:700">Motivo del baneo:</label>'+
+    '<input id="ban-reason" class="field" placeholder="Ej. spam, intento de hackeo…" maxlength="200" style="margin-top:6px">',
+    [cancelBtn(), {label:"🚫 Banear permanentemente", cls:"btn-danger", onClick:async function(){
+      var reason=(($("#ban-reason")||{}).value||"").trim()||"Violación de términos";
+      closeDetailModal();
+      try{
+        await api("POST","/api/admin/users/"+id+"/ban",{reason:reason});
+        if(typeof closeUserModal==="function") closeUserModal();
+        loadBannedUsers(); loadUsers();
+      }catch(e){ alert("Error: "+e.message); }
+    }}]);
+  setTimeout(function(){ var i=$("#ban-reason"); if(i) i.focus(); },100);
+}
+async function unbanUserModal(id){
+  var u=null;
+  try{ u=await api("GET","/api/admin/users/"+id); }catch(e){ alert("Error: "+e.message); return; }
+  showDetailModal("✅ Quitar baneo",
+    kv("Nombre", esc(u.nombre||"—"))+
+    kv("Email", esc(u.email||"—"))+
+    kv("Motivo del baneo", esc(u.banReason||"—"))+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">La cuenta volverá a estar activa y podrá entrar normalmente.</p>',
+    [cancelBtn(), {label:"✅ Quitar baneo", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        await api("POST","/api/admin/users/"+id+"/unban",{});
+        if(typeof closeUserModal==="function") closeUserModal();
+        loadBannedUsers(); loadUsers();
+      }catch(e){ alert("Error: "+e.message); }
+    }}]);
 }
 
 /* ---------- crecimiento ---------- */
@@ -199,20 +439,34 @@ async function loadGrowth(){
   var days=($("#growth-days")||{}).value||30;
   try{
     var g=await api("GET","/api/admin/growth?days="+encodeURIComponent(days));
+    growthCache=g.periods||[];
     var max=1;
-    (g.periods||[]).forEach(function(p){ max=Math.max(max,p.nuevosUsuarios||0); });
-    $("#growth-chart").innerHTML=(g.periods||[]).map(function(p){
+    growthCache.forEach(function(p){ max=Math.max(max,p.nuevosUsuarios||0); });
+    $("#growth-chart").innerHTML=growthCache.map(function(p,idx){
       var h=Math.max(4,Math.round((p.nuevosUsuarios||0)/max*110));
-      return '<div class="bar'+(p.nuevosConPlan>0?' plan':'')+'" style="height:'+h+'px" data-tip="'+esc(p.etiqueta)+': '+(p.nuevosUsuarios||0)+' usuarios"></div>';
+      return '<div class="bar'+(p.nuevosConPlan>0?' plan':'')+'" style="height:'+h+'px;cursor:pointer" data-tip="'+esc(p.etiqueta)+': '+(p.nuevosUsuarios||0)+' usuarios — clic para detalles" onclick="showGrowthDetail('+idx+')"></div>';
     }).join("");
-    $("#growth-body").innerHTML=(g.periods||[]).map(function(p){
-      return '<tr><td>'+esc(p.etiqueta)+'</td><td>'+(p.nuevosUsuarios||0)+'</td><td>'+(p.nuevosConPlan||0)+'</td></tr>';
+    $("#growth-body").innerHTML=growthCache.map(function(p,idx){
+      return '<tr class="clickable" onclick="showGrowthDetail('+idx+')" title="Ver detalles"><td>'+esc(p.etiqueta)+'</td><td>'+(p.nuevosUsuarios||0)+'</td><td>'+(p.nuevosConPlan||0)+'</td></tr>';
     }).join("")||'<tr><td colspan="3">Sin datos</td></tr>';
   }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+/* Detalle de un período de crecimiento. */
+function showGrowthDetail(i){
+  var p=(growthCache||[])[i]; if(!p) return;
+  var conv=p.nuevosUsuarios>0?Math.round(p.nuevosConPlan/p.nuevosUsuarios*100):0;
+  showDetailModal("📈 "+p.etiqueta,
+    kv("Período", esc(p.etiqueta))+
+    kv("Nuevos usuarios", "<b>"+(p.nuevosUsuarios||0)+"</b>")+
+    kv("Nuevos con plan", "<b>"+(p.nuevosConPlan||0)+"</b>")+
+    kv("Conversión a plan", conv+"%")+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Usuarios que se registraron y contrataron plan en este período.</p>',
+    [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
 }
 
 /* ---------- usuarios ---------- */
 var usersCache=[];
+var statsCache=null, growthCache=[], sentCache=[], communityCache=[], domainsCache=[], blockedCache=[], bannedCache=[];
 function planBadge(u){
   if(u.conPlan) return '<span class="badge ok">💳 CON PLAN</span>';
   return '<span class="badge warn">SIN PLAN</span>';
@@ -226,7 +480,7 @@ async function loadUsers(){
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
     $("#users-body").innerHTML=usersCache.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv||0)+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv===-1?'∞':(u.rv||0))+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
     }).join("")||'<tr><td colspan="6">Sin usuarios</td></tr>';
     var sel=$("#msg-user");
     sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
@@ -294,7 +548,7 @@ function userTabContent(u){
     '<div style="margin-top:14px"><button class="btn btn-sm" onclick="messageUser('+u.id+');closeUserModal()">✉️ Enviar mensaje (sección de mensajes)</button></div>'+
     '<div style="margin-top:16px;border-top:1px solid var(--border,#eee);padding-top:12px">'+
     '<h4>💰 Saldo RV</h4>'+
-    '<p><b>RV:</b> <span style="font-size:1.2rem;font-weight:800;color:#92400e">💰 '+(u.rv||0)+'</span>'+(u.rvBloqueImagenes?' · 📷 Bloque de imágenes: <b>'+u.rvBloqueImagenes+'</b> envíos restantes':'')+'</p>'+
+    '<p><b>RV:</b> <span style="font-size:1.2rem;font-weight:800;color:#92400e">💰 '+(u.rv===-1?'∞ (ilimitado)':(u.rv||0))+'</span>'+(u.rvBloqueImagenes?' · 📷 Bloque de imágenes: <b>'+u.rvBloqueImagenes+'</b> envíos restantes':'')+'</p>'+
     '<div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">'+
     '<input id="rv-adjust" type="number" placeholder="+/- RV" style="width:110px;padding:8px;border:1px solid var(--border,#ddd);border-radius:8px">'+
     '<button class="btn btn-sm" onclick="adjustRV('+u.id+')">Ajustar RV</button>'+
@@ -306,6 +560,14 @@ function userTabContent(u){
     '<p><b>Estado del chat:</b> '+(u.chatMuted?'<span class="badge" style="background:#fee2e2;color:#991b1b">🚩 DESHABILITADO (solo lectura)</span>':'<span class="badge ok">✅ Activo</span>')+'</p>'+
     '<p style="font-size:.85rem;color:var(--cocoa-soft)">Strikes hoy: <b>'+(u.chatStrikes||0)+'</b>/3 · Veces muteado: <b>'+(u.chatMutes||0)+'</b></p>'+
     (u.chatMuted?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="unmuteUser('+u.id+')">🔊 Reactivar chat</button></div>':'')+
+    '</div>'+
+    '<div style="margin-top:16px;border-top:1px solid var(--border,#eee);padding-top:12px">'+
+    '<h4>🛡️ Seguridad de cuenta</h4>'+
+    '<p><b>Estado:</b> '+(u.banned?'<span class="badge" style="background:#fee2e2;color:#991b1b">🚫 BANEADO PERMANENTE</span>':'<span class="badge ok">✅ Activa</span>')+'</p>'+
+    (u.banReason?'<p style="font-size:.85rem">Motivo: '+esc(u.banReason)+'</p>':'')+
+    (u.banned
+      ? '<div style="margin:10px 0"><button class="btn btn-sm" onclick="unbanUserModal('+u.id+')">✅ Quitar baneo</button></div>'
+      : (!u.esAdmin?'<div style="margin:10px 0"><button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="banUserModal('+u.id+')">🚫 Banear permanentemente</button></div>':''))+
     '</div>';
   }
   if(userModalTab==="progreso"){
@@ -414,23 +676,80 @@ function fallbackCopy(text){
 }
 /* Marca manualmente a un usuario como verificado (casos de soporte). */
 async function verifyUser(id){
-  if(!confirm("¿Marcar a este usuario como verificado? Podrá entrar sin confirmar el correo.")) return;
-  try{
-    await api("POST","/api/admin/users/"+id+"/verify");
-    await loadUsers();
-    closeUserModal();
-    showUser(id);
-  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+  var u=null;
+  try{ u=await api("GET","/api/admin/users/"+id); }catch(e){ alert("Error: "+e.message); return; }
+  showDetailModal("✅ Verificar correo",
+    kv("Nombre", esc(u.nombre||"—"))+
+    kv("Email", esc(u.email||"—"))+
+    kv("Estado actual", "⚠️ Sin confirmar")+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Al marcarlo como verificado, podrá entrar sin confirmar el correo.</p>',
+    [cancelBtn(), {label:"✅ Marcar como verificado", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        await api("POST","/api/admin/users/"+id+"/verify");
+        await loadUsers();
+        closeUserModal();
+        showUser(id);
+      }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+    }}]);
 }
 /* Reactiva el chat de un usuario muteado por el anti-spam. */
 async function unmuteUser(id){
-  if(!confirm("¿Reactivar la capacidad de escribir en el chat de este usuario? Sus strikes se reiniciarán.")) return;
+  var u=null;
+  try{ u=await api("GET","/api/admin/users/"+id); }catch(e){ alert("Error: "+e.message); return; }
+  showDetailModal("🔊 Reactivar chat",
+    kv("Nombre", esc(u.nombre||"—"))+
+    kv("Email", esc(u.email||"—"))+
+    kv("Estado actual", "🚩 Chat deshabilitado (solo lectura)")+
+    kv("Strikes hoy", (u.chatStrikes||0)+"/3")+
+    kv("Veces muteado", u.chatMutes||0)+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Al reactivar, sus strikes se reiniciarán y podrá volver a escribir.</p>',
+    [cancelBtn(), {label:"🔊 Reactivar chat", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        await api("POST","/api/admin/users/"+id+"/unmute");
+        await loadUsers();
+        closeUserModal();
+        showUser(id);
+      }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+    }}]);
+}
+
+/* ---------- 🔑 Cambiar contraseña del admin (+ correo de respaldo) ---------- */
+async function loadBackupEmail(){
   try{
-    await api("POST","/api/admin/users/"+id+"/unmute");
-    await loadUsers();
-    closeUserModal();
-    showUser(id);
-  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+    var r = await api("GET","/api/admin/backup-email");
+    var p = $("#pw-backup-now");
+    if(p) p.textContent = r.backup_email ? "Correo de respaldo actual: "+r.backup_email : "Sin correo de respaldo configurado.";
+    var inp = $("#pw-backup");
+    if(inp && r.backup_email && !inp.value) inp.placeholder = "Correo de respaldo actual: "+r.backup_email;
+  }catch(e){ /* sin conexión */ }
+}
+async function changePassword(){
+  var cur = ($("#pw-current")||{}).value||"";
+  var nw = ($("#pw-new")||{}).value||"";
+  var cf = ($("#pw-confirm")||{}).value||"";
+  var bk = ($("#pw-backup")||{}).value||"";
+  var out = $("#pw-result");
+  function msg(t,ok){ if(out){ out.innerHTML='<div class="'+(ok?'okmsg':'err')+'">'+esc(t)+'</div>'; } }
+  if(!cur){ msg("Escribe tu contraseña actual o tu código de admin."); return; }
+  if(nw.length<6){ msg("La nueva contraseña debe tener al menos 6 caracteres."); return; }
+  if(nw!==cf){ msg("La confirmación no coincide con la nueva contraseña."); return; }
+  showDetailModal("🔑 Confirmar cambio de contraseña",
+    kv("Acción", "<b>Cambiar la contraseña del administrador</b>")+
+    (bk.trim()?kv("Correo de respaldo", "Se guardará: <b>"+esc(bk.trim())+"</b>"):kv("Correo de respaldo", "Sin cambios"))+
+    '<p style="font-size:.8rem;color:#991b1b;margin-top:8px"><b>Atención:</b> después del cambio deberás entrar con la nueva contraseña.</p>',
+    [cancelBtn(), {label:"🔑 Cambiar contraseña", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        var body = { current_password: cur, new_password: nw };
+        if(bk.trim()) body.backup_email = bk.trim();
+        var r = await api("POST","/api/admin/change-password",body);
+        msg(r.message||"Contraseña actualizada ✅",true);
+        $("#pw-current").value=""; $("#pw-new").value=""; $("#pw-confirm").value="";
+        loadBackupEmail();
+      }catch(e){ msg("No se pudo cambiar la contraseña: "+e.message.replace(/^HTTP \d+ /,"")); }
+    }}]);
 }
 
 /* ---------- RV: ajuste manual de saldo (soporte) ---------- */
@@ -438,14 +757,26 @@ async function adjustRV(id){
   var input=$("#rv-adjust"), msg=$("#rv-adjust-msg");
   var amount=Number(input&&input.value);
   if(!Number.isFinite(amount)||amount===0){ if(msg)msg.textContent="Escribe un monto (+/-)."; return; }
-  if(!confirm("¿Ajustar "+amount+" RV al saldo de este usuario?")) return;
-  try{
-    var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:Math.trunc(amount)});
-    if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
-    await loadUsers();
-    closeUserModal();
-    showUser(id);
-  }catch(e){ if(msg){msg.textContent="Error: "+e.message;msg.style.color="#a33";} }
+  amount=Math.trunc(amount);
+  var u=userModalData;
+  var saldoActual=(u&&u.rv===-1)?"∞ (ilimitado)":((u&&u.rv)||0)+" RV";
+  var nuevoSaldo=(u&&u.rv===-1)?"∞ (ilimitado, sin cambios)":(Math.max(0,((u&&u.rv)||0)+amount))+" RV";
+  showDetailModal("💰 Ajustar saldo RV",
+    kv("Usuario", esc((u&&u.nombre)||"—"))+
+    kv("Saldo actual", "<b>"+saldoActual+"</b>")+
+    kv("Ajuste", "<b>"+(amount>0?"+":"")+amount+" RV</b>")+
+    kv("Nuevo saldo", "<b>"+nuevoSaldo+"</b>")+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">10 RV = 5 publicaciones de links · 10 RV = 8 imágenes promocionales.</p>',
+    [cancelBtn(), {label:"💰 Aplicar ajuste", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:amount});
+        if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
+        await loadUsers();
+        closeUserModal();
+        showUser(id);
+      }catch(e){ if(msg){msg.textContent="Error: "+e.message;msg.style.color="#a33";} }
+    }}]);
 }
 
 /* ---------- mensajes ---------- */
@@ -453,33 +784,60 @@ async function sendMessage(){
   var uid=$("#msg-user").value, title=$("#msg-title").value.trim(), body=$("#msg-body").value.trim();
   var res=$("#msg-result");
   if(!title||!body){ res.innerHTML='<div class="err">Escribe título y mensaje.</div>'; return; }
-  try{
-    await api("POST","/api/admin/messages",{userId:uid==="all"?"all":parseInt(uid,10),title:title,body:body});
-    $("#msg-title").value=""; $("#msg-body").value="";
-    res.innerHTML='<div class="okmsg">Mensaje enviado ✅</div>';
-    loadSent();
-  }catch(e){ if(e.message==="AUTH") authFail(); else res.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+  var paraNombre="📢 Todos los usuarios";
+  if(uid!=="all"){
+    var sel=$("#msg-user");
+    paraNombre=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].text:"Usuario "+uid;
+  }
+  showDetailModal("✉️ Confirmar envío",
+    kv("Para", esc(paraNombre))+
+    kv("Título", esc(title))+
+    '<p style="font-size:.9rem;margin:6px 0"><b>Mensaje:</b></p>'+
+    '<div class="block" style="margin:0;max-height:200px;overflow-y:auto"><p style="white-space:pre-wrap;font-size:.9rem">'+esc(body)+'</p></div>'+
+    (uid==="all"?'<p style="font-size:.8rem;color:#991b1b;margin-top:8px"><b>Se enviará a TODOS los usuarios.</b></p>':''),
+    [cancelBtn(), {label:"📨 Enviar mensaje", cls:"", onClick:async function(){
+      closeDetailModal();
+      try{
+        await api("POST","/api/admin/messages",{userId:uid==="all"?"all":parseInt(uid,10),title:title,body:body});
+        $("#msg-title").value=""; $("#msg-body").value="";
+        res.innerHTML='<div class="okmsg">Mensaje enviado ✅</div>';
+        loadSent();
+      }catch(e){ if(e.message==="AUTH") authFail(); else res.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+    }}]);
 }
 async function loadSent(){
   try{
     var d=await api("GET","/api/admin/messages");
-    $("#sent-list").innerHTML=(d.messages||[]).map(function(m){
-      return '<div class="block msg"><div class="m-head"><b>📢 '+esc(m.titulo)+'</b><small>Para: '+esc(m.para)+' · '+esc(m.enviado)+'</small></div><p>'+esc(m.cuerpo)+'</p></div>';
+    sentCache=d.messages||[];
+    $("#sent-list").innerHTML=sentCache.map(function(m,i){
+      return '<div class="block msg" style="cursor:pointer" onclick="showSentDetail('+i+')" title="Ver detalle"><div class="m-head"><b>📢 '+esc(m.titulo)+'</b><small>Para: '+esc(m.para)+' · '+esc(m.enviado)+'</small></div><p>'+esc((m.cuerpo||"").slice(0,120))+((m.cuerpo||"").length>120?"…":"")+'</p></div>';
     }).join("")||'<p style="color:var(--cocoa-soft)">Aún no enviaste mensajes.</p>';
   }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+/* Detalle de un mensaje enviado. */
+function showSentDetail(i){
+  var m=(sentCache||[])[i]; if(!m) return;
+  showDetailModal("📨 Mensaje enviado",
+    kv("Título", esc(m.titulo||"—"))+
+    kv("Para", esc(m.para||"—"))+
+    kv("Enviado", esc(m.enviado||"—"))+
+    '<p style="font-size:.9rem;margin:6px 0"><b>Contenido:</b></p>'+
+    '<div class="block" style="margin:0;max-height:240px;overflow-y:auto"><p style="white-space:pre-wrap;font-size:.9rem">'+esc(m.cuerpo||"")+'</p></div>',
+    [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
 }
 
 /* ---------- comunidad ---------- */
 async function loadCommunity(){
   try{
     var d=await api("GET","/api/admin/community");
-    $("#community-list").innerHTML=(d.comentarios||[]).map(function(c){
+    communityCache=d.comentarios||[];
+    $("#community-list").innerHTML=communityCache.map(function(c,i){
       return '<div class="block cmt'+(c.oculto?' hidden-c':'')+'"><div class="who">👤 '+esc(c.nombre)+' · '+esc(c.email)+' · '+esc(c.fecha)+(c.oculto?' · <b>OCULTO</b>':'')+'</div>'+
       '<p>'+esc(c.texto)+'</p><div class="actions">'+
       '<button class="btn btn-sm" onclick="messageUser('+c.usuarioId+')">✉️ Mensaje</button>'+
       (c.oculto
-        ? '<button class="btn btn-ghost btn-sm" onclick="toggleComment('+c.id+',false)">👁️ Mostrar</button>'
-        : '<button class="btn btn-danger btn-sm" onclick="toggleComment('+c.id+',true)">🚫 Ocultar</button>')+
+        ? '<button class="btn btn-ghost btn-sm" onclick="toggleCommentDetail('+i+',false)">👁️ Ver detalle / Mostrar</button>'
+        : '<button class="btn btn-danger btn-sm" onclick="toggleCommentDetail('+i+',true)">🚫 Ver detalle / Ocultar</button>')+
       '</div></div>';
     }).join("")||'<p style="color:var(--cocoa-soft)">Sin comentarios aún.</p>';
     /* Infracciones del anti-spam (intentos bloqueados). */
@@ -497,16 +855,17 @@ async function loadCommunity(){
     /* Dominios verificados 🔒 (links permitidos en mensajes promocionales). */
     try{
       var vd=await api("GET","/api/admin/verified-domains");
+      domainsCache=vd.dominios||[];
       var vdh='<h3 style="margin-top:20px">🔒 Dominios verificados (links permitidos)</h3>'+
         '<p style="color:var(--cocoa-soft);font-size:.85rem">Solo se permiten enlaces de estas páginas en mensajes promocionales pagados con RV, para prevenir phishing y hackers.</p>'+
         '<div style="display:flex;gap:8px;margin:10px 0">'+
         '<input id="new-domain" class="field" placeholder="mitienda.com" style="max-width:260px">'+
         '<button class="btn btn-primary btn-sm" onclick="addDomain()">➕ Verificar</button></div>'+
         '<div id="domain-list">'+
-        (vd.dominios||[]).map(function(dm){
+        domainsCache.map(function(dm,i){
           return '<div class="block cmt" style="display:flex;align-items:center;gap:10px;justify-content:space-between">'+
           '<span>🔒 <b>'+esc(dm.dominio)+'</b> <small style="color:var(--cocoa-soft)">'+esc(dm.fecha||"")+'</small></span>'+
-          '<button class="btn btn-danger btn-sm" onclick="delDomain('+dm.id+')">🗑️ Quitar</button></div>';
+          '<button class="btn btn-danger btn-sm" onclick="delDomainDetail('+i+')">Ver / Quitar</button></div>';
         }).join("")+'</div>';
       $("#community-list").innerHTML+=vdh;
     }catch(e3){ /* sin dominios visibles */ }
@@ -524,9 +883,37 @@ async function delDomain(id){
   try{ await api("DELETE","/api/admin/verified-domains/"+id); loadCommunity(); }
   catch(e){ if(e.message==="AUTH") authFail(); }
 }
+/* Detalle de dominio verificado con confirmación para quitarlo. */
+function delDomainDetail(i){
+  var dm=(domainsCache||[])[i]; if(!dm) return;
+  showDetailModal("🔒 Dominio verificado",
+    kv("Dominio", "<b>"+esc(dm.dominio)+"</b>")+
+    kv("Verificado", esc(dm.fecha||"—"))+
+    '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Al quitarlo, los links de este dominio dejarán de estar permitidos en mensajes promocionales pagados con RV.</p>',
+    [cancelBtn(), {label:"🗑️ Quitar dominio", cls:"btn-danger", onClick:function(){
+      closeDetailModal();
+      api("DELETE","/api/admin/verified-domains/"+dm.id).then(loadCommunity).catch(function(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); });
+    }}]);
+}
 async function toggleComment(id,hide){
   try{ await api("POST","/api/admin/community/"+id+(hide?"/hide":"/unhide")); loadCommunity(); }
   catch(e){ if(e.message==="AUTH") authFail(); }
+}
+/* Detalle de comentario con confirmación para ocultar/mostrar. */
+function toggleCommentDetail(i,hide){
+  var c=(communityCache||[])[i]; if(!c) return;
+  showDetailModal(hide?"🚫 Ocultar comentario":"👁️ Mostrar comentario",
+    kv("Usuario", esc(c.nombre||"—"))+
+    kv("Email", esc(c.email||"—"))+
+    kv("Fecha", esc(c.fecha||"—"))+
+    '<p style="font-size:.9rem;margin:6px 0"><b>Texto:</b></p>'+
+    '<div class="block" style="margin:0;max-height:200px;overflow-y:auto"><p style="white-space:pre-wrap;font-size:.9rem">'+esc(c.texto||"")+'</p></div>'+
+    (hide?'<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">El comentario quedará oculto para todos los usuarios (moderación global).</p>'
+         :'<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">El comentario volverá a ser visible para todos.</p>'),
+    [cancelBtn(), {label:hide?"🚫 Ocultar":"👁️ Mostrar", cls:hide?"btn-danger":"", onClick:function(){
+      closeDetailModal();
+      api("POST","/api/admin/community/"+c.id+(hide?"/hide":"/unhide")).then(loadCommunity).catch(function(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); });
+    }}]);
 }
 </script>
 </body>
