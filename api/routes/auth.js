@@ -12,7 +12,7 @@ const TOKEN_TTL = "30d";
 
 function signToken(user) {
   return jwt.sign(
-    { uid: user.id, email: user.email },
+    { uid: user.id, email: user.email, admin: user.is_admin === 1 },
     JWT_SECRET,
     { expiresIn: TOKEN_TTL }
   );
@@ -25,6 +25,7 @@ function publicUser(row) {
     name: row.name,
     programStart: row.program_start,
     subscribed: row.subscribed === 1,
+    isAdmin: row.is_admin === 1,
     createdAt: row.created_at,
   };
 }
@@ -77,6 +78,36 @@ router.post("/login", (req, res) => {
   const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!row || !bcrypt.compareSync(password, row.password_hash))
     return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+
+  res.json({ token: signToken(row), user: publicUser(row) });
+});
+
+/* POST /api/auth/admin-login  { code }
+ * Code-based admin access. Requires ADMIN_CODE env var to be set.
+ * Creates the admin user on first use (email admin@reavivaapp.com). */
+router.post("/admin-login", (req, res) => {
+  const adminCode = process.env.ADMIN_CODE;
+  if (!adminCode)
+    return res.status(503).json({ error: "Acceso de administrador no configurado" });
+
+  const code = String(req.body?.code || "").trim();
+  if (!code || code !== adminCode)
+    return res.status(401).json({ error: "Código incorrecto" });
+
+  const ADMIN_EMAIL = "admin@reavivaapp.com";
+  let row = db.prepare("SELECT * FROM users WHERE email = ?").get(ADMIN_EMAIL);
+  if (!row) {
+    const hash = bcrypt.hashSync("admin-" + Date.now() + "-" + Math.random(), 10);
+    const info = db
+      .prepare(
+        "INSERT INTO users (email, name, password_hash, subscribed, is_admin) VALUES (?, ?, ?, 1, 1)"
+      )
+      .run(ADMIN_EMAIL, "Georges", hash);
+    row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  } else if (row.is_admin !== 1 || row.subscribed !== 1) {
+    db.prepare("UPDATE users SET is_admin = 1, subscribed = 1 WHERE id = ?").run(row.id);
+    row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
+  }
 
   res.json({ token: signToken(row), user: publicUser(row) });
 });
