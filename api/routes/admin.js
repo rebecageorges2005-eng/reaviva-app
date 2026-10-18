@@ -300,4 +300,52 @@ router.post("/messages", requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, para: u.email });
 });
 
+/* ============================================================
+   COMUNIDAD — moderación (solo admin)
+   ============================================================ */
+
+/* GET /api/admin/community → todos los comentarios CON la identidad real
+ * del autor (solo el admin puede ver quién escribió qué). */
+router.get("/community", requireAdmin, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.hidden,
+              u.name AS nombre, u.email
+       FROM community_comments c
+       LEFT JOIN users u ON u.id = c.user_id
+       ORDER BY c.created_at DESC
+       LIMIT 200`
+    )
+    .all();
+  res.json({
+    comentarios: rows.map((c) => ({
+      id: c.id,
+      texto: c.text,
+      fecha: c.created_at,
+      oculto: c.hidden === 1,
+      usuarioId: c.user_id,
+      nombre: c.nombre || "(eliminado)",
+      email: c.email || "—",
+    })),
+  });
+});
+
+/* POST /api/admin/community/:id/hide → ocultar comentario inapropiado. */
+router.post("/community/:id/hide", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Comentario inválido" });
+  const r = db.prepare("UPDATE community_comments SET hidden = 1 WHERE id = ?").run(id);
+  if (!r.changes) return res.status(404).json({ error: "Comentario no encontrado" });
+  res.json({ ok: true, oculto: true });
+});
+
+/* POST /api/admin/community/:id/unhide → volver a mostrar. */
+router.post("/community/:id/unhide", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Comentario inválido" });
+  const r = db.prepare("UPDATE community_comments SET hidden = 0 WHERE id = ?").run(id);
+  if (!r.changes) return res.status(404).json({ error: "Comentario no encontrado" });
+  res.json({ ok: true, oculto: false });
+});
+
 module.exports = { router, requireAdmin };
