@@ -988,4 +988,18 @@ router.get("/community/recent", requireAdmin, ah(async (req, res) => {
   });
 }));
 
+/* ---------- 📊 Reportes de Muse para el administrador ---------- */
+router.get("/reports", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
+    "SELECT id, title, content, report_type, user_id, user_name, is_read, created_at FROM admin_reports ORDER BY id DESC LIMIT 50"
+  );
+  const unread = await db.get("SELECT COUNT(*) AS n FROM admin_reports WHERE is_read = 0");
+  res.json({ ok: true, reports: rows, unread: unread ? unread.n : 0 });
+}));
+
+router.post("/reports/:id/read", requireAdmin, ah(async (req, res) => {
+  await db.run("UPDATE admin_reports SET is_read = 1 WHERE id = ?", req.params.id);
+  res.json({ ok: true });
+}));
+
 module.exports = { router, requireAdmin };
