@@ -3699,8 +3699,85 @@ function pickAlbumPhotos(albumId){
     inp.style.display = "none";
     document.body.appendChild(inp);
   }
-  inp.onchange = () => handleAlbumPhotoFiles(inp, albumId);
+  inp.onchange = () => previewAlbumPhotos(inp, albumId);
   inp.click();
+}
+
+/* Paso 1: vista previa de las fotos seleccionadas + botón Subir. */
+function previewAlbumPhotos(input, albumId){
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if(!files.length) return;
+  const valid = files.filter(f => f.type === "image/jpeg" || f.type === "image/png");
+  if(valid.length < files.length) toast("Solo se permiten fotos JPG o PNG 📷");
+  if(!valid.length) return;
+  // Guardar para el paso 2.
+  window._albPending = { albumId, files: valid };
+  const previews = valid.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<div style="position:relative">
+      <div style="aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--hatch-widget-border)">
+        <img src="${url}" style="width:100%;height:100%;object-fit:cover">
+      </div>
+      <button onclick="removePendingPhoto(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:.85rem">✕</button>
+    </div>`;
+  }).join("");
+  openDynModal(`
+    <div style="text-align:center">
+      <h3 style="margin:0 0 10px">📷 Fotos seleccionadas (${valid.length})</h3>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">${previews}</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-ghost" onclick="cancelPendingPhotos(${albumId})">Cancelar</button>
+        <button class="btn btn-primary" id="alb-upload-btn" onclick="uploadPendingPhotos()">⬆️ Subir</button>
+      </div>
+    </div>`);
+}
+
+/* Quitar una foto de la vista previa. */
+function removePendingPhoto(i){
+  const p = window._albPending;
+  if(!p) return;
+  p.files.splice(i, 1);
+  if(!p.files.length){ cancelPendingPhotos(p.albumId); return; }
+  previewAlbumPhotos({ files: p.files, value: "" }, p.albumId);
+}
+
+/* Cancelar la selección. */
+function cancelPendingPhotos(albumId){
+  window._albPending = null;
+  openAlbumDetail(albumId, false);
+}
+
+/* Paso 2: subir las fotos confirmadas. */
+async function uploadPendingPhotos(){
+  const p = window._albPending;
+  if(!p || !p.files.length) return;
+  const btn = document.getElementById("alb-upload-btn");
+  if(btn){ btn.disabled = true; btn.textContent = "⏳ Subiendo…"; }
+  const { albumId, files } = p;
+  let ok = 0, failMsg = "";
+  for(const file of files){
+    try{
+      const dataUrl = await resizeImageDataUrl(file);
+      const r = await fetch(`/api/albums/${albumId}/photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ photo: dataUrl })
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      ok++;
+    }catch(e){
+      failMsg = e.message;
+      break;
+    }
+  }
+  window._albPending = null;
+  if(ok) toast("✅ " + ok + " foto" + (ok > 1 ? "s" : "") + " en el álbum");
+  else if(failMsg) toast("❌ " + failMsg);
+  openAlbumDetail(albumId, false); // mostrar las fotos en el álbum
+  // Refrescar la lista de álbumes (conteo de fotos).
+  try{ if(typeof loadAlbums === "function") loadAlbums(); }catch(e){}
 }
 
 /* Redimensiona a máx 1280px (lado mayor), JPEG calidad 0.8.
@@ -3743,39 +3820,6 @@ function resizeImageDataUrl(file){
       img.src = url;
     }catch(e){ viaReader(); }
   });
-}
-
-async function handleAlbumPhotoFiles(input, albumId){
-  const files = Array.from(input.files || []);
-  input.value = "";
-  if(!files.length) return;
-  // Solo JPG y PNG.
-  const valid = files.filter(f => f.type === "image/jpeg" || f.type === "image/png");
-  if(valid.length < files.length){
-    toast("Solo se permiten fotos JPG o PNG 📷");
-    if(!valid.length) return;
-  }
-  toast("⏳ Subiendo " + valid.length + "…");
-  let ok = 0, failMsg = "";
-  for(const file of valid){
-    try{
-      const dataUrl = await resizeImageDataUrl(file);
-      const r = await fetch(`/api/albums/${albumId}/photos`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ photo: dataUrl })
-      });
-      const j = await r.json();
-      if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-      ok++;
-    }catch(e){
-      failMsg = e.message;
-      break;
-    }
-  }
-  if(ok) toast("✅ " + ok + " foto" + (ok > 1 ? "s" : "") + " agregada" + (ok > 1 ? "s" : ""));
-  else if(failMsg) toast("❌ " + failMsg);
-  openAlbumDetail(albumId, false); // refrescar para mostrar las fotos
 }
 
 /* Lightbox: foto grande + caption + eliminar (dueño). */
