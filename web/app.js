@@ -3392,15 +3392,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
     if(e && e.preventDefault) e.preventDefault();
     afterRestore(await restoreSession());
   }));
-  $("#logout-btn").addEventListener("click", ()=>{
-    try{ stopDmPoll(); }catch(e){}
-    try{ stopChatPoll(); }catch(e){}
-    localStorage.removeItem(LS.user);
-    localStorage.removeItem("reaviva_token");
-    localStorage.removeItem("reaviva_admin");
-    localStorage.removeItem("reaviva_paid");
-    showView("landing");
-  });
+  $("#logout-btn").addEventListener("click", ()=>{ doLogout(); });
   // PayPal return (?paypal=ok|cancel) + sync paid status with backend
   handlePayPalReturn();
   // Retorno de compra de RV (?rv=ok&token=ORDERID)
@@ -3408,6 +3400,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   refreshPaidStatus();
   // reCAPTCHA v2 en el formulario de registro (si hay site key configurada)
   initRecaptcha();
+  // Inactividad: 30 min sin actividad -> aviso 10 seg -> cierra sesion.
+  initInactivityTimer();
   // URL secreta de admin: /admin/ingzoe
   if(location.pathname === "/admin/ingzoe"){
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
@@ -3435,6 +3429,75 @@ document.addEventListener("DOMContentLoaded", ()=>{
   // Tour de bienvenida: se muestra una vez al primer ingreso.
   setTimeout(maybeShowTour, 1500);
 });
+
+/* Cierra la sesion y vuelve a la landing. */
+function doLogout(){
+  try{ stopDmPoll(); }catch(e){}
+  try{ stopChatPoll(); }catch(e){}
+  try{ hideInactivityWarning(); }catch(e){}
+  if(typeof inactivityTimer !== "undefined" && inactivityTimer) clearTimeout(inactivityTimer);
+  localStorage.removeItem(LS.user);
+  localStorage.removeItem("reaviva_token");
+  localStorage.removeItem("reaviva_admin");
+  localStorage.removeItem("reaviva_paid");
+  showView("landing");
+}
+
+/* ---------- Inactividad: 30 min sin actividad -> aviso de 10 seg -> cierra sesion ----------
+ * Cualquier movimiento del mouse, tecla, toque o scroll reinicia el conteo
+ * y cancela el aviso si esta visible. */
+const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutos
+const INACTIVITY_WARNING = 10; // segundos de aviso
+let inactivityTimer = null, warningTimer = null, warningLeft = INACTIVITY_WARNING;
+function initInactivityTimer(){
+  const reset = ()=>resetInactivity();
+  ["mousemove","mousedown","keydown","touchstart","scroll","click"].forEach(ev=>{
+    document.addEventListener(ev, reset, {passive:true});
+  });
+  resetInactivity();
+}
+function resetInactivity(){
+  if(warningTimer){ hideInactivityWarning(); }
+  if(inactivityTimer) clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(showInactivityWarning, INACTIVITY_LIMIT);
+}
+function showInactivityWarning(){
+  try{ if(!localStorage.getItem("reaviva_token")) return; }catch(e){ return; }
+  warningLeft = INACTIVITY_WARNING;
+  let modal = document.getElementById("inactivity-modal");
+  if(!modal){
+    modal = document.createElement("div");
+    modal.id = "inactivity-modal";
+    modal.innerHTML =
+      '<div class="inactivity-box">' +
+      '<div style="font-size:2.5rem">⏱️</div>' +
+      "<h3>¿Sigues ahí?</h3>" +
+      '<p>Tu sesión se cerrará en <b id="inactivity-count" style="font-size:1.4rem;color:#c0392b">' + warningLeft + "</b> segundos por inactividad.</p>" +
+      '<p style="font-size:.85rem;color:var(--cocoa-soft)">Mueve el mouse o presiona cualquier tecla para seguir.</p>' +
+      '<button class="btn btn-primary" onclick="resetInactivity()">Seguir aquí 💛</button>' +
+      "</div>";
+    document.body.appendChild(modal);
+  }else{
+    modal.style.display = "";
+    const c = document.getElementById("inactivity-count");
+    if(c) c.textContent = warningLeft;
+  }
+  warningTimer = setInterval(()=>{
+    warningLeft--;
+    const c = document.getElementById("inactivity-count");
+    if(c) c.textContent = warningLeft;
+    if(warningLeft <= 0){
+      hideInactivityWarning();
+      doLogout();
+      toast("Sesión cerrada por inactividad ⏱️");
+    }
+  }, 1000);
+}
+function hideInactivityWarning(){
+  if(warningTimer){ clearInterval(warningTimer); warningTimer = null; }
+  const modal = document.getElementById("inactivity-modal");
+  if(modal) modal.style.display = "none";
+}
 
 /* ============================================================
    COMPARTIR REAVIVA
