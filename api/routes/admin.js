@@ -211,6 +211,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes, u.credits,
+              u.gender, u.birthdate,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -246,6 +247,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       chatStrikes: Number(u.chat_strikes || 0),
       chatMutes: Number(u.chat_mutes || 0),
       rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
+      gender: u.gender || null,
     })),
   });
 }));
@@ -282,7 +284,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
               u.program_start, u.ip, u.country, u.country_code, u.photo,
               u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
-              u.chat_disabled,
+              u.chat_disabled, u.gender, u.birthdate,
               u.credits, u.img_block_remaining,
               u.banned, u.ban_reason,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
@@ -341,6 +343,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
     email: u.email,
     nombre: u.name,
     foto: u.photo || null,
+    gender: u.gender || null,
     conPlan: u.subscribed === 1,
     plan: planLabel(u.sub_status ? { status: u.sub_status } : null),
     planDetalle: u.plan || null,
