@@ -318,6 +318,18 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
   const row = await db.get("SELECT * FROM users WHERE id = ?", info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
+  // Afiliado: 5 RV al referente por cada registro con su link.
+  if (referredBy) {
+    try {
+      await db.run("UPDATE users SET credits = COALESCE(credits, 0) + 5 WHERE id = ?", referredBy);
+      await db.run("INSERT INTO credit_spending (user_id, credits_used, reason) VALUES (?, ?, ?)",
+        referredBy, -5, "Bono afiliado: nuevo registro referido");
+      console.log(`[afiliado] +5 RV al usuario ${referredBy} por referido ${row.id}`);
+    } catch (e) {
+      console.error("[afiliado] error:", e.message);
+    }
+  }
+
   // Correo de verificación (fire-and-forget, no bloquea la respuesta).
   sendVerificationEmail({ to: email, name, token });
 

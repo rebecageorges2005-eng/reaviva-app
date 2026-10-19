@@ -57,6 +57,21 @@ router.get("/balance", requireAuth, ah(async (req, res) => {
   res.json({ rv: await getRV(req.user.id) });
 }));
 
+/* GET /api/rv/affiliate → estadísticas de afiliado del usuario. */
+router.get("/affiliate", requireAuth, ah(async (req, res) => {
+  const n = await db.get("SELECT COUNT(*) AS c FROM users WHERE referred_by = ?", req.user.id);
+  const earned = await db.get(
+    "SELECT COALESCE(SUM(-credits_used), 0) AS t FROM credit_spending WHERE user_id = ? AND reason LIKE 'Bono afiliado%'",
+    req.user.id);
+  const link = `https://www.reavivaapp.com/?ref=${req.user.id}`;
+  res.json({
+    link,
+    referidos: (n && n.c) || 0,
+    rvGanados: (earned && earned.t) || 0,
+    rvPorReferido: 5,
+  });
+}));
+
 /* GET /api/rv/history → { purchases: [...], spending: [...], balance } */
 router.get("/history", requireAuth, ah(async (req, res) => {
   const purchases = await db.all(
