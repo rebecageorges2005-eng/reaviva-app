@@ -279,6 +279,8 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
     return res.status(400).json({ error: "Fecha de nacimiento inválida" });
   if (age < 18)
     return res.status(400).json({ error: "Debes tener al menos 18 años para registrarte." });
+  if (age > 90)
+    return res.status(400).json({ error: "La edad máxima para registrarse es 90 años." });
 
   // Sexo: M o F, requerido para adaptar contenido y voz.
   const gender = String(req.body?.gender || "").trim().toUpperCase();
