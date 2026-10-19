@@ -289,6 +289,11 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
   if (gender !== "M" && gender !== "F")
     return res.status(400).json({ error: "Elige si eres hombre o mujer" });
 
+  // País: seleccionado por el usuario en el registro.
+  const country = String(req.body?.country || "").trim().slice(0, 80);
+  if (!country)
+    return res.status(400).json({ error: "Elige tu país" });
+
   const exists = await db.get("SELECT id FROM users WHERE email = ?", email);
   if (exists) return res.status(409).json({ error: "Ese correo ya está registrado" });
 
@@ -309,7 +314,7 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
     const refUser = await db.get("SELECT id FROM users WHERE id = ?", refId);
     if (refUser) referredBy = refId;
   }
-  const info = await db.run("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate, gender) VALUES (?, ?, ?, 0, ?, ?, ?, ?)", email, name, hash, token, referredBy, birthdate, gender);
+  const info = await db.run("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate, gender, country) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)", email, name, hash, token, referredBy, birthdate, gender, country);
   const row = await db.get("SELECT * FROM users WHERE id = ?", info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
