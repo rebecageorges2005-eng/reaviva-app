@@ -1698,13 +1698,13 @@ function renderPerfil(){
       <div class="profile-cover" id="profile-cover" ${coverUrl?`style="background-image:url('${coverUrl}')"`:''}>
         ${!coverUrl?'<div class="profile-cover-empty">📷 Agrega una portada</div>':''}
         <button class="cover-edit-btn" onclick="document.getElementById('cover-input').click()" title="Cambiar portada">📷</button>
-        <input type="file" id="cover-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadCoverPhoto(this)">
+        <input type="file" id="cover-input" accept="image/jpeg,image/png" style="display:none" onchange="uploadCoverPhoto(this)">
       </div>
       <div class="profile-photo-row">
         <div class="profile-photo" id="profile-photo" ${photoUrl?`style="background-image:url('${photoUrl}')"`:''}>
           ${!photoUrl?'<span style="font-size:2rem">👤</span>':''}
           <button class="photo-edit-btn" onclick="document.getElementById('profile-photo-input').click()" title="Cambiar foto">📷</button>
-          <input type="file" id="profile-photo-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadProfilePhoto(this)">
+          <input type="file" id="profile-photo-input" accept="image/jpeg,image/png" style="display:none" onchange="uploadProfilePhoto(this)">
         </div>
       </div>
     </div>
@@ -3682,7 +3682,7 @@ function renderAlbumDetail(album, isOwner, fotos){
     ${grid}
     ${isOwner ? `<div style="margin-top:12px;text-align:center">
       <button class="btn btn-primary btn-sm" onclick="pickAlbumPhotos(${album.id})">${esc(t("alb.add_photos"))}</button>
-      <input type="file" id="alb-file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+      <input type="file" id="alb-file-input" accept="image/jpeg,image/png" multiple style="display:none">
     </div>` : ""}`;
   // Guardar fotos en memoria para el lightbox.
   window._albFotos = {};
@@ -3695,7 +3695,7 @@ function pickAlbumPhotos(albumId){
   if(!inp){
     inp = document.createElement("input");
     inp.type = "file"; inp.id = "alb-file-input";
-    inp.accept = "image/jpeg,image/png,image/webp"; inp.multiple = true;
+    inp.accept = "image/jpeg,image/png"; inp.multiple = true;
     inp.style.display = "none";
     document.body.appendChild(inp);
   }
@@ -3731,9 +3731,15 @@ async function handleAlbumPhotoFiles(input, albumId){
   const files = Array.from(input.files || []);
   input.value = "";
   if(!files.length) return;
-  toast("⏳ " + files.length + "…");
-  let ok = 0;
-  for(const file of files){
+  // Solo JPG y PNG.
+  const valid = files.filter(f => f.type === "image/jpeg" || f.type === "image/png");
+  if(valid.length < files.length){
+    toast("Solo se permiten fotos JPG o PNG 📷");
+    if(!valid.length) return;
+  }
+  toast("⏳ Subiendo " + valid.length + "…");
+  let ok = 0, failMsg = "";
+  for(const file of valid){
     try{
       const dataUrl = await resizeImageDataUrl(file);
       const r = await fetch(`/api/albums/${albumId}/photos`, {
@@ -3745,12 +3751,13 @@ async function handleAlbumPhotoFiles(input, albumId){
       if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
       ok++;
     }catch(e){
-      toast(e.message);
+      failMsg = e.message;
       break;
     }
   }
-  if(ok) toast(t("alb.added") + ` (${ok})`);
-  openAlbumDetail(albumId, false); // refrescar
+  if(ok) toast("✅ " + ok + " foto" + (ok > 1 ? "s" : "") + " agregada" + (ok > 1 ? "s" : ""));
+  else if(failMsg) toast("❌ " + failMsg);
+  openAlbumDetail(albumId, false); // refrescar para mostrar las fotos
 }
 
 /* Lightbox: foto grande + caption + eliminar (dueño). */
