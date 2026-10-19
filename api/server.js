@@ -24,7 +24,6 @@ const { router: rvRouter } = require("./routes/rv");
 const { router: reactionsRouter } = require("./routes/reactions");
 const { router: albumsRouter } = require("./routes/albums");
 const { router: flagsRouter } = require("./routes/flags");
-// const { router: aiRouter } = require("./routes/ai"); // TEMP: desactivado por error de deploy
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -134,7 +133,6 @@ app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
 app.use("/api/reactions", reactionsRouter); // /api/reactions/* (likes/dislikes)
 app.use("/api/albums", albumsRouter); // /api/albums/* (álbumes de fotos del perfil)
 app.use("/api/flags", flagsRouter); // /api/flags/* (banderas de advertencia)
-// app.use("/api", aiRouter); // TEMP: desactivado por error de deploy
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
