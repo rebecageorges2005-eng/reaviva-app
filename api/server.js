@@ -137,15 +137,13 @@ app.use("/api/flags", flagsRouter); // /api/flags/* (banderas de advertencia)
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
  * POST /api/messages/:id/read → marcar como leído. */
-app.get("/api/messages", requireAuth, (req, res) => {
-  const rows = db
-    .prepare(
+app.get("/api/messages", requireAuth, async (req, res) => {
+  const rows = await db.all(
       `SELECT id, title, body, created_at
        FROM admin_messages
        WHERE read_at IS NULL AND (user_id = ? OR user_id IS NULL)
        ORDER BY created_at DESC`
-    )
-    .all(req.user.id);
+    , req.user.id);
   res.json({
     messages: rows.map((m) => ({
       id: m.id,
@@ -155,13 +153,13 @@ app.get("/api/messages", requireAuth, (req, res) => {
     })),
   });
 });
-app.post("/api/messages/:id/read", requireAuth, (req, res) => {
+app.post("/api/messages/:id/read", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  db.prepare(
+  await db.run(
     `UPDATE admin_messages SET read_at = datetime('now')
      WHERE id = ? AND (user_id = ? OR user_id IS NULL)`
-  ).run(id, req.user.id);
+  , id, req.user.id);
   res.json({ ok: true });
 });
 
@@ -178,7 +176,7 @@ app.get("/api/config", (req, res) =>
 
 /* POST /api/contact — formulario de la página de contacto.
  * Guarda el mensaje en contact_messages y lo registra en consola. */
-app.post("/api/contact", (req, res) => {
+app.post("/api/contact", async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
   const message = String(req.body?.message || "").trim().slice(0, 2000);
@@ -186,8 +184,7 @@ app.post("/api/contact", (req, res) => {
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Correo inválido." });
   if (!message) return res.status(400).json({ error: "Escribe tu mensaje." });
   try {
-    db.prepare("INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)")
-      .run(name, email, message);
+    await db.run("INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)", name, email, message);
   } catch (e) { /* la tabla se crea en la migración; si falla, igual se registra */ }
   console.log(`[contacto] ${name} <${email}>: ${message.slice(0, 120)}`);
   res.json({ ok: true });
@@ -231,20 +228,18 @@ app.get("*", (req, res, next) => {
  * Cada 6 horas revisa suscripciones ACTIVAS cuyo próximo cobro sea en
  * 3 días o menos y que aún no recibieron el aviso (reminder_sent = 0).
  * Les deja un mensaje en la app y marca reminder_sent = 1 para no repetir. */
-function checkExpiringPlans() {
+async function checkExpiringPlans() {
   try {
-    const rows = db
-      .prepare(
+    const rows = await db.all(
         `SELECT email, next_billing_date
          FROM paypal_subscriptions
          WHERE status = 'ACTIVE'
            AND reminder_sent = 0
            AND next_billing_date IS NOT NULL
            AND date(next_billing_date) <= date('now', '+3 days')`
-      )
-      .all();
+      );
     for (const r of rows) {
-      const user = db.prepare("SELECT id FROM users WHERE email = ?").get(r.email);
+      const user = await db.get("SELECT id FROM users WHERE email = ?", r.email);
       const fecha = (() => {
         const d = new Date(r.next_billing_date.length <= 10 ? r.next_billing_date + "T12:00:00" : r.next_billing_date);
         return isNaN(d) ? r.next_billing_date
@@ -253,16 +248,16 @@ function checkExpiringPlans() {
       const titulo = "Tu plan vence pronto ⏰";
       const cuerpo = `Tu membresía Reaviva vence el ${fecha}. Renuévala para no perder tu progreso ni tu racha. ¡Tu sanación vale la pena! 💛`;
       if (user) {
-        db.prepare(
+        await db.run(
           "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-        ).run(user.id, r.email, titulo, cuerpo);
+        , user.id, r.email, titulo, cuerpo);
       } else {
         // sin cuenta local: mensaje dirigido por email (se mostrará al registrarse con ese correo)
-        db.prepare(
+        await db.run(
           "INSERT INTO admin_messages (user_id, email, title, body) VALUES (NULL, ?, ?, ?)"
-        ).run(r.email, titulo, cuerpo);
+        , r.email, titulo, cuerpo);
       }
-      db.prepare("UPDATE paypal_subscriptions SET reminder_sent = 1 WHERE email = ?").run(r.email);
+      await db.run("UPDATE paypal_subscriptions SET reminder_sent = 1 WHERE email = ?", r.email);
       console.log(`[reaviva] recordatorio de vencimiento enviado a ${r.email}`);
     }
   } catch (e) {
@@ -282,7 +277,9 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-app.listen(PORT, () => {
-  console.log(`[reaviva] API corriendo en http://localhost:${PORT}`);
-  console.log(`[reaviva] Frontend servido desde ${FRONTEND_DIR}`);
+db.ready.then(() => {
+  app.listen(PORT, () => {
+    console.log(`[reaviva] API corriendo en http://localhost:${PORT}`);
+    console.log(`[reaviva] Frontend servido desde ${FRONTEND_DIR}`);
+  });
 });
