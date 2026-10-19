@@ -836,7 +836,8 @@ const VIEW_HASHES = {
 };
 const TAB_HASHES = {
   "hoy": "hoy", "programa": "programa", "diario": "diario", "progreso": "progreso",
-  "comunidad": "comunidad", "privados": "privados", "perfil": "perfil", "admin": "admin"
+  "comunidad": "comunidad", "privados": "privados", "perfil": "perfil", "admin": "admin",
+  "retos": "retos"
 };
 const AUTH_HASHES = { "login": "entrar", "signup": "registro" };
 let suppressHashUpdate = false;
@@ -964,6 +965,7 @@ function switchTab(tab, fromHash){
   if(tab==="privados") renderDmList();
   if(tab==="perfil") renderPerfil();
   if(tab==="admin") renderAdmin();
+  if(tab==="retos") renderChallenges();
   if(!fromHash) syncHash();
 }
 
@@ -1665,6 +1667,65 @@ function renderPerfil(){
 function togglePwForm(){
   const f = $("#pw-form");
   if(f) f.style.display = f.style.display === "none" ? "" : "none";
+}
+
+/* ---------- 🎯 Mis retos + 💬 Ayuda IA ---------- */
+async function renderChallenges(){
+  const box = $("#challenges-list");
+  if(!box) return;
+  box.innerHTML = '<p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p>';
+  try{
+    const r = await fetch("/api/ai/challenges", { headers: authHeaders() });
+    const j = await r.json();
+    const rows = j.challenges || [];
+    box.innerHTML = rows.length ? rows.map(c=>`
+      <div class="block" style="border-left:4px solid #b5892e;margin-bottom:12px">
+        <h4 style="margin:0 0 6px">🎯 ${esc(c.title)}</h4>
+        <p style="white-space:pre-wrap;font-size:.9rem">${esc(c.description)}</p>
+        <p style="font-size:.75rem;color:var(--cocoa-soft)">Creado para tu día ${esc(c.day_target||"—")}</p>
+      </div>`).join("")
+      : `<div class="empty-state"><div style="font-size:2.5rem">🎯</div>
+         <p><b>Aún no tienes retos personalizados</b></p>
+         <p style="font-size:.85rem;color:var(--cocoa-soft)">El asistente de IA crea retos para ti y el administrador los aprueba.</p></div>`;
+  }catch(e){
+    box.innerHTML = '<p style="text-align:center;color:#a33">No se pudieron cargar los retos.</p>';
+  }
+  // Mensaje de bienvenida del chat si está vacío.
+  const chat = $("#ai-chat-box");
+  if(chat && !chat.dataset.init){
+    chat.dataset.init = "1";
+    chat.innerHTML = '<div style="margin-bottom:10px"><b>🤖 Asistente Reaviva:</b><br>Hola 💛 Soy tu asistente. Puedes contarme cómo te sientes, preguntarme sobre el programa o pedirme ayuda con lo que necesites. ¿En qué te ayudo hoy?</div>';
+  }
+}
+async function sendAiChat(){
+  const input = $("#ai-chat-input");
+  const box = $("#ai-chat-box");
+  const err = $("#ai-chat-err");
+  if(!input || !box) return;
+  const msg = input.value.trim();
+  if(!msg) return;
+  err.textContent = "";
+  input.value = "";
+  box.innerHTML += '<div style="margin-bottom:10px;text-align:right"><b>Tú:</b><br>'+esc(msg)+'</div>';
+  box.innerHTML += '<div id="ai-typing" style="margin-bottom:10px;color:var(--cocoa-soft)"><b>🤖</b> escribiendo…</div>';
+  box.scrollTop = box.scrollHeight;
+  try{
+    const r = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message: msg })
+    });
+    const j = await r.json();
+    const typing = $("#ai-typing");
+    if(typing) typing.remove();
+    if(!r.ok){ err.textContent = j.error || "No se pudo enviar."; return; }
+    box.innerHTML += '<div style="margin-bottom:10px"><b>🤖 Asistente:</b><br>'+esc(j.reply).replace(/\n/g,"<br>")+'</div>';
+  }catch(e){
+    const typing = $("#ai-typing");
+    if(typing) typing.remove();
+    err.textContent = "Error de conexión. Inténtalo de nuevo.";
+  }
+  box.scrollTop = box.scrollHeight;
 }
 async function doProfilePwChange(){
   const cur = ($("#pw-cur") || {}).value || "";
