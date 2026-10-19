@@ -929,6 +929,29 @@ async function migrate() {
   } catch (e) {
     console.error("[db] migración ai_reports:", e.message);
   }
+
+  /* Reportes de Muse para el administrador */
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS admin_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      report_type TEXT DEFAULT 'general',
+      user_id INTEGER,
+      user_name TEXT,
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    `);
+    console.log("[db] migración: tabla admin_reports lista");
+    // Agregar columnas user_id/user_name si la tabla ya existía sin ellas.
+    try {
+      const cols = await tableCols("admin_reports");
+      if (!cols.includes("user_id")) await db.exec("ALTER TABLE admin_reports ADD COLUMN user_id INTEGER");
+      if (!cols.includes("user_name")) await db.exec("ALTER TABLE admin_reports ADD COLUMN user_name TEXT");
+    } catch (e) { console.error("[db] migración admin_reports cols:", e.message); }
+  } catch (e) {
+    console.error("[db] migración admin_reports:", e.message);
+  }
 }
 
 /* ready: se resuelve cuando las migraciones terminan. server.js la espera
