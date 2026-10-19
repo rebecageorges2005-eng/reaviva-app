@@ -1352,14 +1352,14 @@ function openDay(d){
     </div>
     <div class="block"><h4>✅ Acción de hoy</h4><p>${esc(gtext(p.accion))}</p></div>
     <div class="complete-row">
-      <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})" ${(!done && countWords(savedEx) < 500 || savedStory.length < 500)?"disabled":""}>
+      <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})">
         ${done ? "✓ Día completado" : "Marcar día como completado"}
       </button>
       ${(!done)?'<p id="complete-hint" style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px"></p>':''}
     </div>
     <div class="day-nav">
       <button class="btn btn-ghost" ${d<=1?"disabled":""} onclick="openDay(${d-1})">← Anterior</button>
-      <button class="btn btn-ghost" ${d>=30?"disabled":""} onclick="openDay(${d+1})">Siguiente →</button>
+      <button class="btn btn-ghost" ${d>=30?"disabled":""} onclick="tryNextDay(${d})">Siguiente →</button>
     </div>
     <div style="margin-top:16px"><button class="btn btn-ghost btn-block" onclick="backToList()">← Volver al programa</button></div>`;
   $("#panel-programa-list").style.display = "none";
@@ -1387,13 +1387,11 @@ function openDay(d){
       const n = countWords(ta.value);
       const len = sta ? sta.value.length : 500;
       updateStoryCount();
-      const btn = $("#complete-day-btn"), hint = $("#complete-hint");
+      const hint = $("#complete-hint");
       const okStory = len >= 500, okEx = n >= 500;
       if(okStory && okEx){
-        if(btn) btn.disabled = false;
         if(hint) hint.textContent = "";
       }else{
-        if(btn) btn.disabled = true;
         const faltan = [];
         if(!okStory) faltan.push(`${500-len} caracteres en tu historia 📝`);
         if(!okEx) faltan.push(`${500-n} palabras en el ejercicio ✍️`);
@@ -1439,12 +1437,16 @@ function backToList(){
   renderPrograma();
 }
 function completeDay(d){
-  if(!isDone(d) && countWords(getExerciseText(d)) < 500){
-    toast("Escribe al menos 500 palabras en el ejercicio para completar el día ✍️");
-    return;
-  }
-  if(!isDone(d) && getStoryText(d).length < 500){
-    toast("Escribe al menos 500 caracteres en tu historia 📝");
+  const storyLen = getStoryText(d).length;
+  const exWords = countWords(getExerciseText(d));
+  const okStory = storyLen >= 500, okEx = exWords >= 500;
+  if(!isDone(d) && (!okStory || !okEx)){
+    // Resaltar en rojo las partes incompletas.
+    highlightIncomplete(okStory, okEx);
+    const faltan = [];
+    if(!okStory) faltan.push("tu historia 📝");
+    if(!okEx) faltan.push("el ejercicio ✍️");
+    toast("Completa " + faltan.join(" y ") + " para continuar");
     return;
   }
   markDone(d);
@@ -1455,6 +1457,37 @@ function completeDay(d){
   }
   toast(t("t.day_done", {d: d}));
   openDay(d);
+}
+
+/* Resalta en rojo las secciones incompletas hasta que se completen. */
+function highlightIncomplete(okStory, okEx){
+  const sta = $("#story-text"), ta = $("#exercise-text");
+  if(sta){
+    sta.classList.toggle("incomplete-red", !okStory);
+    if(!okStory){ sta.scrollIntoView({behavior:"smooth", block:"center"}); sta.focus(); }
+  }
+  if(ta){
+    ta.classList.toggle("incomplete-red", !okEx);
+    if(okStory && !okEx){ ta.scrollIntoView({behavior:"smooth", block:"center"}); ta.focus(); }
+  }
+}
+/* Quita el rojo cuando el usuario completa la sección. */
+document.addEventListener("input", function(e){
+  if(e.target && e.target.id === "story-text" && e.target.value.length >= 500)
+    e.target.classList.remove("incomplete-red");
+  if(e.target && e.target.id === "exercise-text" && typeof countWords === "function" && countWords(e.target.value) >= 500)
+    e.target.classList.remove("incomplete-red");
+});
+/* Botón Siguiente: bloqueado si el día actual no está completado. */
+function tryNextDay(d){
+  if(!isDone(d)){
+    const okStory = getStoryText(d).length >= 500;
+    const okEx = countWords(getExerciseText(d)) >= 500;
+    highlightIncomplete(okStory, okEx);
+    toast("Completa este día primero para avanzar 🔒");
+    return;
+  }
+  openDay(d+1);
 }
 
 /* ---------- TEST DE PROGRESO (cada 3 días, 25 preguntas) ----------
