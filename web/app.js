@@ -1425,8 +1425,165 @@ function completeDay(d){
     return;
   }
   markDone(d);
+  // Cada 3 días: test de 25 preguntas basado en su historia y relación.
+  if(d % 3 === 0 && !getTestResult(d)){
+    renderProgressTest(d);
+    return;
+  }
   toast(t("t.day_done", {d: d}));
   openDay(d);
+}
+
+/* ---------- TEST DE PROGRESO (cada 3 días, 25 preguntas) ----------
+ * Todo basado en la historia que el usuario escribió y su relación.
+ * Escala 1-5. Puntaje mínimo para avanzar: 75/125. */
+function getTestResult(d){
+  const all = store.get("reaviva_tests", {});
+  return all[d] || null;
+}
+function saveTestResult(d, score, passed){
+  const all = store.get("reaviva_tests", {});
+  all[d] = { score, passed, date: new Date().toISOString() };
+  store.set("reaviva_tests", all);
+}
+/* Extrae fragmentos de su historia para personalizar las preguntas. */
+function storyExcerpts(){
+  const stories = store.get("reaviva_stories", {});
+  const all = Object.values(stories).join(" ");
+  if(!all.trim()) return [];
+  // Divide en oraciones y toma las más largas (más contenido).
+  const sentences = all.split(/[.!?]+/).map(s=>s.trim()).filter(s=>s.length > 20);
+  sentences.sort((a,b)=>b.length - a.length);
+  return sentences.slice(0, 5);
+}
+function buildTestQuestions(){
+  const excerpts = storyExcerpts();
+  const ex = (i)=> excerpts[i] ? `"<i>${esc(excerpts[i].slice(0,120))}${excerpts[i].length>120?"…":""}</i>"` : "tu historia";
+  const Q = [];
+  // Bloque 1: Su historia (1-8) — reflexión sobre lo que escribió.
+  Q.push({t:`En tu historia contaste: ${ex(0)}. Del 1 al 5, ¿cuánto te duele recordarlo hoy? (1 = muchísimo, 5 = ya casi nada)`, scale:true, invert:true});
+  Q.push({t:`Relee lo que escribiste: ${ex(1)}. ¿Sientes que has avanzado desde que lo escribiste? (1 = nada, 5 = muchísimo)`, scale:true});
+  Q.push({t:`Pensando en cómo empezó todo según tu historia, ¿qué fue lo más bonito del inicio?`, open:true});
+  Q.push({t:`¿Qué parte de tu historia te cuesta más aceptar hoy? (1 = me destruye, 5 = lo acepto)`, scale:true, invert:true});
+  Q.push({t:`Si tu historia fuera un libro, ¿en qué capítulo sientes que estás ahora?`, open:true});
+  Q.push({t:`${ex(2)}. ¿Esta parte de tu historia te genera enojo todavía? (1 = mucho enojo, 5 = paz)`, scale:true, invert:true});
+  Q.push({t:`¿Hay algo de tu historia que hoy ves diferente a cuando la escribiste?`, open:true});
+  Q.push({t:`Del 1 al 5, ¿cuánta claridad tienes hoy sobre lo que pasó en tu historia?`, scale:true});
+  // Bloque 2: Su relación (9-17) — dinámica de la relación.
+  Q.push({t:`¿Cómo describirías tu relación en una palabra hoy?`, open:true});
+  Q.push({t:`Del 1 al 5, ¿cuánto extrañas a tu ex pareja hoy? (1 = muchísimo, 5 = casi nada)`, scale:true, invert:true});
+  Q.push({t:`¿Qué fue lo mejor que te dio tu relación?`, open:true});
+  Q.push({t:`¿Qué fue lo más doloroso de tu relación? (1 = insoportable, 5 = lo proceso bien)`, scale:true, invert:true});
+  Q.push({t:`Del 1 al 5, ¿qué tan en paz estás con el final de tu relación?`, scale:true});
+  Q.push({t:`Si pudieras decirle algo a tu ex hoy, ¿qué sería?`, open:true});
+  Q.push({t:`¿Sientes que tu relación te enseñó algo valioso? (1 = nada, 5 = muchísimo)`, scale:true});
+  Q.push({t:`Del 1 al 5, ¿cuánto has pensado en tu ex en los últimos 3 días? (1 = todo el tiempo, 5 = casi nada)`, scale:true, invert:true});
+  Q.push({t:`¿Qué harías diferente si volvieras al inicio de tu historia?`, open:true});
+  // Bloque 3: Estado mental (18-25) — cómo está hoy.
+  Q.push({t:`Del 1 al 5, ¿cómo está tu ánimo hoy?`, scale:true});
+  Q.push({t:`¿Dormiste bien anoche? (1 = nada, 5 = muy bien)`, scale:true});
+  Q.push({t:`Del 1 al 5, ¿cuánta esperanza sientes por tu futuro?`, scale:true});
+  Q.push({t:`¿Te sientes capaz de estar bien sin tu ex? (1 = no puedo, 5 = totalmente)`, scale:true});
+  Q.push({t:`Del 1 al 5, ¿cuánto te quieres a ti mismo/a hoy?`, scale:true});
+  Q.push({t:`¿Qué es lo que más te ilusiona de tu vida ahora?`, open:true});
+  Q.push({t:`Del 1 al 5, ¿recomendarías este programa a alguien en tu situación?`, scale:true});
+  return Q;
+}
+function renderProgressTest(d){
+  const Q = buildTestQuestions();
+  const g = userGender();
+  $("#day-detail").innerHTML = `
+    <div class="day-hero">
+      <div class="part">Test de progreso</div>
+      <h2>🧠 ¿Cómo estás realmente?</h2>
+      <p style="margin-top:8px">Basado en <b>tu historia</b> y <b>tu relación</b>. Responde con honestidad — no hay respuestas correctas, solo tu verdad de hoy.</p>
+    </div>
+    <div id="test-questions">
+      ${Q.map((q,i)=>`
+        <div class="block test-q" data-qi="${i}">
+          <p><b>${i+1}.</b> ${q.t}</p>
+          ${q.scale ? `
+            <div class="test-scale" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+              ${[1,2,3,4,5].map(v=>`<button type="button" class="btn btn-ghost test-opt" data-val="${v}" onclick="pickTestOpt(${i},${v})" style="min-width:44px">${v}</button>`).join("")}
+            </div>` : `
+            <textarea class="journal test-open" rows="3" placeholder="Escribe tu respuesta…" style="margin-top:8px"></textarea>`}
+        </div>`).join("")}
+    </div>
+    <div class="complete-row">
+      <button id="test-submit-btn" class="btn btn-primary btn-block" onclick="submitProgressTest(${d})">Ver mi resultado 🧠</button>
+      <p id="test-err" style="text-align:center;color:#a33;font-size:.85rem;margin-top:8px"></p>
+    </div>`;
+  window.scrollTo(0,0);
+}
+function pickTestOpt(qi, val){
+  const block = document.querySelector(`.test-q[data-qi="${qi}"]`);
+  if(!block) return;
+  block.querySelectorAll(".test-opt").forEach(b=>{
+    b.classList.toggle("btn-primary", Number(b.dataset.val) === val);
+    b.classList.toggle("btn-ghost", Number(b.dataset.val) !== val);
+  });
+  block.dataset.answered = val;
+}
+function submitProgressTest(d){
+  const Q = buildTestQuestions();
+  let score = 0, answered = 0;
+  const openAnswers = [];
+  Q.forEach((q,i)=>{
+    const block = document.querySelector(`.test-q[data-qi="${i}"]`);
+    if(!block) return;
+    if(q.scale){
+      const v = Number(block.dataset.answered || 0);
+      if(v >= 1 && v <= 5){
+        answered++;
+        score += q.invert ? (6 - v) : v; // invertidas: 1→5, 5→1
+      }
+    }else{
+      const ta = block.querySelector(".test-open");
+      const txt = ta ? ta.value.trim() : "";
+      if(txt){ answered++; openAnswers.push(txt); }
+      // Las abiertas suman 3 puntos base por responder con honestidad.
+      if(txt) score += 3;
+    }
+  });
+  const err = $("#test-err");
+  if(answered < Q.length){
+    err.textContent = `Responde las ${Q.length} preguntas (${answered}/${Q.length}) 💛`;
+    return;
+  }
+  // Puntaje máximo: 17 escalas × 5 + 8 abiertas × 3 = 85 + 24 = 109. Mínimo para avanzar: 65.
+  const passed = score >= 65;
+  saveTestResult(d, score, passed);
+  const g = userGender();
+  if(passed){
+    $("#day-detail").innerHTML = `
+      <div class="day-hero"><div class="part">Test de progreso · Día ${d}</div>
+        <h2>🎉 ¡Vas muy bien!</h2></div>
+      <div class="block" style="text-align:center">
+        <p style="font-size:2.5rem">💛</p>
+        <p><b>Tu puntaje: ${score} puntos</b></p>
+        <p>Tu historia muestra progreso real. Estás sanando${g==="F"?"":""} — sigue así.</p>
+        <p style="color:var(--cocoa-soft);font-size:.9rem">Puedes continuar al siguiente día.</p>
+      </div>
+      <div class="complete-row">
+        <button class="btn btn-primary btn-block" onclick="openDay(${d+1 > 30 ? 30 : d+1})">Continuar →</button>
+        <div style="margin-top:12px"><button class="btn btn-ghost btn-block" onclick="backToList()">← Volver al programa</button></div>
+      </div>`;
+  }else{
+    $("#day-detail").innerHTML = `
+      <div class="day-hero"><div class="part">Test de progreso · Día ${d}</div>
+        <h2>🤗 Tómate tu tiempo</h2></div>
+      <div class="block" style="text-align:center">
+        <p style="font-size:2.5rem">💛</p>
+        <p><b>Tu puntaje: ${score} puntos</b></p>
+        <p>Tu corazón todavía está procesando mucho. Eso está bien — sanar no es una carrera.</p>
+        <p style="color:var(--cocoa-soft);font-size:.9rem">Te recomendamos repasar los últimos 3 días y volver a intentarlo cuando te sientas list${g==="F"?"a":"o"}.</p>
+      </div>
+      <div class="complete-row">
+        <button class="btn btn-primary btn-block" onclick="renderProgressTest(${d})">Intentar de nuevo 🔄</button>
+        <div style="margin-top:12px"><button class="btn btn-ghost btn-block" onclick="backToList()">← Volver al programa</button></div>
+      </div>`;
+  }
+  window.scrollTo(0,0);
 }
 
 /* ---------- DIARIO ---------- */
