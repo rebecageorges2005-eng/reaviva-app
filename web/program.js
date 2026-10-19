@@ -6,7 +6,7 @@
 window.REAVIVA_PROGRAM = [
 { day: 1, part: "La verdad incómoda", title: "Perseguir solo la aleja más",
   caso: "Daniel le escribió 23 mensajes en una noche después de que Laura le pidiera espacio. Cada mensaje prometía cambiar. Cada mensaje la alejaba un poco más.",
-  reflexion: "La desesperación se siente como presión, no como amor. Perseguir te cuesta dos cosas: a la otra persona y tu dignidad. Hoy vas a hacer lo más difícil y lo más sano: parar. El silencio no es un truco para que vuelva; es el primer acto de respeto hacia ti mismo.",
+  reflexion: "La desesperación se siente como presión, no como amor. Perseguir te cuesta dos cosas: a la otra persona y tu dignidad. Hoy vas a hacer lo más difícil y lo más sano: parar. El silencio no es un truco para que vuelva; es el primer acto de respeto hacia ti {mismo/misma}.",
   ejercicio: "Escribe todo lo que hiciste en las últimas dos semanas para intentar recuperarlo/a: mensajes, llamadas, promesas. Al lado de cada cosa, escribe qué resultado real te dio.",
   accion: "Hoy: cero mensajes para convencer. Si la ansiedad aprieta, escribe el mensaje en tu libreta y no lo envíes." },
 { day: 2, part: "La verdad incómoda", title: "Acepta lo que es, no lo que fue",
@@ -152,6 +152,6 @@ window.REAVIVA_PROGRAM = [
 { day: 30, part: "Tu nuevo comienzo", title: "Mira cuánto avanzaste",
   caso: "El día 30, Daniel releyó lo que escribió el día 1: 'siento que me voy a morir'. Sonrió. 'No soy el mismo', escribió debajo. Y era verdad.",
   reflexion: "La sanidad no fue magia; fue constancia. Y recuerda la lección central: la estabilidad que buscabas en otra persona siempre estuvo dentro de ti.",
-  ejercicio: "Escribe una carta de gratitud: a ti mismo por no rendirte, y a quienes te sostuvieron.",
+  ejercicio: "Escribe una carta de gratitud: a ti {mismo/misma} por no rendirte, y a quienes te sostuvieron.",
   accion: "Celebra hoy tu proceso: una cena especial, una salida, un regalo para ti. Te lo ganaste." }
 ];

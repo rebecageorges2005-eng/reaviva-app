@@ -337,6 +337,22 @@ function esc(s){ return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"
  * MVP: email stored locally only. Replace with real backend auth later.
  */
 function currentUser(){ return store.get(LS.user, null); }
+/* Sexo del usuario actual: "M", "F" o null. Se usa para adaptar textos y voz. */
+function userGender(){
+  const u = currentUser();
+  const g = u && u.gender;
+  return (g === "M" || g === "F") ? g : null;
+}
+/* Adapta un texto al género del usuario.
+ * Usa marcadores {o/a}, {el/la}, {mismo/misma}, etc. en el contenido.
+ * Ej: "hacia ti {mismo/misma}" → "hacia ti mismo" (M) / "hacia ti misma" (F). */
+function gtext(text){
+  const g = userGender();
+  if(!g || !text) return text || "";
+  return String(text).replace(/\{([^\/{}]+)\/([^\/{}]+)\}/g, function(m, masc, fem){
+    return g === "F" ? fem : masc;
+  });
+}
 function requireAuth(){
   if(currentUser()) return true;
   showView("auth"); return false;
@@ -616,6 +632,17 @@ function calcAgeFromBirthdate(bd){
   return age;
 }
 
+/* Selector de sexo en el registro (M/F) para adaptar contenido y voz. */
+function pickGender(g){
+  const hid = $("#signup-gender");
+  if(hid) hid.value = g;
+  const bm = $("#gender-m"), bf = $("#gender-f");
+  if(bm) bm.className = "btn " + (g === "M" ? "btn-primary" : "btn-ghost");
+  if(bf) bf.className = "btn " + (g === "F" ? "btn-primary" : "btn-ghost");
+  // Aplicar estilo flex que se pierde al cambiar className
+  if(bm) bm.style.flex = "1";
+  if(bf) bf.style.flex = "1";
+}
 async function doSignup(ev){
   ev.preventDefault();
   const name = $("#signup-name").value.trim();
@@ -643,6 +670,11 @@ async function doSignup(ev){
   if(calcAgeFromBirthdate(birthdate) < 18){
     errBox.textContent = t("auth.under18"); return;
   }
+  // Sexo: requerido para adaptar el contenido.
+  const gender = $("#signup-gender") ? $("#signup-gender").value : "";
+  if(gender !== "M" && gender !== "F"){
+    errBox.textContent = "Elige si eres hombre o mujer 👆"; return;
+  }
   // Si el captcha está visible, exigir que lo marquen.
   let recaptchaToken = null;
   if(recaptchaWidgetId !== null){
@@ -654,7 +686,7 @@ async function doSignup(ev){
     const r = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, birthdate, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
+      body: JSON.stringify({ name, email, password, birthdate, gender, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
     });
     const j = await r.json();
     if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
@@ -1288,12 +1320,12 @@ function openDay(d){
     </div>
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
-    <div class="block"><h4>💭 Reflexión</h4><p>${esc(p.reflexion)}</p></div>
-    <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(p.ejercicio)}</p>
+    <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
+    <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(gtext(p.ejercicio))}</p>
       <textarea id="exercise-text" class="journal" rows="8" placeholder="Escribe aquí tu ejercicio… (mínimo 500 palabras para completar el día)" ${done?"disabled":""}>${esc(savedEx)}</textarea>
       <div id="exercise-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-top:4px"></div>
     </div>
-    <div class="block"><h4>✅ Acción de hoy</h4><p>${esc(p.accion)}</p></div>
+    <div class="block"><h4>✅ Acción de hoy</h4><p>${esc(gtext(p.accion))}</p></div>
     <div class="complete-row">
       <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})" ${(!done && countWords(savedEx) < 500)?"disabled":""}>
         ${done ? "✓ Día completado" : "Marcar día como completado"}

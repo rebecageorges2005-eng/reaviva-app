@@ -537,7 +537,8 @@ function renderUsersTable(){
     return (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0;
   });
   $("#users-body").innerHTML=list.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv===-1?'∞':(u.rv||0))+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+      var gBadge = u.gender==="M" ? ' <span title="Hombre">👨</span>' : (u.gender==="F" ? ' <span title="Mujer">👩</span>' : '');
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+gBadge+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv===-1?'∞':(u.rv||0))+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
     }).join("")||'<tr><td colspan="7">Sin usuarios que coincidan</td></tr>';
 }
 /* ---------- detalle de usuario: modal con pestañas ---------- */
@@ -591,6 +592,7 @@ function userTabContent(u){
     return '<h4>📋 Perfil</h4>'+
     '<p><b>Nombre completo:</b> '+esc(u.nombre)+'</p>'+
     '<p><b>Email:</b> '+esc(u.email)+'</p>'+
+    '<p><b>⚧ Sexo:</b> '+(u.gender==="M"?'👨 Hombre':(u.gender==="F"?'👩 Mujer':'—'))+'</p>'+
     '<p><b>🌍 País:</b> '+(u.pais?flagEmoji(u.codigoPais)+' '+esc(u.pais):'—')+'</p>'+
     '<p><b>IP:</b> '+(u.ip?esc(u.ip):'—')+'</p>'+
     '<p><b>Registrado:</b> '+esc(u.registrado||'—')+'</p>'+
