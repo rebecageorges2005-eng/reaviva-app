@@ -69,10 +69,10 @@ function domainOf(urlStr) {
 
 /* Dominios verificados (caché en memoria; se invalida al modificar). */
 let cacheDominios = null;
-function dominiosVerificados() {
+async function dominiosVerificados() {
   if (cacheDominios) return cacheDominios;
   try {
-    const rows = db.prepare("SELECT domain FROM verified_domains").all();
+    const rows = await db.all("SELECT domain FROM verified_domains");
     cacheDominios = new Set(rows.map((r) => String(r.domain).toLowerCase().trim()));
   } catch (e) {
     cacheDominios = new Set();

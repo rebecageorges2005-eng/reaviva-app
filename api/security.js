@@ -43,28 +43,28 @@ function isPrivateIp(ip) {
 }
 
 /* ============ IPs bloqueadas ============ */
-function isBlockedIp(ip) {
+async function isBlockedIp(ip) {
   if (!ip) return false;
   try {
-    const row = db.prepare("SELECT ip FROM blocked_ips WHERE ip = ?").get(ip);
+    const row = await db.get("SELECT ip FROM blocked_ips WHERE ip = ?", ip);
     return !!row;
   } catch (e) { return false; }
 }
 
-function blockIp(ip, reason, by) {
+async function blockIp(ip, reason, by) {
   if (!ip || isPrivateIp(ip)) return false; // nunca bloquear IPs privadas/locales
   try {
-    db.prepare(
+    await db.run(
       "INSERT OR IGNORE INTO blocked_ips (ip, reason, blocked_by) VALUES (?, ?, ?)"
-    ).run(ip, String(reason || "Actividad sospechosa").slice(0, 200), by || "auto");
+    , ip, String(reason || "Actividad sospechosa").slice(0, 200), by || "auto");
     console.warn(`[seguridad] IP bloqueada: ${ip} — ${reason} (${by || "auto"})`);
     return true;
   } catch (e) { return false; }
 }
 
-function unblockIp(ip) {
+async function unblockIp(ip) {
   try {
-    db.prepare("DELETE FROM blocked_ips WHERE ip = ?").run(ip);
+    await db.run("DELETE FROM blocked_ips WHERE ip = ?", ip);
     return true;
   } catch (e) { return false; }
 }
@@ -172,7 +172,7 @@ function scanValue(v, depth) {
 
 /* Middleware: inspecciona query + body en POST/PUT/PATCH/DELETE.
  * Si detecta SQLi/XSS → bloquea la IP de inmediato y banea al usuario logueado. */
-function attackDetector(req, res, next) {
+async function attackDetector(req, res, next) {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
   const ip = getClientIp(req);
   let found = scanValue(req.query, 0) || scanValue(req.body, 0);
@@ -187,8 +187,7 @@ function attackDetector(req, res, next) {
   // Banear al usuario logueado que intentó el ataque.
   if (req.user && req.user.is_admin !== 1) {
     try {
-      db.prepare("UPDATE users SET banned = 1, ban_reason = ? WHERE id = ?")
-        .run(kind + " detectado", req.user.id);
+      await db.run("UPDATE users SET banned = 1, ban_reason = ? WHERE id = ?", kind + " detectado", req.user.id);
       console.warn(`[seguridad] usuario baneado: id=${req.user.id} (${kind})`);
     } catch (e) { /* no bloquea la respuesta */ }
   }
@@ -276,24 +275,23 @@ function clearFailedLogins(ip) {
 }
 
 /* ============ Baneo de usuarios ============ */
-function banUser(userId, reason) {
+async function banUser(userId, reason) {
   try {
-    db.prepare("UPDATE users SET banned = 1, ban_reason = ? WHERE id = ?")
-      .run(String(reason || "Violación de términos").slice(0, 200), userId);
+    await db.run("UPDATE users SET banned = 1, ban_reason = ? WHERE id = ?", String(reason || "Violación de términos").slice(0, 200), userId);
     return true;
   } catch (e) { return false; }
 }
 
-function unbanUser(userId) {
+async function unbanUser(userId) {
   try {
-    db.prepare("UPDATE users SET banned = 0, ban_reason = NULL WHERE id = ?").run(userId);
+    await db.run("UPDATE users SET banned = 0, ban_reason = NULL WHERE id = ?", userId);
     return true;
   } catch (e) { return false; }
 }
 
-function isBanned(userId) {
+async function isBanned(userId) {
   try {
-    const r = db.prepare("SELECT banned FROM users WHERE id = ?").get(userId);
+    const r = await db.get("SELECT banned FROM users WHERE id = ?", userId);
     return !!(r && r.banned === 1);
   } catch (e) { return false; }
 }

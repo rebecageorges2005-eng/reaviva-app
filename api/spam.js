@@ -64,13 +64,11 @@ function userSpamCols(u) {
 
 /* Registra un intento bloqueado y aplica el strike.
  * Devuelve { strikes, muted, code, message } para responder al cliente. */
-function registerStrike(userId, attemptedText, violation) {
+async function registerStrike(userId, attemptedText, violation) {
   const today = utcDate();
-  let u = db
-    .prepare(
+  let u = await db.get(
       "SELECT chat_strikes, chat_strikes_date, chat_muted, chat_mutes FROM users WHERE id = ?"
-    )
-    .get(userId);
+    , userId);
   if (!u) return { strikes: 0, muted: false, code: "ERROR", message: "Error interno." };
   const s = userSpamCols(u);
 
@@ -80,20 +78,20 @@ function registerStrike(userId, attemptedText, violation) {
 
   // Registrar la infracción para revisión del admin.
   try {
-    db.prepare(
+    await db.run(
       `INSERT INTO chat_violations (user_id, attempted_text, violation_type, detail, created_at)
        VALUES (?, ?, ?, ?, datetime('now'))`
-    ).run(userId, String(attemptedText || "").slice(0, 500), violation.tipo, violation.detalle || null);
+    , userId, String(attemptedText || "").slice(0, 500), violation.tipo, violation.detalle || null);
   } catch (e) {
     /* no bloquea */
   }
 
   if (strikes >= 3) {
-    db.prepare(
+    await db.run(
       `UPDATE users SET chat_strikes = 0, chat_strikes_date = ?,
               chat_muted = 1, chat_mutes = COALESCE(chat_mutes,0) + 1
        WHERE id = ?`
-    ).run(today, userId);
+    , today, userId);
     return {
       strikes: 0,
       muted: true,
@@ -103,11 +101,9 @@ function registerStrike(userId, attemptedText, violation) {
     };
   }
 
-  db.prepare("UPDATE users SET chat_strikes = ?, chat_strikes_date = ? WHERE id = ?").run(
-    strikes,
+  await db.run("UPDATE users SET chat_strikes = ?, chat_strikes_date = ? WHERE id = ?", strikes,
     today,
-    userId
-  );
+    userId);
   const restantes = 3 - strikes;
   return {
     strikes,
@@ -123,8 +119,8 @@ function registerStrike(userId, attemptedText, violation) {
 }
 
 /* Revisa si el usuario está muteado. Devuelve el payload de error o null. */
-function mutedPayload(userId) {
-  const row = db.prepare("SELECT chat_muted FROM users WHERE id = ?").get(userId);
+async function mutedPayload(userId) {
+  const row = await db.get("SELECT chat_muted FROM users WHERE id = ?", userId);
   if (row && Number(row.chat_muted) === 1) {
     return {
       code: "MUTED",
@@ -168,9 +164,9 @@ const RV_POR_MENSAJE = 2;          // con plan
 const RV_POR_MENSAJE_GRATIS = 3;   // sin plan (10 RV = 3 publicaciones)
 
 /* Saldo actual de RV del usuario. */
-function getRV(userId) {
+async function getRV(userId) {
   try {
-    const row = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
+    const row = await db.get("SELECT credits FROM users WHERE id = ?", userId);
     return Math.max(0, Number(row && row.credits) || 0);
   } catch (e) {
     return 0;
@@ -187,23 +183,21 @@ function costoMensajeRV(user) {
  * descontaron (y lo registra en credit_spending), false si no hay saldo
  * suficiente. El costo depende del plan: 2 RV con plan, 3 RV sin plan.
  * Nunca deja saldo negativo. */
-function trySpendRV(userId, user) {
+async function trySpendRV(userId, user) {
   try {
     // El admin tiene RV ilimitado: nunca se le descuenta.
     if (user && user.is_admin === 1) return true;
-    const row = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
+    const row = await db.get("SELECT credits FROM users WHERE id = ?", userId);
     const costo = costoMensajeRV(user);
     const saldo = Math.max(0, Number(row && row.credits) || 0);
     if (saldo < costo) return false;
-    db.prepare("UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?").run(
-      costo,
+    await db.run("UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?", costo,
       userId,
-      costo
-    );
-    db.prepare(
+      costo);
+    await db.run(
       `INSERT INTO credit_spending (user_id, credits_used, reason, created_at)
        VALUES (?, ?, 'promo_message', datetime('now'))`
-    ).run(userId, costo);
+    , userId, costo);
     return true;
   } catch (e) {
     return false;
@@ -234,25 +228,25 @@ const IMAGENES_POR_BLOQUE = 8;
  * y el usuario tiene >= 10 RV, compra un bloque nuevo automáticamente
  * (descuenta 10 RV, deja 7 envíos restantes tras este).
  * Devuelve { ok: true } o { ok: false, motivo: "sin_rv" }. */
-function trySpendImageSend(userId, user) {
+async function trySpendImageSend(userId, user) {
   try {
     // El admin tiene RV ilimitado: nunca se le descuenta.
     if (user && user.is_admin === 1) return { ok: true, via: "admin" };
-    const row = db.prepare("SELECT credits, img_block_remaining FROM users WHERE id = ?").get(userId);
+    const row = await db.get("SELECT credits, img_block_remaining FROM users WHERE id = ?", userId);
     const bloque = Math.max(0, Number(row && row.img_block_remaining) || 0);
     if (bloque > 0) {
-      db.prepare("UPDATE users SET img_block_remaining = img_block_remaining - 1 WHERE id = ?").run(userId);
+      await db.run("UPDATE users SET img_block_remaining = img_block_remaining - 1 WHERE id = ?", userId);
       return { ok: true, via: "bloque" };
     }
     const saldo = Math.max(0, Number(row && row.credits) || 0);
     if (saldo < RV_POR_BLOQUE_IMAGENES) return { ok: false, motivo: "sin_rv" };
-    db.prepare(
+    await db.run(
       "UPDATE users SET credits = credits - ?, img_block_remaining = ? WHERE id = ? AND credits >= ?"
-    ).run(RV_POR_BLOQUE_IMAGENES, IMAGENES_POR_BLOQUE - 1, userId, RV_POR_BLOQUE_IMAGENES);
-    db.prepare(
+    , RV_POR_BLOQUE_IMAGENES, IMAGENES_POR_BLOQUE - 1, userId, RV_POR_BLOQUE_IMAGENES);
+    await db.run(
       `INSERT INTO credit_spending (user_id, credits_used, reason, created_at)
        VALUES (?, ?, 'promo_images_block', datetime('now'))`
-    ).run(userId, RV_POR_BLOQUE_IMAGENES);
+    , userId, RV_POR_BLOQUE_IMAGENES);
     return { ok: true, via: "bloque_nuevo" };
   } catch (e) {
     return { ok: false, motivo: "error" };
