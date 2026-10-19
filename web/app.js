@@ -620,7 +620,7 @@ function populateBirthdateSelects(){
     m.appendChild(o);
   }
   const thisYear = new Date().getFullYear();
-  for(let yr = thisYear - 18; yr >= thisYear - 100; yr--){
+  for(let yr = thisYear - 18; yr >= thisYear - 90; yr--){
     const o = document.createElement("option");
     o.value = yr; o.textContent = yr;
     y.appendChild(o);
@@ -684,6 +684,9 @@ async function doSignup(ev){
   }
   if(calcAgeFromBirthdate(birthdate) < 18){
     errBox.textContent = t("auth.under18"); return;
+  }
+  if(calcAgeFromBirthdate(birthdate) > 90){
+    errBox.textContent = "La edad máxima para registrarse es 90 años."; return;
   }
   // Sexo: requerido para adaptar el contenido.
   const gender = $("#signup-gender") ? $("#signup-gender").value : "";
