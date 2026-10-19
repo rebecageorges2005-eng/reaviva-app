@@ -546,7 +546,7 @@ async function doMustChangePassword(){
   const p1 = ($("#new-pw1") || {}).value || "";
   const p2 = ($("#new-pw2") || {}).value || "";
   const err = $("#pw-change-err");
-  if(p1.length < 6){ err.textContent = "Mínimo 6 caracteres."; return; }
+  if(!isStrongPassword(p1)){ err.textContent = strongPasswordMsg(); return; }
   if(p1 !== p2){ err.textContent = "Las contraseñas no coinciden."; return; }
   err.textContent = "Guardando…";
   try{
@@ -646,6 +646,18 @@ function pickGender(g){
   const hid = $("#signup-gender");
   if(hid) hid.value = g;
 }
+/* Contraseña fuerte: mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 carácter especial. */
+function isStrongPassword(pw){
+  return typeof pw === "string" &&
+    pw.length >= 8 &&
+    /[A-Z]/.test(pw) &&
+    /[a-z]/.test(pw) &&
+    /[0-9]/.test(pw) &&
+    /[^A-Za-z0-9]/.test(pw);
+}
+function strongPasswordMsg(){
+  return "La contraseña debe tener mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 carácter especial (ej: Reaviva#2026)";
+}
 async function doSignup(ev){
   ev.preventDefault();
   const name = $("#signup-name").value.trim();
@@ -656,7 +668,7 @@ async function doSignup(ev){
   errBox.textContent = "";
   if(!name){ errBox.textContent = "Escribe tu nombre."; return; }
   if(!email || !email.includes("@")){ errBox.textContent = "Escribe un correo válido."; return; }
-  if(password.length < 6){ errBox.textContent = "La contraseña debe tener al menos 6 caracteres."; return; }
+  if(!isStrongPassword(password)){ errBox.textContent = strongPasswordMsg(); return; }
   if(password !== password2){ errBox.textContent = "Las contraseñas no coinciden."; return; }
   // Fecha de nacimiento: debe ser válida y 18+ años.
   populateBirthdateSelects();
@@ -1483,7 +1495,7 @@ async function doProfilePwChange(){
   const p1 = ($("#pw-new1") || {}).value || "";
   const p2 = ($("#pw-new2") || {}).value || "";
   const err = $("#pw-form-err");
-  if(p1.length < 6){ err.textContent = "Mínimo 6 caracteres."; return; }
+  if(!isStrongPassword(p1)){ err.textContent = strongPasswordMsg(); return; }
   if(p1 !== p2){ err.textContent = "No coinciden."; return; }
   err.textContent = "Guardando…";
   try{
