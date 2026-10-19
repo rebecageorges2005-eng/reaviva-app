@@ -23,6 +23,7 @@
 
 const express = require("express");
 const db = require("../db");
+const { ah } = db;
 const { requireAuth } = require("./auth");
 const { getPlanType, displayProfile } = require("../plan");
 const { checkMessage } = require("../spam");
@@ -35,9 +36,9 @@ const DM_CONV_PER_DAY = { annual: 90, monthly: 15 };
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
 /* Limpieza de mensajes expirados (48h). Se ejecuta en cada lectura. */
-function cleanupExpired() {
+async function cleanupExpired() {
   try {
-    db.prepare("DELETE FROM private_messages WHERE expires_at <= datetime('now')").run();
+    await db.run("DELETE FROM private_messages WHERE expires_at <= datetime('now')");
   } catch (e) {
     /* no bloquea la petición */
   }
@@ -57,20 +58,16 @@ function dmConvLimit(user) {
 
 /* ¿Ya conversó con este usuario hoy? Si es un contacto nuevo y hay
  * cupo, lo registra. Devuelve { ok: true } o { ok: false, code, message, status }. */
-function checkDmDailyLimit(userId, partnerId, limit, isMonthly, isAdmin) {
+async function checkDmDailyLimit(userId, partnerId, limit, isMonthly, isAdmin) {
   // El admin no tiene límite diario de conversaciones.
   if (isAdmin) return { ok: true, nueva: false };
   const day = utcDay();
   try {
     // Limpieza de filas viejas (más de 2 días) para no acumular.
-    db.prepare("DELETE FROM dm_daily_partners WHERE day < date('now', '-2 days')").run();
-    const ya = db
-      .prepare("SELECT 1 FROM dm_daily_partners WHERE user_id = ? AND partner_id = ? AND day = ?")
-      .get(userId, partnerId, day);
+    await db.run("DELETE FROM dm_daily_partners WHERE day < date('now', '-2 days')");
+    const ya = await db.get("SELECT 1 FROM dm_daily_partners WHERE user_id = ? AND partner_id = ? AND day = ?", userId, partnerId, day);
     if (ya) return { ok: true, nueva: false };
-    const cuantos = db
-      .prepare("SELECT COUNT(*) AS n FROM dm_daily_partners WHERE user_id = ? AND day = ?")
-      .get(userId, day).n;
+    const cuantos = (await db.get("SELECT COUNT(*) AS n FROM dm_daily_partners WHERE user_id = ? AND day = ?", userId, day)).n;
     if (cuantos >= limit) {
       if (isMonthly) {
         return {
@@ -87,9 +84,9 @@ function checkDmDailyLimit(userId, partnerId, limit, isMonthly, isAdmin) {
         status: 429,
       };
     }
-    db.prepare(
+    await db.run(
       "INSERT OR IGNORE INTO dm_daily_partners (user_id, partner_id, day) VALUES (?, ?, ?)"
-    ).run(userId, partnerId, day);
+    , userId, partnerId, day);
     return { ok: true, nueva: true };
   } catch (e) {
     return { ok: true, nueva: false }; // ante error, no bloquea el envío
@@ -103,7 +100,7 @@ function fechaCorta(iso) {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */router.post("/", requireAuth, (req, res) => {
+/* POST /api/dm  { to_user_id, text } — enviar mensaje privado. */router.post("/", requireAuth, ah(async (req, res) => {
   // Bandera roja: cuenta deshabilitada para chatear.
   if (req.user.chat_disabled === 1)
     return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
@@ -122,12 +119,12 @@ function fechaCorta(iso) {
   if (text.length > DM_MAX_CHARS) {
     return res.status(400).json({ error: "El mensaje es muy largo (máx 1000 caracteres)" });
   }
-  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
+  const dest = await db.get("SELECT id FROM users WHERE id = ?", toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   /* Límite diario de conversaciones únicas (usuarios diferentes por día).
    * Solo el primer mensaje a un usuario nuevo ese día consume cupo. */
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, isMonthly, req.user.is_admin === 1);
+  const chk = await checkDmDailyLimit(req.user.id, toId, limite, isMonthly, req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
@@ -138,14 +135,12 @@ function fechaCorta(iso) {
     const spam = checkMessage(req.user.id, text);
     if (spam) return res.status(spam.status).json({ error: spam.code, message: spam.message });
   }
-  const info = db
-    .prepare(
+  const info = await db.run(
       `INSERT INTO private_messages (from_user_id, to_user_id, text, expires_at)
        VALUES (?, ?, ?, datetime('now', '+48 hours'))`
-    )
-    .run(req.user.id, toId, text);
+    , req.user.id, toId, text);
   res.status(201).json({ ok: true, id: info.lastInsertRowid });
-});
+}));
 
 /* Límites de audio: máx 2 minutos ≈ 2MB en base64. */
 const VOICE_MAX_BYTES = 2 * 1024 * 1024;
@@ -153,7 +148,7 @@ const VOICE_MAX_BYTES = 2 * 1024 * 1024;
 /* POST /api/dm/voice  { to_user_id, audio } — enviar mensaje de voz.
  * audio: data URL base64 (data:audio/...;base64,...).
  * Permitido: plan anual y mensual. Gratuitos → 403. */
-router.post("/voice", requireAuth, (req, res) => {
+router.post("/voice", requireAuth, ah(async (req, res) => {
   // Bandera roja: cuenta deshabilitada para chatear.
   if (req.user.chat_disabled === 1)
     return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
@@ -172,23 +167,21 @@ router.post("/voice", requireAuth, (req, res) => {
   if (audio.length > VOICE_MAX_BYTES * 1.4) {
     return res.status(400).json({ error: "El audio es muy largo (máx 2 minutos) 🎤" });
   }
-  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
+  const dest = await db.get("SELECT id FROM users WHERE id = ?", toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   /* Mismo límite diario de conversaciones únicas que los mensajes de texto. */
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, plan === "monthly", req.user.is_admin === 1);
+  const chk = await checkDmDailyLimit(req.user.id, toId, limite, plan === "monthly", req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
   cleanupExpired();
-  const info = db
-    .prepare(
+  const info = await db.run(
       `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, audio_data, expires_at)
        VALUES (?, ?, '', 'voice', ?, datetime('now', '+48 hours'))`
-    )
-    .run(req.user.id, toId, audio);
+    , req.user.id, toId, audio);
   res.status(201).json({ ok: true, id: info.lastInsertRowid });
-});
+}));
 
 /* Límites de archivos: máx 10MB. Solo documentos (no ejecutables). */
 const FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -202,7 +195,7 @@ const FILE_TIPOS_PERMITIDOS = {
 /* POST /api/dm/file  { to_user_id, file, fileName } — enviar archivo adjunto.
  * file: data URL base64. Solo plan anual. Máx 10MB.
  * Permitidos: PDF, DOC, DOCX, TXT. */
-router.post("/file", requireAuth, (req, res) => {
+router.post("/file", requireAuth, ah(async (req, res) => {
   // Bandera roja: cuenta deshabilitada para chatear.
   if (req.user.chat_disabled === 1)
     return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
@@ -243,27 +236,25 @@ router.post("/file", requireAuth, (req, res) => {
       return res.status(400).json({ error: "No se pudo verificar el archivo 📎" });
     }
   }
-  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(toId);
+  const dest = await db.get("SELECT id FROM users WHERE id = ?", toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   const limite = dmConvLimit(req.user);
-  const chk = checkDmDailyLimit(req.user.id, toId, limite, false, req.user.is_admin === 1);
+  const chk = await checkDmDailyLimit(req.user.id, toId, limite, false, req.user.is_admin === 1);
   if (!chk.ok) {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
   cleanupExpired();
-  const info = db
-    .prepare(
+  const info = await db.run(
       `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, file_data, file_name, file_size, expires_at)
        VALUES (?, ?, '', 'file', ?, ?, ?, datetime('now', '+48 hours'))`
-    )
-    .run(req.user.id, toId, file, fileName, bytesAprox);
+    , req.user.id, toId, file, fileName, bytesAprox);
   res.status(201).json({ ok: true, id: info.lastInsertRowid });
-});
+}));
 
 /* POST /api/dm/:uid/video-call — iniciar videollamada (Jitsi Meet).
  * Solo plan anual. Genera una sala aleatoria y envía la invitación por DM.
  * El mensual recibe 403 UPGRADE_ANNUAL. */
-router.post("/:uid/video-call", requireAuth, (req, res) => {
+router.post("/:uid/video-call", requireAuth, ah(async (req, res) => {
   const plan = getPlanType(req.user);
   const other = Number(req.params.uid);
   if (!other || other === req.user.id) {
@@ -275,7 +266,7 @@ router.post("/:uid/video-call", requireAuth, (req, res) => {
       message: "Las videollamadas son exclusivas del plan anual 💎",
     });
   }
-  const dest = db.prepare("SELECT id FROM users WHERE id = ?").get(other);
+  const dest = await db.get("SELECT id FROM users WHERE id = ?", other);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
   /* Sala aleatoria e imposible de adivinar (sin datos del usuario). */
   const crypto = require("crypto");
@@ -283,28 +274,26 @@ router.post("/:uid/video-call", requireAuth, (req, res) => {
   const roomUrl = "https://meet.jit.si/" + roomId;
   cleanupExpired();
   /* La invitación viaja como mensaje especial en el DM (expira en 48h igual). */
-  db.prepare(
+  await db.run(
     `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, expires_at)
      VALUES (?, ?, ?, 'video-invite', datetime('now', '+48 hours'))`
-  ).run(req.user.id, other, roomUrl);
+  , req.user.id, other, roomUrl);
   res.json({ ok: true, roomUrl });
-});
+}));
 
 /* GET /api/dm/conversations — lista de conversaciones del usuario. */
-router.get("/conversations", requireAuth, (req, res) => {
+router.get("/conversations", requireAuth, ah(async (req, res) => {
   if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
   const me = req.user.id;
-  const rows = db
-    .prepare(
+  const rows = await db.all(
       `SELECT m.id, m.from_user_id, m.to_user_id, m.text, m.msg_type, m.file_name, m.created_at, m.read_at,
               u.id AS uid, u.name, u.photo, u.country_code, u.subscribed, u.is_admin
        FROM private_messages m
        JOIN users u ON u.id = CASE WHEN m.from_user_id = ? THEN m.to_user_id ELSE m.from_user_id END
        WHERE m.from_user_id = ? OR m.to_user_id = ?
        ORDER BY m.created_at DESC`
-    )
-    .all(me, me, me);
+    , me, me, me);
   const map = new Map();
   for (const r of rows) {
     const otherId = r.from_user_id === me ? r.to_user_id : r.from_user_id;
@@ -329,61 +318,53 @@ router.get("/conversations", requireAuth, (req, res) => {
     if (r.to_user_id === me && !r.read_at) map.get(otherId).noLeidos++;
   }
   res.json({ conversaciones: [...map.values()] });
-});
+}));
 
 /* GET /api/dm/unread-count — { count } mensajes sin leer.
  * Todos los usuarios autenticados pueden ver su contador (los de plan
  * mensual/gratuito lo usan como aviso para actualizar a anual). */
-router.get("/unread-count", requireAuth, (req, res) => {
+router.get("/unread-count", requireAuth, ah(async (req, res) => {
   cleanupExpired();
-  const r = db
-    .prepare("SELECT COUNT(*) AS n FROM private_messages WHERE to_user_id = ? AND read_at IS NULL")
-    .get(req.user.id);
+  const r = await db.get("SELECT COUNT(*) AS n FROM private_messages WHERE to_user_id = ? AND read_at IS NULL", req.user.id);
   res.json({ count: (r && r.n) || 0 });
-});
+}));
 
 /* GET /api/dm/:uid — mensajes con un usuario (los marca como leídos). */
-router.get("/:uid", requireAuth, (req, res) => {
+router.get("/:uid", requireAuth, ah(async (req, res) => {
   if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
   const me = req.user.id;
   const other = Number(req.params.uid);
   if (!other || other === me) return res.status(400).json({ error: "Conversación inválida" });
-  const msgs = db
-    .prepare(
+  const msgs = await db.all(
       `SELECT id, from_user_id, text, msg_type, audio_data, file_data, file_name, file_size, created_at, expires_at
        FROM private_messages
        WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)
        ORDER BY created_at ASC`
-    )
-    .all(me, other, other, me);
-  db.prepare(
+    , me, other, other, me);
+  await db.run(
     "UPDATE private_messages SET read_at = datetime('now') WHERE to_user_id = ? AND from_user_id = ? AND read_at IS NULL"
-  ).run(me, other);
+  , me, other);
   // Reacciones 👍👎: conteos por mensaje + mi reacción, en una sola consulta.
   const dmIds = msgs.map((m) => m.id);
   const dmReac = {};
   if (dmIds.length) {
     const dmPh = dmIds.map(() => "?").join(",");
-    const dmReacRows = db
-      .prepare(
+    const dmReacRows = await db.all(
         `SELECT message_id, reaction, COUNT(*) AS n
          FROM message_reactions
          WHERE message_type = 'dm' AND message_id IN (${dmPh})
          GROUP BY message_id, reaction`
-      )
-      .all(...dmIds);
+      , ...dmIds);
     for (const r of dmReacRows) {
       const e = dmReac[r.message_id] || (dmReac[r.message_id] = { likes: 0, dislikes: 0 });
       if (r.reaction === "like") e.likes = r.n;
       else if (r.reaction === "dislike") e.dislikes = r.n;
     }
-    const dmMisRows = db
-      .prepare(
+    const dmMisRows = await db.all(
         `SELECT message_id, reaction FROM message_reactions
          WHERE message_type = 'dm' AND user_id = ? AND message_id IN (${dmPh})`
-      )
-      .all(me, ...dmIds);
+      , me, ...dmIds);
     for (const r of dmMisRows) {
       const e = dmReac[r.message_id] || (dmReac[r.message_id] = { likes: 0, dislikes: 0 });
       e.mi_reaccion = r.reaction;
@@ -404,6 +385,6 @@ router.get("/:uid", requireAuth, (req, res) => {
       mi_reaccion: (dmReac[m.id] && dmReac[m.id].mi_reaccion) || null,
     })),
   });
-});
+}));
 
 module.exports = { router };

@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const db = require("../db");
+const { ah } = db;
 const { sendVerificationEmail, sendWelcomeEmail, sendLoginAlertEmail } = require("../email");
 const { getPlanType } = require("../plan");
 const {
@@ -70,12 +71,10 @@ function publicUser(row) {
 /* Verifica un JWT y devuelve {id, subscribed, is_admin} o null.
  * Se usa en el middleware de audios (las etiquetas <audio> no envían
  * headers, así que el token llega como ?token=). */
-function verifyToken(token) {
+async function verifyToken(token) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const row = db
-      .prepare("SELECT id, subscribed, is_admin, banned FROM users WHERE id = ?")
-      .get(payload.uid);
+    const row = await db.get("SELECT id, subscribed, is_admin, banned FROM users WHERE id = ?", payload.uid);
     if (!row || row.banned === 1) return null; // baneado: token invalidado
     return row;
   } catch (e) {
@@ -116,10 +115,9 @@ function trackGeoAsync(userId, ip) {
   setTimeout(() => {
     fetch("http://ip-api.com/json/" + encodeURIComponent(ip) + "?fields=country,countryCode,status", { signal: AbortSignal.timeout(8000) })
       .then((r) => r.json())
-      .then((j) => {
+      .then(async (j) => {
         if (j && j.status === "success" && j.country) {
-          db.prepare("UPDATE users SET country = ?, country_code = ? WHERE id = ?")
-            .run(j.country, j.countryCode || null, userId);
+          await db.run("UPDATE users SET country = ?, country_code = ? WHERE id = ?", j.country, j.countryCode || null, userId);
         }
       })
       .catch(() => { /* falla silenciosamente: el país queda null */ });
@@ -127,11 +125,11 @@ function trackGeoAsync(userId, ip) {
 }
 
 /* Guarda/actualiza la IP del usuario y dispara el lookup de país. */
-function trackUserIp(userId, req) {
+async function trackUserIp(userId, req) {
   const ip = getClientIp(req);
   if (!userId || !ip) return;
   try {
-    db.prepare("UPDATE users SET ip = ? WHERE id = ? AND (ip IS NULL OR ip != ?)").run(ip, userId, ip);
+    await db.run("UPDATE users SET ip = ? WHERE id = ? AND (ip IS NULL OR ip != ?)", ip, userId, ip);
   } catch (e) { /* no bloquea */ }
   trackGeoAsync(userId, ip);
 }
@@ -191,13 +189,13 @@ function notifyNewLogin(row, req) {
 }
 
 /* Middleware: require a valid Bearer token. Attaches req.user = full DB row. */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Token requerido" });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const row = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.uid);
+    const row = await db.get("SELECT * FROM users WHERE id = ?", payload.uid);
     if (!row) return res.status(401).json({ error: "Usuario no encontrado" });
     if (row.banned === 1)
       return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
@@ -216,7 +214,7 @@ function requireAuth(req, res, next) {
     }
     // Track activity for the admin "online now" metric (fire and forget).
     try {
-      db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(row.id);
+      await db.run("UPDATE users SET last_seen = datetime('now') WHERE id = ?", row.id);
     } catch (e) { /* no bloquea la petición */ }
     next();
   } catch (e) {
@@ -251,7 +249,7 @@ async function verifyRecaptcha(token, ip) {
  * Crea la cuenta SIN verificar. Envía el correo de confirmación
  * (asíncrono, no bloquea). NO devuelve token de sesión: el usuario
  * debe confirmar su correo antes de poder entrar. */
-router.post("/signup", signupLimiter, async (req, res) => {
+router.post("/signup", signupLimiter, ah(async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
@@ -270,7 +268,7 @@ router.post("/signup", signupLimiter, async (req, res) => {
   if (age < 18)
     return res.status(400).json({ error: "Debes tener al menos 18 años para registrarte." });
 
-  const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+  const exists = await db.get("SELECT id FROM users WHERE email = ?", email);
   if (exists) return res.status(409).json({ error: "Ese correo ya está registrado" });
 
   // reCAPTCHA v2 (solo si está configurado y llegó el token).
@@ -287,13 +285,11 @@ router.post("/signup", signupLimiter, async (req, res) => {
   const refRaw = String(req.body?.referred_by || "").trim();
   if (/^\d+$/.test(refRaw)) {
     const refId = Number(refRaw);
-    const refUser = db.prepare("SELECT id FROM users WHERE id = ?").get(refId);
+    const refUser = await db.get("SELECT id FROM users WHERE id = ?", refId);
     if (refUser) referredBy = refId;
   }
-  const info = db
-    .prepare("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate) VALUES (?, ?, ?, 0, ?, ?, ?)")
-    .run(email, name, hash, token, referredBy, birthdate);
-  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+  const info = await db.run("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate) VALUES (?, ?, ?, 0, ?, ?, ?)", email, name, hash, token, referredBy, birthdate);
+  const row = await db.get("SELECT * FROM users WHERE id = ?", info.lastInsertRowid);
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
 
   // Correo de verificación (fire-and-forget, no bloquea la respuesta).
@@ -304,13 +300,13 @@ router.post("/signup", signupLimiter, async (req, res) => {
     email,
     message: "Te enviamos un link de confirmación a tu correo. Haz clic en el link para activar tu cuenta.",
   });
-});
+}));
 
 /* GET /api/auth/verify?token=xxx
  * Confirma la cuenta con el link del correo. Devuelve una página HTML
  * bonita (es el destino del link del correo). Al confirmar, envía el
  * SEGUNDO correo: bienvenida/confirmación. */
-router.get("/verify", (req, res) => {
+router.get("/verify", ah(async (req, res) => {
   const token = String(req.query.token || "").trim();
   const page = (title, emoji, text, cta) =>
     `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
@@ -336,7 +332,7 @@ router.get("/verify", (req, res) => {
       "Ir a Reaviva"
     ));
   }
-  const row = db.prepare("SELECT * FROM users WHERE verification_token = ?").get(token);
+  const row = await db.get("SELECT * FROM users WHERE verification_token = ?", token);
   if (!row) {
     return res.status(400).send(page(
       "Link inválido o ya usado", "⚠️",
@@ -344,7 +340,7 @@ router.get("/verify", (req, res) => {
       "Ir a Reaviva"
     ));
   }
-  db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(row.id);
+  await db.run("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?", row.id);
   // SEGUNDO correo: bienvenida/confirmación (fire-and-forget).
   sendWelcomeEmail({ to: row.email, name: row.name });
   res.send(page(
@@ -352,7 +348,7 @@ router.get("/verify", (req, res) => {
     `Hola ${String(row.name || "").replace(/[<>&"]/g, "")}: tu correo quedó confirmado y tu cuenta ya está activa. Ya puedes entrar con tu correo y tu contraseña. ¡Bienvenido/a a tus 7 días gratis! 💛`,
     "Entrar a mi cuenta"
   ));
-});
+}));
 
 /* Límite de reenvíos: máx. 3 por hora por correo (en memoria). */
 const resendAttempts = new Map();
@@ -374,11 +370,11 @@ function resendAllowed(email) {
 
 /* POST /api/auth/resend-verification  { email }
  * Reenvía el correo de confirmación (nuevo token). */
-router.post("/resend-verification", (req, res) => {
+router.post("/resend-verification", ah(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   if (!email || !email.includes("@"))
     return res.status(400).json({ error: "Correo inválido" });
-  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const row = await db.get("SELECT * FROM users WHERE email = ?", email);
   // No revelar si el correo existe o no (misma respuesta genérica).
   if (!row) {
     return res.json({ ok: true, message: "Si ese correo está registrado, te enviamos un nuevo link." });
@@ -390,19 +386,19 @@ router.post("/resend-verification", (req, res) => {
     return res.status(429).json({ error: "Demasiados intentos. Espera una hora e inténtalo de nuevo." });
   }
   const token = newVerificationToken();
-  db.prepare("UPDATE users SET verification_token = ? WHERE id = ?").run(token, row.id);
+  await db.run("UPDATE users SET verification_token = ? WHERE id = ?", token, row.id);
   sendVerificationEmail({ to: row.email, name: row.name, token });
   res.json({ ok: true, message: "Te enviamos un nuevo link de confirmación. Revisa tu correo." });
-});
+}));
 
 /* POST /api/auth/login  { email, password }
  * Solo entran usuarios con el correo confirmado (el admin no necesita). */
-router.post("/login", loginLimiter, (req, res) => {
+router.post("/login", loginLimiter, ah(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
   const ip = getClientIp(req);
 
-  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const row = await db.get("SELECT * FROM users WHERE email = ?", email);
   if (!row || !bcrypt.compareSync(password, row.password_hash)) {
     // recordFailedLogin(ip, req); // TEMP DESACTIVADO → IP bloqueada
     // Bloqueo por contraseña incorrecta: 3 fallos → cuenta desactivada 48h.
@@ -411,16 +407,16 @@ router.post("/login", loginLimiter, (req, res) => {
     if (row) {
       try { failedAttempts = (row.failed_logins || 0) + 1; } catch(e) { failedAttempts = 1; }
       if (failedAttempts >= 3) {
-        db.prepare(
+        await db.run(
           "UPDATE users SET failed_logins = 0, locked_until = datetime('now', '+48 hours') WHERE id = ?"
-        ).run(row.id);
+        , row.id);
         console.warn(`[seguridad] cuenta desactivada 48h por 3 intentos fallidos: ${email}`);
         return res.status(403).json({
           error: "Cuenta desactivada por 48 horas por múltiples intentos fallidos.",
           locked: true,
         });
       }
-      db.prepare("UPDATE users SET failed_logins = ? WHERE id = ?").run(failedAttempts, row.id);
+      await db.run("UPDATE users SET failed_logins = ? WHERE id = ?", failedAttempts, row.id);
     }
     return res.status(401).json({
       error: "Correo o contraseña incorrectos",
@@ -430,7 +426,7 @@ router.post("/login", loginLimiter, (req, res) => {
   clearFailedLogins(ip); // login correcto: se limpia el contador de IP
   // Login correcto: se reinicia el contador de fallos del usuario.
   if (row.failed_logins) {
-    try { db.prepare("UPDATE users SET failed_logins = 0 WHERE id = ?").run(row.id); } catch (e) {}
+    try { await db.run("UPDATE users SET failed_logins = 0 WHERE id = ?", row.id); } catch (e) {}
   }
 
   // Cuenta baneada permanentemente: no puede entrar (tokens viejos también invalidados).
@@ -472,17 +468,17 @@ router.post("/login", loginLimiter, (req, res) => {
   notifyNewLogin(row, req); // alerta por correo si la IP cambió (background)
   if (row.is_admin === 1) broadcastAdminOnline(row.id);
   res.json({ token: signToken(row), user: publicUser(row) });
-});
+}));
 
 /* Aviso a todos los usuarios cuando el admin se conecta: mensaje de sistema
  * en el chat grupal ("👑 El administrador se ha conectado").
  * Se elimina solo después de 1 hora para no saturar el chat. */
-function broadcastAdminOnline(adminId) {
+async function broadcastAdminOnline(adminId) {
   try {
-    db.prepare(
+    await db.run(
       `INSERT INTO community_comments (user_id, text, msg_type, expires_at)
        VALUES (?, ?, 'system', datetime('now', '+1 hour'))`
-    ).run(adminId, "👑 El administrador se ha conectado");
+    , adminId, "👑 El administrador se ha conectado");
   } catch (e) { /* no bloquea el login */ }
 }
 
@@ -508,20 +504,20 @@ router.post("/forgot-password", rateLimit({
   max: 3, windowMs: 60 * 60 * 1000,
   message: "Demasiadas solicitudes. Espera una hora.",
   keyFn: () => "forgot",
-}), (req, res) => {
+}), ah(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   if (!email || !email.includes("@"))
     return res.status(400).json({ error: "Correo inválido" });
-  const row = db.prepare("SELECT id, name, email, banned FROM users WHERE email = ?").get(email);
+  const row = await db.get("SELECT id, name, email, banned FROM users WHERE email = ?", email);
   // Respuesta genérica para no revelar qué correos existen... pero necesitamos
   // el código solo si existe. Si no existe, respondemos ok de todos modos.
   if (row && row.banned !== 1) {
     // Invalida códigos anteriores sin usar.
-    db.prepare("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0").run(row.id);
+    await db.run("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0", row.id);
     const code = newResetCode();
-    db.prepare(
+    await db.run(
       "INSERT INTO password_reset_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+10 seconds'))"
-    ).run(row.id, code);
+    , row.id, code);
     // Envía el código por correo (background, no bloquea).
     const { sendEmail } = require("../email");
     const html =
@@ -538,32 +534,32 @@ router.post("/forgot-password", rateLimit({
   }
   // Siempre responde ok (no revela si el correo existe).
   res.json({ ok: true, message: "Si el correo existe, te enviamos un código de 10 segundos." });
-});
+}));
 
 /* POST /api/auth/login-with-code { email, code }
  * Entra con el código temporal de 10 segundos. Devuelve un token en modo
  * "solo cambiar contraseña" (mustChangePassword: true). */
-router.post("/login-with-code", loginLimiter, (req, res) => {
+router.post("/login-with-code", loginLimiter, ah(async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const code = String(req.body?.code || "").trim();
   if (!email || !code) return res.status(400).json({ error: "Correo y código requeridos" });
 
-  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const row = await db.get("SELECT * FROM users WHERE email = ?", email);
   if (!row) return res.status(401).json({ error: "Código inválido o vencido" });
   if (row.banned === 1)
     return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
 
-  const rec = db.prepare(
+  const rec = await db.get(
     `SELECT * FROM password_reset_codes
      WHERE user_id = ? AND code = ? AND used = 0 AND expires_at > datetime('now')
      ORDER BY id DESC LIMIT 1`
-  ).get(row.id, code);
+  , row.id, code);
   if (!rec) return res.status(401).json({ error: "Código inválido o vencido ⏳" });
 
-  db.prepare("UPDATE password_reset_codes SET used = 1 WHERE id = ?").run(rec.id);
+  await db.run("UPDATE password_reset_codes SET used = 1 WHERE id = ?", rec.id);
   // Limpia el bloqueo de 48h: el usuario demostró ser el dueño del correo.
   try {
-    db.prepare("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?").run(row.id);
+    await db.run("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?", row.id);
   } catch (e) {}
   clearFailedLogins(getClientIp(req));
 
@@ -574,13 +570,13 @@ router.post("/login-with-code", loginLimiter, (req, res) => {
     mustChangePassword: true,
     message: "Entra y cambia tu contraseña ahora 🔑",
   });
-});
+}));
 
 /* POST /api/auth/change-password { newPassword, currentPassword? }
  * Cambia la contraseña. En modo mustChangePassword no pide la actual
  * (ya se verificó con el código temporal).
  * REGLA: 3 cambios en 7 días → cuenta deshabilitada 15 días + pierde su RV. */
-router.post("/change-password", requireAuth, (req, res) => {
+router.post("/change-password", requireAuth, ah(async (req, res) => {
   const newPassword = String(req.body?.newPassword || req.body?.new_password || "");
   if (newPassword.length < 6)
     return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
@@ -589,25 +585,25 @@ router.post("/change-password", requireAuth, (req, res) => {
   // Si NO viene del código temporal, debe confirmar la contraseña actual.
   if (!req.mustChangePassword) {
     const current = String(req.body?.currentPassword || req.body?.current_password || "");
-    const full = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId);
+    const full = await db.get("SELECT password_hash FROM users WHERE id = ?", userId);
     if (!full || !bcrypt.compareSync(current, full.password_hash))
       return res.status(401).json({ error: "Tu contraseña actual es incorrecta" });
   }
 
   // Límite: 3 cambios en 7 días → deshabilitar 15 días + pierde el RV.
-  const recent = db.prepare(
+  const recent = (await db.get(
     `SELECT COUNT(*) AS n FROM password_changes
      WHERE user_id = ? AND changed_at > datetime('now', '-7 days')`
-  ).get(userId).n;
+  , userId)).n;
   if (recent >= 2) {
     // Este sería el 3er cambio en 7 días: deshabilitar.
-    const rvRow = db.prepare("SELECT credits FROM users WHERE id = ?").get(userId);
+    const rvRow = await db.get("SELECT credits FROM users WHERE id = ?", userId);
     const lostRv = rvRow ? rvRow.credits || 0 : 0;
-    db.prepare(
+    await db.run(
       `UPDATE users SET disabled_until = datetime('now', '+15 days'),
         credits = 0, failed_logins = 0, locked_until = NULL WHERE id = ?`
-    ).run(userId);
-    db.prepare("INSERT INTO password_changes (user_id) VALUES (?)").run(userId);
+    , userId);
+    await db.run("INSERT INTO password_changes (user_id) VALUES (?)", userId);
     console.warn(`[seguridad] cuenta deshabilitada 15 días por 3 cambios en 7 días: user ${userId} (perdió ${lostRv} RV)`);
     return res.status(403).json({
       error: "Cuenta deshabilitada por 15 días por seguridad. Tu saldo RV se perdió.",
@@ -617,23 +613,23 @@ router.post("/change-password", requireAuth, (req, res) => {
   }
 
   const hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, userId);
-  db.prepare("INSERT INTO password_changes (user_id) VALUES (?)").run(userId);
+  await db.run("UPDATE users SET password_hash = ? WHERE id = ?", hash, userId);
+  await db.run("INSERT INTO password_changes (user_id) VALUES (?)", userId);
   // Al cambiar la contraseña se limpian bloqueos y el modo temporal.
   try {
-    db.prepare("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?").run(userId);
+    await db.run("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?", userId);
   } catch (e) {}
   // Invalida códigos temporales pendientes.
   try {
-    db.prepare("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0").run(userId);
+    await db.run("UPDATE password_reset_codes SET used = 1 WHERE user_id = ? AND used = 0", userId);
   } catch (e) {}
   res.json({ ok: true, message: "Contraseña actualizada ✅" });
-});
+}));
 
 /* POST /api/auth/admin-login  { code }
  * Code-based admin access. Requires ADMIN_CODE env var to be set.
  * Creates the admin user on first use (email admin@reavivaapp.com). */
-router.post("/admin-login", loginLimiter, (req, res) => {
+router.post("/admin-login", loginLimiter, ah(async (req, res) => {
   const adminCode = process.env.ADMIN_CODE;
   if (!adminCode)
     return res.status(503).json({ error: "Acceso de administrador no configurado" });
@@ -643,29 +639,27 @@ router.post("/admin-login", loginLimiter, (req, res) => {
     return res.status(401).json({ error: "Código incorrecto" });
 
   const ADMIN_EMAIL = "admin@reavivaapp.com";
-  let row = db.prepare("SELECT * FROM users WHERE email = ?").get(ADMIN_EMAIL);
+  let row = await db.get("SELECT * FROM users WHERE email = ?", ADMIN_EMAIL);
   if (!row) {
     const hash = bcrypt.hashSync("admin-" + Date.now() + "-" + Math.random(), 10);
-    const info = db
-      .prepare(
+    const info = await db.run(
         "INSERT INTO users (email, name, password_hash, subscribed, is_admin) VALUES (?, ?, ?, 1, 1)"
-      )
-      .run(ADMIN_EMAIL, "Georges", hash);
-    row = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+      , ADMIN_EMAIL, "Georges", hash);
+    row = await db.get("SELECT * FROM users WHERE id = ?", info.lastInsertRowid);
   } else if (row.is_admin !== 1 || row.subscribed !== 1) {
-    db.prepare("UPDATE users SET is_admin = 1, subscribed = 1 WHERE id = ?").run(row.id);
-    row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
+    await db.run("UPDATE users SET is_admin = 1, subscribed = 1 WHERE id = ?", row.id);
+    row = await db.get("SELECT * FROM users WHERE id = ?", row.id);
   }
   // El admin no necesita verificación de correo.
   if (row.email_verified !== 1) {
-    db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(row.id);
-    row = db.prepare("SELECT * FROM users WHERE id = ?").get(row.id);
+    await db.run("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?", row.id);
+    row = await db.get("SELECT * FROM users WHERE id = ?", row.id);
   }
 
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
   broadcastAdminOnline(row.id);
   res.json({ token: signToken(row), user: publicUser(row) });
-});
+}));
 
 /* GET /api/auth/me → devuelve el usuario actual (valida la sesión) */
 router.get("/me", requireAuth, (req, res) => {
@@ -675,7 +669,7 @@ router.get("/me", requireAuth, (req, res) => {
 /* POST /api/profile/photo  { photo: "data:image/jpeg;base64,..." }
  * Foto de perfil del usuario (máx 2MB). El frontend la redimensiona
  * a 400x400 antes de subirla. Se guarda en users.photo. */
-router.post("/profile/photo", requireAuth, (req, res) => {
+router.post("/profile/photo", requireAuth, ah(async (req, res) => {
   const photo = String(req.body?.photo || "");
   const m = photo.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
   if (!m) return res.status(400).json({ error: "Formato de imagen inválido" });
@@ -695,8 +689,8 @@ router.post("/profile/photo", requireAuth, (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: "No se pudo verificar la imagen" });
   }
-  db.prepare("UPDATE users SET photo = ? WHERE id = ?").run(photo, req.user.id);
+  await db.run("UPDATE users SET photo = ? WHERE id = ?", photo, req.user.id);
   res.json({ ok: true });
-});
+}));
 
 module.exports = { router, requireAuth, verifyToken };

@@ -19,6 +19,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
+const { ah } = db;
 const { requireAuth } = require("./auth");
 const { isEmailConfigured, verificationUrl } = require("../email");
 const { flagLevel } = require("./flags");
@@ -66,23 +67,15 @@ function fmtDateTime(iso) {
 }
 
 /* ---------- GET /api/admin/stats ---------- */
-router.get("/stats", requireAdmin, (req, res) => {
-  const totalUsers = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
-  const subscribedUsers = db.prepare("SELECT COUNT(*) AS n FROM users WHERE subscribed = 1").get().n;
-  const trialUsers = db.prepare("SELECT COUNT(*) AS n FROM users WHERE subscribed = 0").get().n;
-  const onlineNow = db
-    .prepare("SELECT COUNT(*) AS n FROM users WHERE last_seen >= datetime('now', '-5 minutes')")
-    .get().n;
-  const signupsToday = db
-    .prepare("SELECT COUNT(*) AS n FROM users WHERE date(created_at) = date('now')")
-    .get().n;
-  const activeSubscriptions = db
-    .prepare("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'ACTIVE'")
-    .get().n;
+router.get("/stats", requireAdmin, ah(async (req, res) => {
+  const totalUsers = (await db.get("SELECT COUNT(*) AS n FROM users")).n;
+  const subscribedUsers = (await db.get("SELECT COUNT(*) AS n FROM users WHERE subscribed = 1")).n;
+  const trialUsers = (await db.get("SELECT COUNT(*) AS n FROM users WHERE subscribed = 0")).n;
+  const onlineNow = (await db.get("SELECT COUNT(*) AS n FROM users WHERE last_seen >= datetime('now', '-5 minutes')")).n;
+  const signupsToday = (await db.get("SELECT COUNT(*) AS n FROM users WHERE date(created_at) = date('now')")).n;
+  const activeSubscriptions = (await db.get("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'ACTIVE'")).n;
   // Estimación de ingresos mensuales recurrentes (MRR): 4.99 mensual, 39.99/12 anual
-  const plans = db
-    .prepare("SELECT plan, COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'ACTIVE' GROUP BY plan")
-    .all();
+  const plans = await db.all("SELECT plan, COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'ACTIVE' GROUP BY plan");
   let mrr = 0;
   for (const p of plans) {
     if (p.plan === "monthly") mrr += p.n * 4.99;
@@ -90,19 +83,15 @@ router.get("/stats", requireAdmin, (req, res) => {
   }
 
   // Países: cuántos países distintos y top 5
-  const countriesCount = db
-    .prepare("SELECT COUNT(DISTINCT country) AS n FROM users WHERE country IS NOT NULL")
-    .get().n;
-  const topCountries = db
-    .prepare(
+  const countriesCount = (await db.get("SELECT COUNT(DISTINCT country) AS n FROM users WHERE country IS NOT NULL")).n;
+  const topCountries = await db.all(
       `SELECT country AS pais, country_code AS codigo, COUNT(*) AS usuarios
        FROM users
        WHERE country IS NOT NULL
        GROUP BY country, country_code
        ORDER BY usuarios DESC
        LIMIT 5`
-    )
-    .all();
+    );
 
   res.json({
     totalUsers,
@@ -115,42 +104,34 @@ router.get("/stats", requireAdmin, (req, res) => {
     countriesCount,
     topCountries,
     // Chats deshabilitados (muteados por anti-spam o por bandera roja)
-    mutedChats: db
-      .prepare("SELECT COUNT(*) AS n FROM users WHERE chat_muted = 1 OR chat_disabled = 1")
-      .get().n,
+    mutedChats: (await db.get("SELECT COUNT(*) AS n FROM users WHERE chat_muted = 1 OR chat_disabled = 1")).n,
     // Usuarios con banderas de advertencia
-    flaggedUsers: db
-      .prepare("SELECT COUNT(DISTINCT target_user_id) AS n FROM user_flags")
-      .get().n,
+    flaggedUsers: (await db.get("SELECT COUNT(DISTINCT target_user_id) AS n FROM user_flags")).n,
     // Banderas rojas pendientes de decisión
-    redFlags: db
-      .prepare(`SELECT COUNT(*) AS n FROM (
+    redFlags: (await db.get(`SELECT COUNT(*) AS n FROM (
         SELECT target_user_id FROM user_flags GROUP BY target_user_id HAVING COUNT(*) >= 4
-      )`)
-      .get().n,
+      )`)).n,
     // Planes cancelados
-    cancelledPlans: db
-      .prepare("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'CANCELLED'")
-      .get().n,
+    cancelledPlans: (await db.get("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'CANCELLED'")).n,
     // Referidos: usuarios que llegaron por un link compartido + top invitadores
-    referredUsers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL").get().n,
-    topReferrers: db.prepare(`
+    referredUsers: (await db.get("SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL")).n,
+    topReferrers: await db.all(`
       SELECT u.id, u.name AS nombre, COUNT(r.id) AS referidos
       FROM users u
       JOIN users r ON r.referred_by = u.id
       GROUP BY u.id, u.name
       ORDER BY referidos DESC
       LIMIT 10
-    `).all(),
+    `),
   });
-});
+}));
 
 /* ---------- GET /api/admin/growth ----------
  * ?days=N — período: 8, 15, 30, 60, 90, 180, 365 (por defecto 30).
  * Si days <= 90 agrupa por día; si days > 90 agrupa por semana
  * (strftime('%Y-%W')) para que la tabla/gráfico no sea eterna.
  * Rellena los períodos sin actividad con ceros para que el gráfico sea continuo. */
-router.get("/growth", requireAdmin, (req, res) => {
+router.get("/growth", requireAdmin, ah(async (req, res) => {
   const ALLOWED = [8, 15, 30, 60, 90, 180, 365];
   let days = parseInt(req.query.days, 10);
   if (!ALLOWED.includes(days)) days = 30;
@@ -158,25 +139,21 @@ router.get("/growth", requireAdmin, (req, res) => {
 
   let rows;
   if (byWeek) {
-    rows = db
-      .prepare(
+    rows = await db.all(
         `SELECT strftime('%Y-%W', created_at) AS periodo, COUNT(*) AS signups, SUM(subscribed) AS new_subs
          FROM users
          WHERE created_at >= date('now', '-' || ? || ' days')
          GROUP BY periodo
          ORDER BY periodo`
-      )
-      .all(days);
+      , days);
   } else {
-    rows = db
-      .prepare(
+    rows = await db.all(
         `SELECT date(created_at) AS periodo, COUNT(*) AS signups, SUM(subscribed) AS new_subs
          FROM users
          WHERE created_at >= date('now', '-' || ? || ' days')
          GROUP BY periodo
          ORDER BY periodo`
-      )
-      .all(days);
+      , days);
   }
 
   const byPeriodo = {};
@@ -225,13 +202,12 @@ router.get("/growth", requireAdmin, (req, res) => {
   const totalSubs = periods.reduce((a, p) => a + p.nuevosConPlan, 0);
 
   res.json({ days, porSemana: byWeek, periods, totalSignups, totalSubs });
-});
+}));
 
 /* ---------- GET /api/admin/users ---------- */
-router.get("/users", requireAdmin, (req, res) => {
+router.get("/users", requireAdmin, ah(async (req, res) => {
   const emailOk = isEmailConfigured();
-  const users = db
-    .prepare(
+  const users = await db.all(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes, u.credits,
@@ -240,8 +216,7 @@ router.get("/users", requireAdmin, (req, res) => {
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
        ORDER BY u.created_at DESC
        LIMIT 500`
-    )
-    .all();
+    );
 
   res.json({
     users: users.map((u) => ({
@@ -273,7 +248,7 @@ router.get("/users", requireAdmin, (req, res) => {
       rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
     })),
   });
-});
+}));
 
 /* ============================================================
    DETALLE COMPLETO DE USUARIO (para la vista de actividad)
@@ -298,12 +273,11 @@ function diaActual(programStart) {
 }
 
 /* ---------- GET /api/admin/users/:id ---------- */
-router.get("/users/:id", requireAdmin, (req, res) => {
+router.get("/users/:id", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
 
-  const u = db
-    .prepare(
+  const u = await db.get(
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.program_start, u.ip, u.country, u.country_code, u.photo,
               u.email_verified, u.verification_token,
@@ -315,69 +289,48 @@ router.get("/users/:id", requireAdmin, (req, res) => {
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
        WHERE u.id = ?`
-    )
-    .get(id);
+    , id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  const doneRows = db
-    .prepare("SELECT day FROM progress WHERE user_id = ? ORDER BY day")
-    .all(id)
+  const doneRows = (await db.all("SELECT day FROM progress WHERE user_id = ? ORDER BY day", id))
     .map((r) => r.day);
   const currentDay = diaActual(u.program_start);
   const racha = calcularRacha(doneRows, currentDay);
 
-  const journalRows = db
-    .prepare("SELECT date, mood, text FROM journal WHERE user_id = ? ORDER BY date DESC LIMIT 10")
-    .all(id);
+  const journalRows = await db.all("SELECT date, mood, text FROM journal WHERE user_id = ? ORDER BY date DESC LIMIT 10", id);
 
-  const communityCount = db
-    .prepare("SELECT COUNT(*) AS n FROM community_comments WHERE user_id = ?")
-    .get(id).n;
-  const communityRows = db
-    .prepare(
+  const communityCount = (await db.get("SELECT COUNT(*) AS n FROM community_comments WHERE user_id = ?", id)).n;
+  const communityRows = await db.all(
       "SELECT id, text, msg_type, created_at, hidden FROM community_comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 10"
-    )
-    .all(id);
+    , id);
 
-  const topicsRows = db
-    .prepare("SELECT id, name, created_at, expires_at FROM chat_topics WHERE user_id = ? ORDER BY created_at DESC LIMIT 20")
-    .all(id);
+  const topicsRows = await db.all("SELECT id, name, created_at, expires_at FROM chat_topics WHERE user_id = ? ORDER BY created_at DESC LIMIT 20", id);
 
   const today = new Date().toISOString().slice(0, 10);
-  const chatToday = db
-    .prepare("SELECT seconds_used FROM chat_usage WHERE user_id = ? AND date = ?")
-    .get(id, today);
-  const chatHistory = db
-    .prepare("SELECT date, seconds_used FROM chat_usage WHERE user_id = ? ORDER BY date DESC LIMIT 7")
-    .all(id);
+  const chatToday = await db.get("SELECT seconds_used FROM chat_usage WHERE user_id = ? AND date = ?", id, today);
+  const chatHistory = await db.all("SELECT date, seconds_used FROM chat_usage WHERE user_id = ? ORDER BY date DESC LIMIT 7", id);
 
-  const messagesRows = db
-    .prepare(
+  const messagesRows = await db.all(
       `SELECT id, title, body, created_at, read_at FROM admin_messages
        WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
-    )
-    .all(id);
+    , id);
 
-  const violationsRows = db
-    .prepare(
+  const violationsRows = await db.all(
       `SELECT attempted_text, violation_type, detail, created_at FROM chat_violations
        WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
-    )
-    .all(id);
+    , id);
 
   const emailOk = isEmailConfigured();
 
   // Banderas de advertencia: nivel actual + quiénes las pusieron.
-  const nivelBandera = flagLevel(id);
-  const banderasDe = db
-    .prepare(
+  const nivelBandera = await flagLevel(id);
+  const banderasDe = (await db.all(
       `SELECT f.created_at, r.name AS reportero, r.email AS reportero_email
        FROM user_flags f
        LEFT JOIN users r ON r.id = f.reporter_user_id
        WHERE f.target_user_id = ?
        ORDER BY f.created_at DESC`
-    )
-    .all(id)
+    , id))
     .map((f) => ({
       reportero: f.reportero || f.reportero_email || "—",
       fecha: fmtDateTime(f.created_at),
@@ -408,7 +361,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     diasCompletados: doneRows.length,
     ultimoDiaCompletado: doneRows.length ? Math.max(...doneRows) : 0,
     diario: {
-      total: db.prepare("SELECT COUNT(*) AS n FROM journal WHERE user_id = ?").get(id).n,
+      total: (await db.get("SELECT COUNT(*) AS n FROM journal WHERE user_id = ?", id)).n,
       entradas: journalRows.map((j) => ({
         fecha: fmtDay(j.date),
         animo: j.mood || "—",
@@ -470,20 +423,18 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
     rvBloqueImagenes: Math.max(0, Number(u.img_block_remaining || 0)),
   });
-});
+}));
 
 /* ---------- GET /api/admin/credit-purchases ----------
  * Lista todas las compras de RV (para el admin). */
-router.get("/credit-purchases", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
+router.get("/credit-purchases", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
       `SELECT p.id, p.user_id, u.email, u.name, p.pack_credits AS rv, p.amount_usd AS monto,
               p.paypal_order_id AS orden, p.status AS estado, p.created_at
        FROM credit_purchases p
        JOIN users u ON u.id = p.user_id
        ORDER BY p.created_at DESC LIMIT 200`
-    )
-    .all();
+    );
   res.json({
     compras: rows.map((r) => ({
       id: r.id,
@@ -496,43 +447,43 @@ router.get("/credit-purchases", requireAdmin, (req, res) => {
       fecha: fmtDateTime(r.created_at),
     })),
   });
-});
+}));
 
 /* ---------- POST /api/admin/users/:id/credits ----------
  * Ajusta manualmente el saldo de RV de un usuario (soporte).
  * Body: { amount } — puede ser positivo (agregar) o negativo (quitar). */
-router.post("/users/:id/credits", requireAdmin, (req, res) => {
+router.post("/users/:id/credits", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
   const amount = Number(req.body?.amount);
   if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100000)
     return res.status(400).json({ error: "Monto inválido" });
-  const u = db.prepare("SELECT id, credits FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, credits FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
   const nuevo = Math.max(0, (Number(u.credits) || 0) + Math.trunc(amount));
-  db.prepare("UPDATE users SET credits = ? WHERE id = ?").run(nuevo, id);
+  await db.run("UPDATE users SET credits = ? WHERE id = ?", nuevo, id);
   res.json({ ok: true, rv: nuevo });
-});
+}));
 
 /* ---------- POST /api/admin/users/:id/verify ----------
  * Marca manualmente a un usuario como verificado (casos de soporte:
  * el correo no llegó, el usuario no puede abrir el link, etc.). */
-router.post("/users/:id/verify", requireAdmin, (req, res) => {
+router.post("/users/:id/verify", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  db.prepare("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?").run(id);
+  await db.run("UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?", id);
   res.json({ ok: true, verificado: true, email: u.email });
-});
+}));
 
 /* ---------- POST /api/admin/users/:id/message ----------
  * Envía un mensaje PRIVADO a un usuario (aparece en su app vía GET /api/messages).
  * Body: { text, title? } — title por defecto: "Mensaje privado 💛" */
-router.post("/users/:id/message", requireAdmin, (req, res) => {
+router.post("/users/:id/message", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email, name FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
 
   const text = String(req.body?.text || "").trim();
@@ -541,40 +492,36 @@ router.post("/users/:id/message", requireAdmin, (req, res) => {
     return res.status(400).json({ error: "El mensaje es muy largo (máximo 2000 caracteres)" });
   const title = String(req.body?.title || "").trim() || "Mensaje privado 💛";
 
-  const r = db
-    .prepare("INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)")
-    .run(u.id, u.email, title, text);
+  const r = await db.run("INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)", u.id, u.email, title, text);
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), para: u.email });
-});
+}));
 
 /* ---------- POST /api/admin/users/:id/unmute ----------
  * Reactiva la capacidad de escribir en el chat de un usuario muteado
  * por el sistema anti-spam. Reinicia sus strikes. */
-router.post("/users/:id/unmute", requireAdmin, (req, res) => {
+router.post("/users/:id/unmute", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email, chat_muted FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email, chat_muted FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  db.prepare(
+  await db.run(
     "UPDATE users SET chat_muted = 0, chat_strikes = 0, chat_strikes_date = NULL WHERE id = ?"
-  ).run(id);
+  , id);
   res.json({ ok: true, reactivado: true, email: u.email });
-});
+}));
 
 /* ---------- GET /api/admin/chat-violations ----------
  * Lista de intentos bloqueados por el filtro anti-spam (los más recientes).
  * Muestra quién intentó qué y cuándo, para revisión del administrador. */
-router.get("/chat-violations", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
+router.get("/chat-violations", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
       `SELECT v.id, v.user_id, v.attempted_text, v.violation_type, v.detail, v.created_at,
               u.name, u.email
        FROM chat_violations v
        LEFT JOIN users u ON u.id = v.user_id
        ORDER BY v.created_at DESC
        LIMIT 100`
-    )
-    .all();
+    );
   res.json({
     infracciones: rows.map((v) => ({
       id: v.id,
@@ -587,17 +534,15 @@ router.get("/chat-violations", requireAdmin, (req, res) => {
       fecha: v.created_at,
     })),
   });
-});
+}));
 
 /* ---------- GET /api/admin/messages ---------- */
 
 /* ---------- Dominios verificados 🔒 ----------
  * Solo se permiten links de páginas verificadas en mensajes
  * promocionales (anti-phishing/hackers). */
-router.get("/verified-domains", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare("SELECT id, domain, approved_by, approved_at FROM verified_domains ORDER BY domain ASC")
-    .all();
+router.get("/verified-domains", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all("SELECT id, domain, approved_by, approved_at FROM verified_domains ORDER BY domain ASC");
   res.json({
     dominios: rows.map((d) => ({
       id: d.id,
@@ -606,18 +551,18 @@ router.get("/verified-domains", requireAdmin, (req, res) => {
       fecha: d.approved_at,
     })),
   });
-});
+}));
 
-router.post("/verified-domains", requireAdmin, (req, res) => {
+router.post("/verified-domains", requireAdmin, ah(async (req, res) => {
   const { normalizarDominio, invalidarCache } = require("../linkverify");
   const dominio = normalizarDominio(req.body && req.body.domain);
   if (!dominio || !/^[a-z0-9][a-z0-9\-.]*\.[a-z]{2,}$/.test(dominio)) {
     return res.status(400).json({ error: "Dominio inválido. Ejemplo: mitienda.com" });
   }
   try {
-    db.prepare(
+    await db.run(
       "INSERT INTO verified_domains (domain, approved_by) VALUES (?, ?)"
-    ).run(dominio, (req.user && (req.user.name || req.user.email)) || "admin");
+    , dominio, (req.user && (req.user.name || req.user.email)) || "admin");
   } catch (e) {
     if (String(e.message || "").includes("UNIQUE")) {
       return res.status(409).json({ error: "Ese dominio ya está verificado." });
@@ -626,24 +571,22 @@ router.post("/verified-domains", requireAdmin, (req, res) => {
   }
   invalidarCache();
   res.status(201).json({ ok: true, dominio });
-});
+}));
 
-router.delete("/verified-domains/:id", requireAdmin, (req, res) => {
+router.delete("/verified-domains/:id", requireAdmin, ah(async (req, res) => {
   const { invalidarCache } = require("../linkverify");
-  const r = db.prepare("DELETE FROM verified_domains WHERE id = ?").run(req.params.id);
+  const r = await db.run("DELETE FROM verified_domains WHERE id = ?", req.params.id);
   invalidarCache();
   if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
   res.json({ ok: true });
-});
-router.get("/messages", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
+}));
+router.get("/messages", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
       `SELECT id, user_id, email, title, body, created_at, read_at
        FROM admin_messages
        ORDER BY created_at DESC
        LIMIT 100`
-    )
-    .all();
+    );
   res.json({
     messages: rows.map((m) => ({
       id: m.id,
@@ -654,11 +597,11 @@ router.get("/messages", requireAdmin, (req, res) => {
       leido: !!m.read_at,
     })),
   });
-});
+}));
 
 /* ---------- POST /api/admin/messages ----------
  * Body: { userId: number | "all", title, body } */
-router.post("/messages", requireAdmin, (req, res) => {
+router.post("/messages", requireAdmin, ah(async (req, res) => {
   const { userId, title, body } = req.body || {};
   const t = String(title || "").trim();
   const b = String(body || "").trim();
@@ -666,23 +609,23 @@ router.post("/messages", requireAdmin, (req, res) => {
   if (!b) return res.status(400).json({ error: "El mensaje es requerido" });
 
   if (userId === "all" || userId === undefined || userId === null) {
-    db.prepare(
+    await db.run(
       "INSERT INTO admin_messages (user_id, email, title, body) VALUES (NULL, NULL, ?, ?)"
-    ).run(t, b);
-    const total = db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_admin != 1").get().n;
+    , t, b);
+    const total = (await db.get("SELECT COUNT(*) AS n FROM users WHERE is_admin != 1")).n;
     return res.status(201).json({ ok: true, para: "todos", destinatarios: total });
   }
 
   const id = Number(userId);
   if (!id) return res.status(400).json({ error: "Usuario inválido" });
-  const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  db.prepare(
+  await db.run(
     "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-  ).run(u.id, u.email, t, b);
+  , u.id, u.email, t, b);
   res.status(201).json({ ok: true, para: u.email });
-});
+}));
 
 /* ============================================================
    COMUNIDAD — moderación (solo admin)
@@ -690,17 +633,15 @@ router.post("/messages", requireAdmin, (req, res) => {
 
 /* GET /api/admin/community → todos los comentarios CON la identidad real
  * del autor (solo el admin puede ver quién escribió qué). */
-router.get("/community", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
+router.get("/community", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
       `SELECT c.id, c.user_id, c.text, c.created_at, c.hidden,
               u.name AS nombre, u.email
        FROM community_comments c
        LEFT JOIN users u ON u.id = c.user_id
        ORDER BY c.created_at DESC
        LIMIT 200`
-    )
-    .all();
+    );
   res.json({
     comentarios: rows.map((c) => ({
       id: c.id,
@@ -712,36 +653,36 @@ router.get("/community", requireAdmin, (req, res) => {
       email: c.email || "—",
     })),
   });
-});
+}));
 
 /* POST /api/admin/community/:id/hide → ocultar comentario inapropiado. */
-router.post("/community/:id/hide", requireAdmin, (req, res) => {
+router.post("/community/:id/hide", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Comentario inválido" });
-  const r = db.prepare("UPDATE community_comments SET hidden = 1 WHERE id = ?").run(id);
+  const r = await db.run("UPDATE community_comments SET hidden = 1 WHERE id = ?", id);
   if (!r.changes) return res.status(404).json({ error: "Comentario no encontrado" });
   res.json({ ok: true, oculto: true });
-});
+}));
 
 /* POST /api/admin/community/:id/unhide → volver a mostrar. */
-router.post("/community/:id/unhide", requireAdmin, (req, res) => {
+router.post("/community/:id/unhide", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Comentario inválido" });
-  const r = db.prepare("UPDATE community_comments SET hidden = 0 WHERE id = ?").run(id);
+  const r = await db.run("UPDATE community_comments SET hidden = 0 WHERE id = ?", id);
   if (!r.changes) return res.status(404).json({ error: "Comentario no encontrado" });
   res.json({ ok: true, oculto: false });
-});
+}));
 
 /* ============ SEGURIDAD: IPs bloqueadas y usuarios baneados ============ */
 const { blockIp, unblockIp, banUser, unbanUser, getClientIp } = require("../security");
 
 /* GET /api/admin/blocked-ips → lista de IPs bloqueadas. */
-router.get("/blocked-ips", requireAdmin, (req, res) => {
-  const rows = db.prepare(
+router.get("/blocked-ips", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
     "SELECT ip, reason, blocked_at, blocked_by FROM blocked_ips ORDER BY blocked_at DESC LIMIT 200"
-  ).all();
+  );
   res.json({ ips: rows });
-});
+}));
 
 /* POST /api/admin/blocked-ips { ip, reason } → bloquear IP manualmente. */
 router.post("/blocked-ips", requireAdmin, (req, res) => {
@@ -764,25 +705,25 @@ router.delete("/blocked-ips/:ip", requireAdmin, (req, res) => {
 });
 
 /* GET /api/admin/banned-users → lista de usuarios baneados. */
-router.get("/banned-users", requireAdmin, (req, res) => {
-  const rows = db.prepare(
+router.get("/banned-users", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
     "SELECT id, name, email, country, ban_reason FROM users WHERE banned = 1 ORDER BY id DESC LIMIT 200"
-  ).all();
+  );
   res.json({ usuarios: rows });
-});
+}));
 
 /* POST /api/admin/users/:id/ban { reason } → banear permanentemente. */
-router.post("/users/:id/ban", requireAdmin, (req, res) => {
+router.post("/users/:id/ban", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Usuario inválido" });
-  const target = db.prepare("SELECT id, is_admin FROM users WHERE id = ?").get(id);
+  const target = await db.get("SELECT id, is_admin FROM users WHERE id = ?", id);
   if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
   if (target.is_admin === 1)
     return res.status(400).json({ error: "No se puede banear a un administrador" });
   const reason = String(req.body?.reason || "Violación de términos").slice(0, 200);
   banUser(id, reason);
   res.json({ ok: true, baneado: true });
-});
+}));
 
 /* POST /api/admin/users/:id/unban → quitar el baneo. */
 router.post("/users/:id/unban", requireAdmin, (req, res) => {
@@ -808,7 +749,7 @@ function emailValido(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || "").trim());
 }
 
-router.post("/change-password", requireAdmin, (req, res) => {
+router.post("/change-password", requireAdmin, ah(async (req, res) => {
   const current = String(req.body?.current_password || "");
   const nuevo = String(req.body?.new_password || "");
   const backupEmail = String(req.body?.backup_email || "").trim().toLowerCase();
@@ -816,7 +757,7 @@ router.post("/change-password", requireAdmin, (req, res) => {
   if (nuevo.length < 6)
     return res.status(400).json({ error: "La nueva contraseña debe tener al menos 6 caracteres" });
 
-  const admin = db.prepare("SELECT id, password_hash FROM users WHERE id = ?").get(req.user.id);
+  const admin = await db.get("SELECT id, password_hash FROM users WHERE id = ?", req.user.id);
   if (!admin) return res.status(404).json({ error: "Administrador no encontrado" });
 
   // Verificación: contraseña actual (si existe) o el código de admin.
@@ -835,23 +776,22 @@ router.post("/change-password", requireAdmin, (req, res) => {
 
   const hash = bcrypt.hashSync(nuevo, 10);
   if (backupEmail) {
-    db.prepare("UPDATE users SET password_hash = ?, backup_email = ? WHERE id = ?")
-      .run(hash, backupEmail, admin.id);
+    await db.run("UPDATE users SET password_hash = ?, backup_email = ? WHERE id = ?", hash, backupEmail, admin.id);
   } else {
-    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, admin.id);
+    await db.run("UPDATE users SET password_hash = ? WHERE id = ?", hash, admin.id);
   }
   res.json({
     ok: true,
     message: "Contraseña actualizada ✅" + (backupEmail ? " Correo de respaldo guardado 📧" : ""),
     backup_email: backupEmail || undefined,
   });
-});
+}));
 
 /* GET /api/admin/backup-email → correo de respaldo actual del admin. */
-router.get("/backup-email", requireAdmin, (req, res) => {
-  const row = db.prepare("SELECT backup_email FROM users WHERE id = ?").get(req.user.id);
+router.get("/backup-email", requireAdmin, ah(async (req, res) => {
+  const row = await db.get("SELECT backup_email FROM users WHERE id = ?", req.user.id);
   res.json({ backup_email: row?.backup_email || null });
-});
+}));
 
 /* ---------- Banderas de advertencia (moderación comunitaria) ----------
  * GET  /api/admin/flagged → usuarios con bandera roja (level 4) pendientes
@@ -860,63 +800,60 @@ router.get("/backup-email", requireAdmin, (req, res) => {
  *        chat_disabled=0, notifica al usuario.
  * POST /api/admin/users/:id/deny-reactivation → mantiene deshabilitado,
  *        notifica al usuario que su solicitud fue denegada. */
-router.get("/flagged", requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
+router.get("/flagged", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
       `SELECT u.id, u.name, u.email, u.chat_disabled,
               (SELECT COUNT(*) FROM user_flags f WHERE f.target_user_id = u.id) AS flags,
               (SELECT MAX(f.created_at) FROM user_flags f WHERE f.target_user_id = u.id) AS ultimo
        FROM users u
        WHERE (SELECT COUNT(*) FROM user_flags f WHERE f.target_user_id = u.id) >= 4
        ORDER BY ultimo DESC`
-    )
-    .all();
+    );
   res.json({ flagged: rows });
-});
+}));
 
-router.post("/users/:id/reactivate", requireAdmin, (req, res) => {
+router.post("/users/:id/reactivate", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email, name FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  db.prepare("DELETE FROM user_flags WHERE target_user_id = ?").run(id);
-  db.prepare("UPDATE users SET chat_disabled = 0 WHERE id = ?").run(id);
+  await db.run("DELETE FROM user_flags WHERE target_user_id = ?", id);
+  await db.run("UPDATE users SET chat_disabled = 0 WHERE id = ?", id);
   try {
-    db.prepare(
+    await db.run(
       "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-    ).run(id, u.email, "✅ Tu cuenta fue rehabilitada",
+    , id, u.email, "✅ Tu cuenta fue rehabilitada",
       "El administrador revisó tu caso y rehabilitó tu cuenta. Ya puedes volver a chatear y publicar. Por favor mantén un buen comportamiento en la comunidad. 💛");
   } catch (e) { /* no bloquea */ }
   res.json({ ok: true, reactivado: true, email: u.email });
-});
+}));
 
-router.post("/users/:id/deny-reactivation", requireAdmin, (req, res) => {
+router.post("/users/:id/deny-reactivation", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email, name FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
   try {
-    db.prepare(
+    await db.run(
       "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-    ).run(id, u.email, "⛔ Rehabilitación denegada",
+    , id, u.email, "⛔ Rehabilitación denegada",
       "El administrador revisó tu caso y decidió no rehabilitar tu cuenta por ahora. Tu permiso para chatear sigue deshabilitado.");
   } catch (e) { /* no bloquea */ }
   res.json({ ok: true, denegado: true, email: u.email });
-});
+}));
 
 /* ---------- GET /api/admin/users/:id/dms ----------
  * Conversaciones DM de un usuario: por cada contraparte (nombre, id),
  * los mensajes intercambiados ordenados por fecha. Incluye mensajes
  * aunque hayan expirado (si aún están en la tabla). Solo lectura. */
-router.get("/users/:id/dms", requireAdmin, (req, res) => {
+router.get("/users/:id/dms", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, name, email FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
 
   // Contrapartes: usuarios con los que intercambió DMs (en ambas direcciones).
-  const peers = db
-    .prepare(
+  const peers = await db.all(
       `SELECT DISTINCT other.id, other.name, other.email
        FROM (
          SELECT to_user_id AS oid FROM private_messages WHERE from_user_id = ?
@@ -925,19 +862,16 @@ router.get("/users/:id/dms", requireAdmin, (req, res) => {
        ) x
        JOIN users other ON other.id = x.oid
        ORDER BY other.name`
-    )
-    .all(id, id);
+    , id, id);
 
-  const conversations = peers.map((p) => {
-    const msgs = db
-      .prepare(
+  const conversations = peers.map(async (p) => {
+    const msgs = await db.all(
         `SELECT id, from_user_id, to_user_id, text, created_at, read_at, expires_at
          FROM private_messages
          WHERE (from_user_id = ? AND to_user_id = ?)
             OR (from_user_id = ? AND to_user_id = ?)
          ORDER BY created_at ASC, id ASC`
-      )
-      .all(id, p.id, p.id, id);
+      , id, p.id, p.id, id);
     return {
       id: p.id,
       nombre: p.name || p.email,
@@ -958,89 +892,83 @@ router.get("/users/:id/dms", requireAdmin, (req, res) => {
   });
 
   res.json({ ok: true, usuario: { id: u.id, nombre: u.name, email: u.email }, conversaciones: conversations });
-});
+}));
 
 /* ---------- POST /api/admin/users/:id/flag ----------
  * El admin agrega UNA bandera de advertencia al usuario manualmente.
  * Si ya tiene 4, no hace nada. Al llegar a 4: chat_disabled=1.
  * El admin no puede banderearse a sí mismo ni a otro admin. */
-router.post("/users/:id/flag", requireAdmin, (req, res) => {
+router.post("/users/:id/flag", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
   if (id === req.user.id)
     return res.status(400).json({ error: "No puedes banderearte a ti mismo" });
-  const target = db
-    .prepare("SELECT id, email, name, is_admin, chat_disabled FROM users WHERE id = ?")
-    .get(id);
+  const target = await db.get("SELECT id, email, name, is_admin, chat_disabled FROM users WHERE id = ?", id);
   if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
   if (target.is_admin === 1)
     return res.status(400).json({ error: "No puedes banderear al administrador" });
 
   // Un flag por reportero (el admin cuenta como un reportero).
-  const existing = db
-    .prepare("SELECT id FROM user_flags WHERE target_user_id = ? AND reporter_user_id = ?")
-    .get(id, req.user.id);
+  const existing = await db.get("SELECT id FROM user_flags WHERE target_user_id = ? AND reporter_user_id = ?", id, req.user.id);
   if (!existing) {
-    db.prepare(
+    await db.run(
       "INSERT INTO user_flags (target_user_id, reporter_user_id) VALUES (?, ?)"
-    ).run(id, req.user.id);
+    , id, req.user.id);
   }
 
-  const level = flagLevel(id);
+  const level = await flagLevel(id);
 
   // Notificar al usuario de la advertencia manual del admin.
   const levelNames = ["blanca ⚪", "azul 🔵", "amarilla 🟡", "negra ⚫", "roja 🔴"];
   try {
-    db.prepare(
+    await db.run(
       "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-    ).run(id, target.email, "⚠️ Advertencia del administrador",
+    , id, target.email, "⚠️ Advertencia del administrador",
       `El administrador te envió una advertencia directa (bandera ${levelNames[level]}). ` +
       `Por favor evita ese comportamiento. Si llegas a la bandera roja, tu cuenta será deshabilitada para chatear.`);
   } catch (e) { /* no bloquea */ }
 
   // Bandera roja: deshabilitar chat (sin aviso "ultimadecision": lo hizo el admin).
   if (level >= 4 && target.chat_disabled !== 1) {
-    db.prepare("UPDATE users SET chat_disabled = 1 WHERE id = ?").run(id);
+    await db.run("UPDATE users SET chat_disabled = 1 WHERE id = ?", id);
     try {
-      db.prepare(
+      await db.run(
         "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-      ).run(id, target.email, "🔴 Tu cuenta fue deshabilitada para chatear",
+      , id, target.email, "🔴 Tu cuenta fue deshabilitada para chatear",
         `El administrador te puso bandera roja. Tu permiso para chatear y publicar contenido quedó deshabilitado.`);
     } catch (e) { /* no bloquea */ }
   }
 
   res.json({ ok: true, level });
-});
+}));
 
 /* ---------- DELETE /api/admin/users/:id/flags ----------
  * El admin quita TODAS las banderas del usuario (nivel → 0).
  * Si el chat estaba deshabilitado por bandera roja, se reactiva.
  * Sin notificación "ultimadecision". */
-router.delete("/users/:id/flags", requireAdmin, (req, res) => {
+router.delete("/users/:id/flags", requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(id);
+  const u = await db.get("SELECT id, email FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
-  db.prepare("DELETE FROM user_flags WHERE target_user_id = ?").run(id);
-  db.prepare("UPDATE users SET chat_disabled = 0 WHERE id = ?").run(id);
+  await db.run("DELETE FROM user_flags WHERE target_user_id = ?", id);
+  await db.run("UPDATE users SET chat_disabled = 0 WHERE id = ?", id);
   res.json({ ok: true, level: 0 });
-});
+}));
 
 /* ---------- GET /api/admin/community/recent ----------
  * Mensajes recientes del chat grupal para la vista en vivo del admin.
  * Sin anonimizar: el admin ve nombres reales. Incluye ocultos. */
-router.get("/community/recent", requireAdmin, (req, res) => {
+router.get("/community/recent", requireAdmin, ah(async (req, res) => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-  const rows = db
-    .prepare(
+  const rows = await db.all(
       `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.hidden,
               u.name, u.email, u.is_admin
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
        ORDER BY c.created_at DESC
        LIMIT ?`
-    )
-    .all(limit);
+    , limit);
   res.json({
     ok: true,
     mensajes: rows.map((c) => ({
@@ -1055,6 +983,6 @@ router.get("/community/recent", requireAdmin, (req, res) => {
       oculto: c.hidden === 1,
     })),
   });
-});
+}));
 
 module.exports = { router, requireAdmin };
