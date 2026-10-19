@@ -1785,23 +1785,40 @@ async function uploadCoverPhoto(input){
   input.value = "";
 }
 
-/* Redimensiona una imagen a maxW x maxH manteniendo proporción. */
+/* Redimensiona una imagen a maxW x maxH manteniendo proporción.
+ * Intenta con objectURL y si falla, con FileReader como respaldo. */
 function resizeImage(file, maxW, maxH){
   return new Promise((resolve, reject)=>{
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = ()=>{
-      URL.revokeObjectURL(url);
-      let w = img.width, h = img.height;
-      const ratio = Math.min(maxW / w, maxH / h, 1);
-      w = Math.round(w * ratio); h = Math.round(h * ratio);
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      c.getContext("2d").drawImage(img, 0, 0, w, h);
-      resolve(c.toDataURL("image/jpeg", 0.85));
+    const viaReader = ()=>{
+      const fr = new FileReader();
+      fr.onload = ()=>{
+        const img2 = new Image();
+        img2.onload = ()=>finish(img2);
+        img2.onerror = ()=>reject(new Error("No se pudo leer la imagen"));
+        img2.src = fr.result;
+      };
+      fr.onerror = ()=>reject(new Error("No se pudo leer el archivo"));
+      fr.readAsDataURL(file);
     };
-    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error("No se pudo leer la imagen")); };
-    img.src = url;
+    const finish = (img)=>{
+      try{
+        let w = img.width, h = img.height;
+        if(!w || !h) return reject(new Error("Imagen sin dimensiones"));
+        const ratio = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.85));
+      }catch(e){ reject(new Error("No se pudo procesar la imagen")); }
+    };
+    try{
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = ()=>{ URL.revokeObjectURL(url); finish(img); };
+      img.onerror = ()=>{ URL.revokeObjectURL(url); viaReader(); };
+      img.src = url;
+    }catch(e){ viaReader(); }
   });
 }
 
