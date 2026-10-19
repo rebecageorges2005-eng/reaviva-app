@@ -1711,6 +1711,8 @@ function renderPerfil(){
     <div style="text-align:center;padding:10px 0">
       <div style="font-size:1.3rem;font-weight:700">${nombre}</div>
       <div style="color:var(--cocoa-soft);font-size:.9rem;margin:4px 0">${planLabel}</div>
+      <div id="perfil-bio-line" style="margin:6px 0;font-size:.95rem;color:var(--cocoa)"></div>
+      <div id="perfil-meta-line" style="margin:4px 0;font-size:.85rem;color:var(--cocoa-soft)"></div>
     </div>
     <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
     <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
@@ -1732,6 +1734,73 @@ function renderPerfil(){
       </div>
     </div>`;
   renderPerfilAlbums();
+  renderPerfilBioMeta();
+}
+
+/* Muestra la descripción, el sexo y el país en el perfil. */
+function renderPerfilBioMeta(){
+  const u = currentUser();
+  if(!u) return;
+  const bioLine = document.getElementById("perfil-bio-line");
+  const metaLine = document.getElementById("perfil-meta-line");
+  const bio = (u.bio || "").trim();
+  if(bioLine){
+    bioLine.innerHTML = bio
+      ? `${esc(bio)} <button onclick="editBio()" style="background:none;border:none;cursor:pointer;font-size:.85rem" title="Editar descripción">✏️</button>`
+      : `<button onclick="editBio()" class="btn btn-ghost btn-sm">✏️ Agrega una descripción</button>`;
+  }
+  if(metaLine){
+    const parts = [];
+    if(u.gender === "M") parts.push("👨 Hombre");
+    else if(u.gender === "F") parts.push("👩 Mujer");
+    if(u.pais) parts.push("📍 " + esc(u.pais));
+    metaLine.textContent = parts.join(" · ");
+  }
+}
+
+/* Editar la descripción del perfil. */
+function editBio(){
+  const u = currentUser();
+  if(!u) return;
+  const actual = (u.bio || "").trim();
+  openDynModal(`
+    <div style="text-align:center">
+      <h3 style="margin:0 0 10px">✏️ Tu descripción</h3>
+      <textarea id="bio-input" class="journal" rows="3" maxlength="300"
+        placeholder="Cuéntanos algo sobre ti… (máx 300 caracteres)"
+        style="width:100%;margin-bottom:6px">${esc(actual)}</textarea>
+      <div id="bio-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-bottom:10px">${actual.length}/300</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-ghost" onclick="closeDynModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveBio()">Guardar</button>
+      </div>
+    </div>`);
+  const ta = document.getElementById("bio-input");
+  const cd = document.getElementById("bio-count");
+  if(ta && cd) ta.addEventListener("input", ()=>{ cd.textContent = ta.value.length + "/300"; });
+}
+
+async function saveBio(){
+  const ta = document.getElementById("bio-input");
+  const bio = ta ? ta.value.trim().slice(0, 300) : "";
+  try{
+    const r = await fetch("/api/profile/bio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ bio })
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || "Error");
+    const u = currentUser();
+    if(u) u.bio = bio;
+    const su = store.get("reaviva_user", null);
+    if(su){ su.bio = bio; store.set("reaviva_user", su); }
+    closeDynModal();
+    toast("Descripción actualizada ✏️");
+    renderPerfilBioMeta();
+  }catch(e){
+    toast("Error: " + e.message);
+  }
 }
 
 /* Subir foto de perfil (redimensionada a 400x400). */
