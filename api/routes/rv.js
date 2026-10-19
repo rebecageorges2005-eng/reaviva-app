@@ -63,7 +63,10 @@ router.get("/affiliate", requireAuth, ah(async (req, res) => {
   const earned = await db.get(
     "SELECT COALESCE(SUM(-credits_used), 0) AS t FROM credit_spending WHERE user_id = ? AND reason LIKE 'Bono afiliado%'",
     req.user.id);
-  const link = `https://www.reavivaapp.com/?ref=${req.user.id}`;
+  // Link con el nombre de usuario (o el ID si no tiene nombre).
+  const me = await db.get("SELECT name FROM users WHERE id = ?", req.user.id);
+  const slug = (me && me.name ? String(me.name).trim() : String(req.user.id));
+  const link = `https://www.reavivaapp.com/?ref=${encodeURIComponent(slug)}`;
   res.json({
     link,
     referidos: (n && n.c) || 0,

@@ -306,13 +306,17 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const token = newVerificationToken();
-  // Referido: ?ref=USERID en el link compartido (opcional).
+  // Referido: ?ref=USERID o ?ref=nombre en el link compartido (opcional).
   let referredBy = null;
   const refRaw = String(req.body?.referred_by || "").trim();
   if (/^\d+$/.test(refRaw)) {
     const refId = Number(refRaw);
     const refUser = await db.get("SELECT id FROM users WHERE id = ?", refId);
     if (refUser) referredBy = refId;
+  } else if (refRaw.length >= 2 && refRaw.length <= 60) {
+    // Buscar por nombre de usuario (insensible a mayúsculas).
+    const refUser = await db.get("SELECT id FROM users WHERE LOWER(name) = LOWER(?) LIMIT 1", refRaw);
+    if (refUser) referredBy = refUser.id;
   }
   const info = await db.run("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate, gender, country) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)", email, name, hash, token, referredBy, birthdate, gender, country);
   const row = await db.get("SELECT * FROM users WHERE id = ?", info.lastInsertRowid);
