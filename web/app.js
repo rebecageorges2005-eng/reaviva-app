@@ -1637,7 +1637,23 @@ function renderPerfil(){
   const nombre = esc(u.name || "Usuario");
   const plan = planType();
   const planLabel = plan === "annual" ? "⭐ Plan Anual" : plan === "monthly" ? "Plan Mensual" : "Sin plan";
+  const coverUrl = u.coverPhoto || "";
+  const photoUrl = u.photo || "";
   box.innerHTML = `
+    <div class="profile-cover-wrap">
+      <div class="profile-cover" id="profile-cover" ${coverUrl?`style="background-image:url('${coverUrl}')"`:''}>
+        ${!coverUrl?'<div class="profile-cover-empty">📷 Agrega una portada</div>':''}
+        <button class="cover-edit-btn" onclick="document.getElementById('cover-input').click()" title="Cambiar portada">📷</button>
+        <input type="file" id="cover-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadCoverPhoto(this)">
+      </div>
+      <div class="profile-photo-row">
+        <div class="profile-photo" id="profile-photo" ${photoUrl?`style="background-image:url('${photoUrl}')"`:''}>
+          ${!photoUrl?'<span style="font-size:2rem">👤</span>':''}
+          <button class="photo-edit-btn" onclick="document.getElementById('profile-photo-input').click()" title="Cambiar foto">📷</button>
+          <input type="file" id="profile-photo-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadProfilePhoto(this)">
+        </div>
+      </div>
+    </div>
     <div style="text-align:center;padding:10px 0">
       <div style="font-size:1.3rem;font-weight:700">${nombre}</div>
       <div style="color:var(--cocoa-soft);font-size:.9rem;margin:4px 0">${planLabel}</div>
@@ -1662,6 +1678,77 @@ function renderPerfil(){
       </div>
     </div>`;
   renderPerfilAlbums();
+}
+
+/* Subir foto de perfil (redimensionada a 400x400). */
+async function uploadProfilePhoto(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  try{
+    const dataUrl = await resizeImage(f, 400, 400);
+    const r = await fetch("/api/profile/photo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ photo: dataUrl })
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || "Error");
+    // Actualizar el usuario en memoria y re-renderizar.
+    const u = currentUser();
+    if(u) u.photo = dataUrl;
+    const su = store.get("reaviva_user", null);
+    if(su){ su.photo = dataUrl; store.set("reaviva_user", su); }
+    toast("Foto de perfil actualizada 📷");
+    renderPerfil();
+  }catch(e){
+    toast("Error: " + e.message);
+  }
+  input.value = "";
+}
+
+/* Subir foto de portada (redimensionada a 1200x400). */
+async function uploadCoverPhoto(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  try{
+    const dataUrl = await resizeImage(f, 1200, 400);
+    const r = await fetch("/api/profile/cover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ cover: dataUrl })
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || "Error");
+    const u = currentUser();
+    if(u) u.coverPhoto = dataUrl;
+    const su = store.get("reaviva_user", null);
+    if(su){ su.coverPhoto = dataUrl; store.set("reaviva_user", su); }
+    toast("Portada actualizada 📷");
+    renderPerfil();
+  }catch(e){
+    toast("Error: " + e.message);
+  }
+  input.value = "";
+}
+
+/* Redimensiona una imagen a maxW x maxH manteniendo proporción. */
+function resizeImage(file, maxW, maxH){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      const ratio = Math.min(maxW / w, maxH / h, 1);
+      w = Math.round(w * ratio); h = Math.round(h * ratio);
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error("No se pudo leer la imagen")); };
+    img.src = url;
+  });
 }
 
 function togglePwForm(){
