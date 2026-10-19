@@ -4107,6 +4107,14 @@ async function openAffiliateModal(){
             style="flex:1;font-size:.8rem" onclick="this.select()">
           <button class="btn btn-primary btn-sm" onclick="copyAffLink()">📋</button>
         </div>
+        <p style="font-size:.85rem;color:var(--cocoa-soft);margin:8px 0">Mensaje listo para compartir:</p>
+        <div style="background:var(--hatch-widget-bg,#f7f1e8);border-radius:12px;padding:12px;margin:0 0 12px;text-align:left;font-size:.85rem">
+          <span id="aff-msg">💔 ¿Terminaste una relación y no sabes cómo seguir?<br><br>
+          🌅 Descubrí <b>Reaviva</b>: un programa de 30 días para soltar el dolor y recuperar tu paz.<br><br>
+          ✅ 7 días GRATIS · Sin tarjeta<br><br>
+          👉 ${esc(j.link)}</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="copyAffMsg()">📋 Copiar mensaje</button>
         <p style="font-size:.8rem;color:var(--cocoa-soft)">
           Con RV puedes publicar links y fotos en el chat 📎🔗
         </p>
@@ -4125,5 +4133,18 @@ function copyAffLink(){
     toast("Link copiado 📋");
   }catch(e){
     if(navigator.clipboard) navigator.clipboard.writeText(inp.value).then(()=>toast("Link copiado 📋"));
+  }
+}
+function copyAffMsg(){
+  const el = document.getElementById("aff-msg");
+  if(!el) return;
+  const txt = el.innerText || el.textContent;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(()=>toast("Mensaje copiado 📋"));
+  }else{
+    const ta = document.createElement("textarea");
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); toast("Mensaje copiado 📋"); }catch(e){}
+    document.body.removeChild(ta);
   }
 }
