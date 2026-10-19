@@ -1332,6 +1332,7 @@ function openDay(d){
   openDayNum = d;
   const p = window.REAVIVA_PROGRAM[d-1];
   const savedEx = getExerciseText(d);
+  const savedStory = getStoryText(d);
   const done = isDone(d);
   $("#day-detail").innerHTML = `
     <div class="day-hero">
@@ -1341,6 +1342,9 @@ function openDay(d){
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}${userGender()==="F"?"-f":""}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
+    <div class="block"><h4>📝 Su historia</h4><p>Cuéntanos tu historia: ¿cómo empezó todo?</p>
+      <textarea id="story-text" class="journal" rows="6" placeholder="Escribe aquí tu historia… ¿cómo empezó todo?" ${done?"disabled":""}>${esc(savedStory)}</textarea>
+    </div>
     <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(gtext(p.ejercicio))}</p>
       <textarea id="exercise-text" class="journal" rows="8" placeholder="Escribe aquí tu ejercicio… (mínimo 500 palabras para completar el día)" ${done?"disabled":""}>${esc(savedEx)}</textarea>
       <div id="exercise-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-top:4px"></div>
@@ -1362,6 +1366,8 @@ function openDay(d){
   window.scrollTo(0,0);
   if(!done){
     const ta = $("#exercise-text");
+    const sta = $("#story-text");
+    if(sta) sta.addEventListener("input", ()=>saveStoryText(d, sta.value));
     const update = ()=>{
       const n = countWords(ta.value);
       saveExerciseText(d, ta.value);
@@ -1397,6 +1403,16 @@ function saveExerciseText(d, text){
   const all = store.get("reaviva_exercises", {});
   all[d] = text;
   store.set("reaviva_exercises", all);
+}
+/* Historia personal del usuario por día (cómo empezó todo). */
+function getStoryText(d){
+  const all = store.get("reaviva_stories", {});
+  return all[d] || "";
+}
+function saveStoryText(d, text){
+  const all = store.get("reaviva_stories", {});
+  all[d] = text;
+  store.set("reaviva_stories", all);
 }
 function backToList(){
   $("#day-detail").style.display = "none";
