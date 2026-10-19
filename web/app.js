@@ -860,6 +860,18 @@ function applyHashRoute(){
 
 /* ---------- views ---------- */
 function showView(name, fromHash){
+  // Al salir de la vista de auth: limpiar los campos de entrar/crear cuenta.
+  const prevAuth = $("#view-auth") && $("#view-auth").style.display !== "none";
+  if(prevAuth && name !== "auth"){
+    ["login-email","login-password","signup-name","signup-email","signup-password","signup-password2"].forEach(id=>{
+      const f = document.getElementById(id); if(f) f.value = "";
+    });
+    ["signup-day","signup-month","signup-year"].forEach(id=>{
+      const s = document.getElementById(id); if(s) s.selectedIndex = 0;
+    });
+    const err1 = $("#login-err"); if(err1) err1.textContent = "";
+    const err2 = $("#signup-err"); if(err2) err2.textContent = "";
+  }
   ["landing","auth","app","admin-login","verify-email"].forEach(v => {
     const el = $("#view-"+v);
     if(el) el.style.display = v===name ? "block" : "none";
