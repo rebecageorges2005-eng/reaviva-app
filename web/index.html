@@ -178,6 +178,7 @@
         </div>
         <p id="login-err" class="auth-err"></p>
         <button class="btn btn-primary btn-block" type="submit" data-i18n="auth.btn_login">Entrar →</button>
+        <p style="text-align:center;margin-top:10px;font-size:.85rem"><a href="#" onclick="const e=document.getElementById('login-email').value.trim();if(!e||!e.includes('@')){document.getElementById('login-err').textContent='Escribe tu correo primero.';return false;}showForgotPassword(e);return false;" style="color:var(--terra)">¿Olvidaste tu contraseña? 🔑</a></p>
       </form>
       <!-- FORMULARIO CREAR CUENTA -->
       <form id="form-signup" onsubmit="doSignup(event)" style="display:none">
@@ -474,6 +475,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=5"></script>
 </body>
 </html>
