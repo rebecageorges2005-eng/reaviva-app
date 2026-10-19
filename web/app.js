@@ -1791,10 +1791,10 @@ function editBio(){
   openDynModal(`
     <div style="text-align:center">
       <h3 style="margin:0 0 10px">✏️ Tu descripción</h3>
-      <textarea id="bio-input" class="journal" rows="3" maxlength="300"
-        placeholder="Cuéntanos algo sobre ti… (máx 300 caracteres)"
+      <textarea id="bio-input" class="journal" rows="3" maxlength="100"
+        placeholder="Cuéntanos algo sobre ti… (10 a 100 caracteres)"
         style="width:100%;margin-bottom:6px">${esc(actual)}</textarea>
-      <div id="bio-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-bottom:10px">${actual.length}/300</div>
+      <div id="bio-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-bottom:10px">${actual.length}/100</div>
       <div style="display:flex;gap:10px;justify-content:center">
         <button class="btn btn-ghost" onclick="closeDynModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveBio()">Guardar</button>
@@ -1802,12 +1802,16 @@ function editBio(){
     </div>`);
   const ta = document.getElementById("bio-input");
   const cd = document.getElementById("bio-count");
-  if(ta && cd) ta.addEventListener("input", ()=>{ cd.textContent = ta.value.length + "/300"; });
+  if(ta && cd) ta.addEventListener("input", ()=>{ cd.textContent = ta.value.length + "/100"; });
 }
 
 async function saveBio(){
   const ta = document.getElementById("bio-input");
-  const bio = ta ? ta.value.trim().slice(0, 300) : "";
+  const bio = ta ? ta.value.trim().slice(0, 100) : "";
+  if(bio.length < 10){
+    toast("La descripción debe tener mínimo 10 caracteres ✏️");
+    return;
+  }
   try{
     const r = await fetch("/api/profile/bio", {
       method: "POST",
