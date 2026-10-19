@@ -69,6 +69,17 @@ function publicUser(row) {
   };
 }
 
+/* Contraseña fuerte: mín 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 carácter especial. */
+function isStrongPassword(pw){
+  return typeof pw === "string" &&
+    pw.length >= 8 &&
+    /[A-Z]/.test(pw) &&
+    /[a-z]/.test(pw) &&
+    /[0-9]/.test(pw) &&
+    /[^A-Za-z0-9]/.test(pw);
+}
+const STRONG_PW_MSG = "La contraseña debe tener mínimo 8 caracteres, 1 mayúscula, 1 minúscula, 1 número y 1 carácter especial";
+
 /* Verifica un JWT y devuelve {id, subscribed, is_admin} o null.
  * Se usa en el middleware de audios (las etiquetas <audio> no envían
  * headers, así que el token llega como ?token=). */
@@ -258,8 +269,8 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
   if (!name) return res.status(400).json({ error: "El nombre es requerido" });
   if (!email || !email.includes("@"))
     return res.status(400).json({ error: "Correo inválido" });
-  if (password.length < 6)
-    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+  if (!isStrongPassword(password))
+    return res.status(400).json({ error: STRONG_PW_MSG });
 
   // Fecha de nacimiento: formato YYYY-MM-DD válido y 18+ años.
   const birthdate = String(req.body?.birthdate || "").trim();
@@ -584,8 +595,8 @@ router.post("/login-with-code", loginLimiter, ah(async (req, res) => {
  * REGLA: 3 cambios en 7 días → cuenta deshabilitada 15 días + pierde su RV. */
 router.post("/change-password", requireAuth, ah(async (req, res) => {
   const newPassword = String(req.body?.newPassword || req.body?.new_password || "");
-  if (newPassword.length < 6)
-    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+  if (!isStrongPassword(newPassword))
+    return res.status(400).json({ error: STRONG_PW_MSG });
 
   const userId = req.user.id;
   // Si NO viene del código temporal, debe confirmar la contraseña actual.
