@@ -21,6 +21,7 @@ const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { requireAuth } = require("./auth");
 const { isEmailConfigured, verificationUrl } = require("../email");
+const { flagLevel } = require("./flags");
 
 const router = express.Router();
 
@@ -289,6 +290,7 @@ router.get("/users/:id", requireAdmin, (req, res) => {
               u.program_start, u.ip, u.country, u.country_code, u.photo,
               u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
+              u.chat_disabled,
               u.credits, u.img_block_remaining,
               u.banned, u.ban_reason,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
@@ -346,6 +348,22 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     .all(id);
 
   const emailOk = isEmailConfigured();
+
+  // Banderas de advertencia: nivel actual + quiénes las pusieron.
+  const nivelBandera = flagLevel(id);
+  const banderasDe = db
+    .prepare(
+      `SELECT f.created_at, r.name AS reportero, r.email AS reportero_email
+       FROM user_flags f
+       LEFT JOIN users r ON r.id = f.reporter_user_id
+       WHERE f.target_user_id = ?
+       ORDER BY f.created_at DESC`
+    )
+    .all(id)
+    .map((f) => ({
+      reportero: f.reportero || f.reportero_email || "—",
+      fecha: fmtDateTime(f.created_at),
+    }));
 
   res.json({
     id: u.id,
@@ -426,6 +444,9 @@ router.get("/users/:id", requireAdmin, (req, res) => {
     chatStrikes: Number(u.chat_strikes || 0),
     chatMutes: Number(u.chat_mutes || 0),
     chatStrikesFecha: u.chat_strikes_date || null,
+    chatDisabled: Number(u.chat_disabled || 0) === 1,
+    nivelBandera,
+    banderasDe,
     banned: Number(u.banned || 0) === 1,
     banReason: u.ban_reason || null,
     rv: u.is_admin === 1 ? -1 : Math.max(0, Number(u.credits || 0)), // -1 = ilimitado (admin)
@@ -863,6 +884,159 @@ router.post("/users/:id/deny-reactivation", requireAdmin, (req, res) => {
       "El administrador revisó tu caso y decidió no rehabilitar tu cuenta por ahora. Tu permiso para chatear sigue deshabilitado.");
   } catch (e) { /* no bloquea */ }
   res.json({ ok: true, denegado: true, email: u.email });
+});
+
+/* ---------- GET /api/admin/users/:id/dms ----------
+ * Conversaciones DM de un usuario: por cada contraparte (nombre, id),
+ * los mensajes intercambiados ordenados por fecha. Incluye mensajes
+ * aunque hayan expirado (si aún están en la tabla). Solo lectura. */
+router.get("/users/:id/dms", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  // Contrapartes: usuarios con los que intercambió DMs (en ambas direcciones).
+  const peers = db
+    .prepare(
+      `SELECT DISTINCT other.id, other.name, other.email
+       FROM (
+         SELECT to_user_id AS oid FROM private_messages WHERE from_user_id = ?
+         UNION
+         SELECT from_user_id AS oid FROM private_messages WHERE to_user_id = ?
+       ) x
+       JOIN users other ON other.id = x.oid
+       ORDER BY other.name`
+    )
+    .all(id, id);
+
+  const conversations = peers.map((p) => {
+    const msgs = db
+      .prepare(
+        `SELECT id, from_user_id, to_user_id, text, created_at, read_at, expires_at
+         FROM private_messages
+         WHERE (from_user_id = ? AND to_user_id = ?)
+            OR (from_user_id = ? AND to_user_id = ?)
+         ORDER BY created_at ASC, id ASC`
+      )
+      .all(id, p.id, p.id, id);
+    return {
+      id: p.id,
+      nombre: p.name || p.email,
+      email: p.email,
+      total: msgs.length,
+      mensajes: msgs.map((m) => ({
+        id: m.id,
+        de: m.from_user_id === id ? "usuario" : "contraparte",
+        deId: m.from_user_id,
+        texto: m.text,
+        fecha: fmtDateTime(m.created_at),
+        leido: !!m.read_at,
+        expirado: m.expires_at
+          ? new Date(String(m.expires_at).replace(" ", "T") + "Z").getTime() < Date.now()
+          : false,
+      })),
+    };
+  });
+
+  res.json({ ok: true, usuario: { id: u.id, nombre: u.name, email: u.email }, conversaciones: conversations });
+});
+
+/* ---------- POST /api/admin/users/:id/flag ----------
+ * El admin agrega UNA bandera de advertencia al usuario manualmente.
+ * Si ya tiene 4, no hace nada. Al llegar a 4: chat_disabled=1.
+ * El admin no puede banderearse a sí mismo ni a otro admin. */
+router.post("/users/:id/flag", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  if (id === req.user.id)
+    return res.status(400).json({ error: "No puedes banderearte a ti mismo" });
+  const target = db
+    .prepare("SELECT id, email, name, is_admin, chat_disabled FROM users WHERE id = ?")
+    .get(id);
+  if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (target.is_admin === 1)
+    return res.status(400).json({ error: "No puedes banderear al administrador" });
+
+  // Un flag por reportero (el admin cuenta como un reportero).
+  const existing = db
+    .prepare("SELECT id FROM user_flags WHERE target_user_id = ? AND reporter_user_id = ?")
+    .get(id, req.user.id);
+  if (!existing) {
+    db.prepare(
+      "INSERT INTO user_flags (target_user_id, reporter_user_id) VALUES (?, ?)"
+    ).run(id, req.user.id);
+  }
+
+  const level = flagLevel(id);
+
+  // Notificar al usuario de la advertencia manual del admin.
+  const levelNames = ["blanca ⚪", "azul 🔵", "amarilla 🟡", "negra ⚫", "roja 🔴"];
+  try {
+    db.prepare(
+      "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
+    ).run(id, target.email, "⚠️ Advertencia del administrador",
+      `El administrador te envió una advertencia directa (bandera ${levelNames[level]}). ` +
+      `Por favor evita ese comportamiento. Si llegas a la bandera roja, tu cuenta será deshabilitada para chatear.`);
+  } catch (e) { /* no bloquea */ }
+
+  // Bandera roja: deshabilitar chat (sin aviso "ultimadecision": lo hizo el admin).
+  if (level >= 4 && target.chat_disabled !== 1) {
+    db.prepare("UPDATE users SET chat_disabled = 1 WHERE id = ?").run(id);
+    try {
+      db.prepare(
+        "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
+      ).run(id, target.email, "🔴 Tu cuenta fue deshabilitada para chatear",
+        `El administrador te puso bandera roja. Tu permiso para chatear y publicar contenido quedó deshabilitado.`);
+    } catch (e) { /* no bloquea */ }
+  }
+
+  res.json({ ok: true, level });
+});
+
+/* ---------- DELETE /api/admin/users/:id/flags ----------
+ * El admin quita TODAS las banderas del usuario (nivel → 0).
+ * Si el chat estaba deshabilitado por bandera roja, se reactiva.
+ * Sin notificación "ultimadecision". */
+router.delete("/users/:id/flags", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  db.prepare("DELETE FROM user_flags WHERE target_user_id = ?").run(id);
+  db.prepare("UPDATE users SET chat_disabled = 0 WHERE id = ?").run(id);
+  res.json({ ok: true, level: 0 });
+});
+
+/* ---------- GET /api/admin/community/recent ----------
+ * Mensajes recientes del chat grupal para la vista en vivo del admin.
+ * Sin anonimizar: el admin ve nombres reales. Incluye ocultos. */
+router.get("/community/recent", requireAdmin, (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.hidden,
+              u.name, u.email, u.is_admin
+       FROM community_comments c
+       JOIN users u ON u.id = c.user_id
+       ORDER BY c.created_at DESC
+       LIMIT ?`
+    )
+    .all(limit);
+  res.json({
+    ok: true,
+    mensajes: rows.map((c) => ({
+      id: c.id,
+      userId: c.user_id,
+      nombre: c.name || c.email,
+      email: c.email,
+      esAdmin: c.is_admin === 1,
+      texto: c.msg_type === "photo" ? "📷 Foto" : (c.text || ""),
+      tipo: c.msg_type,
+      fecha: fmtDateTime(c.created_at),
+      oculto: c.hidden === 1,
+    })),
+  });
 });
 
 module.exports = { router, requireAdmin };
