@@ -60,6 +60,7 @@ function publicUser(row) {
     emailVerified: row.email_verified === 1 || row.is_admin === 1,
     createdAt: row.created_at,
     photo: row.photo || null,
+    coverPhoto: row.cover_photo || null,
     // País y último acceso: visibles para el propio usuario.
     // La IP NUNCA se expone aquí (solo el admin la ve en su panel).
     pais: row.country || null,
@@ -709,6 +710,29 @@ router.post("/profile/photo", requireAuth, ah(async (req, res) => {
     return res.status(400).json({ error: "No se pudo verificar la imagen" });
   }
   await db.run("UPDATE users SET photo = ? WHERE id = ?", photo, req.user.id);
+  res.json({ ok: true });
+}));
+
+/* POST /api/profile/cover  { cover: "data:image/jpeg;base64,..." }
+ * Foto de portada del usuario (máx 3MB). Se guarda en users.cover_photo. */
+router.post("/profile/cover", requireAuth, ah(async (req, res) => {
+  const cover = String(req.body?.cover || "");
+  const m = cover.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return res.status(400).json({ error: "Formato de imagen inválido" });
+  if (cover.length > 4 * 1024 * 1024)
+    return res.status(400).json({ error: "La imagen es muy grande (máx 3MB)" });
+  try {
+    const buf = Buffer.from(m[2].slice(0, 32), "base64");
+    const declared = m[1];
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const isWebp = buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP";
+    const valid = (declared === "jpeg" && isJpeg) || (declared === "png" && isPng) || (declared === "webp" && isWebp);
+    if (!valid) return res.status(400).json({ error: "El archivo no es una imagen válida" });
+  } catch (e) {
+    return res.status(400).json({ error: "No se pudo verificar la imagen" });
+  }
+  await db.run("UPDATE users SET cover_photo = ? WHERE id = ?", cover, req.user.id);
   res.json({ ok: true });
 }));
 
