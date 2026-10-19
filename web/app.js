@@ -3703,27 +3703,45 @@ function pickAlbumPhotos(albumId){
   inp.click();
 }
 
-/* Redimensiona a máx 1280px (lado mayor), JPEG calidad 0.8. */
+/* Redimensiona a máx 1280px (lado mayor), JPEG calidad 0.8.
+ * Intenta con objectURL y si falla, con FileReader como respaldo. */
 function resizeImageDataUrl(file){
   return new Promise((resolve, reject) => {
-    if(!file.type.startsWith("image/")) return reject(new Error("No es imagen"));
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const MAX = 1280;
-      let w = img.width, h = img.height;
-      if(w > MAX || h > MAX){
-        const k = MAX / Math.max(w, h);
-        w = Math.round(w * k); h = Math.round(h * k);
-      }
-      const cv = document.createElement("canvas");
-      cv.width = w; cv.height = h;
-      cv.getContext("2d").drawImage(img, 0, 0, w, h);
-      resolve(cv.toDataURL("image/jpeg", 0.8));
+    if(!file.type.startsWith("image/")) return reject(new Error("No es una imagen válida"));
+    // Respaldo: leer con FileReader si el objectURL falla.
+    const viaReader = () => {
+      const fr = new FileReader();
+      fr.onload = () => {
+        const img = new Image();
+        img.onload = () => finish(img);
+        img.onerror = () => reject(new Error("No se pudo leer la imagen"));
+        img.src = fr.result;
+      };
+      fr.onerror = () => reject(new Error("No se pudo leer el archivo"));
+      fr.readAsDataURL(file);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo leer")); };
-    img.src = url;
+    const finish = (img) => {
+      try{
+        const MAX = 1280;
+        let w = img.width, h = img.height;
+        if(!w || !h) return reject(new Error("Imagen sin dimensiones"));
+        if(w > MAX || h > MAX){
+          const k = MAX / Math.max(w, h);
+          w = Math.round(w * k); h = Math.round(h * k);
+        }
+        const cv = document.createElement("canvas");
+        cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL("image/jpeg", 0.8));
+      }catch(e){ reject(new Error("No se pudo procesar la imagen")); }
+    };
+    try{
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(url); finish(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); viaReader(); };
+      img.src = url;
+    }catch(e){ viaReader(); }
   });
 }
 
