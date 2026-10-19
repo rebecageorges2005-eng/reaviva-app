@@ -1739,7 +1739,8 @@ function renderPerfil(){
       <div id="perfil-bio-line" style="margin:6px 0;font-size:.95rem;color:var(--cocoa)"></div>
       <div id="perfil-meta-line" style="margin:4px 0;font-size:.85rem;color:var(--cocoa-soft)"></div>
     </div>
-    <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
+    <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0 8px;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
+    <button class="btn btn-ghost btn-block" onclick="openAffiliateModal()" style="margin:0 0 14px;font-size:1rem;padding:12px">🤝 Afiliado · Gana 5 RV por referido</button>
     <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -4072,5 +4073,57 @@ function initCountrySelect(){
     const o = document.createElement("option");
     o.value = c; o.textContent = c;
     sel.appendChild(o);
+  }
+}
+
+/* ---------- 🤝 Afiliados: gana 5 RV por cada referido ---------- */
+async function openAffiliateModal(){
+  openDynModal(`<div style="text-align:center;padding:10px"><p style="color:var(--cocoa-soft)">Cargando…</p></div>`);
+  try{
+    const r = await fetch("/api/rv/affiliate", { headers: authHeaders() });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || "Error");
+    openDynModal(`
+      <div style="text-align:center">
+        <div style="font-size:2.5rem">🤝</div>
+        <h3 style="margin:8px 0">Programa de Afiliados</h3>
+        <p style="color:var(--cocoa-soft);font-size:.9rem;margin:6px 0">
+          Comparte tu link: por cada persona que se registre con él,<br>
+          <b style="color:var(--terra);font-size:1.1rem">ganas 5 RV</b> 💰
+        </p>
+        <div style="display:flex;gap:16px;justify-content:center;margin:14px 0">
+          <div style="background:var(--hatch-widget-bg,#f7f1e8);border-radius:12px;padding:10px 18px">
+            <div style="font-size:1.4rem;font-weight:700">${j.referidos}</div>
+            <div style="font-size:.8rem;color:var(--cocoa-soft)">referidos</div>
+          </div>
+          <div style="background:var(--hatch-widget-bg,#f7f1e8);border-radius:12px;padding:10px 18px">
+            <div style="font-size:1.4rem;font-weight:700">${j.rvGanados}</div>
+            <div style="font-size:.8rem;color:var(--cocoa-soft)">RV ganados</div>
+          </div>
+        </div>
+        <p style="font-size:.85rem;color:var(--cocoa-soft);margin:8px 0">Tu link de afiliado:</p>
+        <div style="display:flex;gap:8px;margin:0 0 12px">
+          <input id="aff-link" class="field" readonly value="${esc(j.link)}"
+            style="flex:1;font-size:.8rem" onclick="this.select()">
+          <button class="btn btn-primary btn-sm" onclick="copyAffLink()">📋</button>
+        </div>
+        <p style="font-size:.8rem;color:var(--cocoa-soft)">
+          Con RV puedes publicar links y fotos en el chat 📎🔗
+        </p>
+        <button class="btn btn-ghost" onclick="closeDynModal()" style="margin-top:8px">Cerrar</button>
+      </div>`);
+  }catch(e){
+    openDynModal(`<p style="text-align:center;color:#a33">${esc(e.message)}</p>`);
+  }
+}
+function copyAffLink(){
+  const inp = document.getElementById("aff-link");
+  if(!inp) return;
+  inp.select();
+  try{
+    document.execCommand("copy");
+    toast("Link copiado 📋");
+  }catch(e){
+    if(navigator.clipboard) navigator.clipboard.writeText(inp.value).then(()=>toast("Link copiado 📋"));
   }
 }
