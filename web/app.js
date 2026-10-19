@@ -1814,7 +1814,7 @@ async function saveBio(){
     return;
   }
   try{
-    const r = await fetch("/api/profile/bio", {
+    const r = await fetch("/api/auth/profile/bio", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ bio })
@@ -1839,7 +1839,7 @@ async function uploadProfilePhoto(input){
   if(!f) return;
   try{
     const dataUrl = await resizeImage(f, 400, 400);
-    const r = await fetch("/api/profile/photo", {
+    const r = await fetch("/api/auth/profile/photo", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ photo: dataUrl })
@@ -1865,7 +1865,7 @@ async function uploadCoverPhoto(input){
   if(!f) return;
   try{
     const dataUrl = await resizeImage(f, 1200, 400);
-    const r = await fetch("/api/profile/cover", {
+    const r = await fetch("/api/auth/profile/cover", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ cover: dataUrl })
