@@ -114,6 +114,24 @@ router.get("/stats", requireAdmin, (req, res) => {
     mrr: Math.round(mrr * 100) / 100,
     countriesCount,
     topCountries,
+    // Chats deshabilitados (muteados por anti-spam o por bandera roja)
+    mutedChats: db
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE chat_muted = 1 OR chat_disabled = 1")
+      .get().n,
+    // Usuarios con banderas de advertencia
+    flaggedUsers: db
+      .prepare("SELECT COUNT(DISTINCT target_user_id) AS n FROM user_flags")
+      .get().n,
+    // Banderas rojas pendientes de decisión
+    redFlags: db
+      .prepare(`SELECT COUNT(*) AS n FROM (
+        SELECT target_user_id FROM user_flags GROUP BY target_user_id HAVING COUNT(*) >= 4
+      )`)
+      .get().n,
+    // Planes cancelados
+    cancelledPlans: db
+      .prepare("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'CANCELLED'")
+      .get().n,
     // Referidos: usuarios que llegaron por un link compartido + top invitadores
     referredUsers: db.prepare("SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL").get().n,
     topReferrers: db.prepare(`
