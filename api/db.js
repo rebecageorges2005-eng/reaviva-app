@@ -870,6 +870,61 @@ async function migrate() {
   } catch (e) {
     console.error("[db] migración gender:", e.message);
   }
+
+  /* IA: análisis de casos de usuarios */
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS ai_user_analysis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      analysis_text TEXT,
+      key_issues TEXT,
+      progress_summary TEXT,
+      risk_level TEXT DEFAULT 'bajo',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+    console.log("[db] migración: tabla ai_user_analysis lista");
+  } catch (e) {
+    console.error("[db] migración ai_user_analysis:", e.message);
+  }
+
+  /* IA: retos personalizados (requieren aprobación del admin) */
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS ai_challenges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      day_target INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      admin_notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+    console.log("[db] migración: tabla ai_challenges lista");
+  } catch (e) {
+    console.error("[db] migración ai_challenges:", e.message);
+  }
+
+  /* IA: reportes para el administrador */
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS ai_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      report_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      admin_feedback TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      reviewed_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+    console.log("[db] migración: tabla ai_reports lista");
+  } catch (e) {
+    console.error("[db] migración ai_reports:", e.message);
+  }
 }
 
 /* ready: se resuelve cuando las migraciones terminan. server.js la espera
