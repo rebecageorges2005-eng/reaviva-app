@@ -859,6 +859,17 @@ async function migrate() {
   } catch (e) {
     console.error("[db] migración contact_messages:", e.message);
   }
+
+  /* Sexo del usuario (M/F) para adaptar contenido y voz */
+  try {
+    const cols = await db.all("PRAGMA table_info(users)");
+    if (!cols.some(c => c.name === "gender")) {
+      await db.exec("ALTER TABLE users ADD COLUMN gender TEXT");
+      console.log("[db] migración: columna users.gender agregada");
+    }
+  } catch (e) {
+    console.error("[db] migración gender:", e.message);
+  }
 }
 
 /* ready: se resuelve cuando las migraciones terminan. server.js la espera
