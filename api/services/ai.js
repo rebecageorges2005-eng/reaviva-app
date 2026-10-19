@@ -1,282 +1,167 @@
-/* Reaviva API — asistente de IA.
- * - El admin genera análisis/retos/tests con IA y los VALIDA antes de que lleguen al usuario.
- * - El usuario chatea con la IA de ayuda y ve sus retos aprobados.
+/* Reaviva API — servicio de IA (asistente del administrador y de los usuarios).
+ * Usa OpenAI (gpt-4o-mini) vía OPENAI_API_KEY. Sin la clave, las funciones
+ * devuelven un mensaje indicando que falta configurarla (nunca se cae).
  *
- * NOTA: las historias/ejercicios del programa viven en localStorage del frontend,
- * así que el análisis usa lo que hay en la BD: perfil, progreso, diario, tests, banderas.
+ * REGLAS DURAS:
+ * - Todo en español latino.
+ * - 100% secular: nada religioso.
+ * - NUNCA da diagnósticos ni consejos médicos/psiquiátricos directos.
+ * - Si detecta riesgo (autolesión, suicidio, violencia), sugiere buscar ayuda profesional.
  */
 "use strict";
 
-const express = require("express");
-const db = require("../db");
-const { ah } = db;
-const { requireAuth } = require("./auth");
-const { requireAdmin } = require("./admin");
-const ai = require("../services/ai");
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-4o-mini";
 
-const router = express.Router();
+const SYSTEM_BASE = `Eres el asistente de IA de Reaviva, una app de sanación emocional después de rupturas amorosas.
+REGLAS INQUEBRANTABLES:
+- Escribe SIEMPRE en español latinoamericano natural y cálido.
+- Contenido 100% secular: jamás menciones religión, Dios, fe, oración ni nada espiritual.
+- NUNCA des diagnósticos médicos, psiquiátricos ni psicológicos. No eres terapeuta.
+- Si el usuario expresa ideas de autolesión, suicidio o violencia, responde con empatía y sugiere buscar ayuda profesional o una línea de apoyo en su país. No minimices ni ignores la señal.
+- Sé empático, directo y práctico. Nada de frases vacías.`;
 
-/* ---------- helpers ---------- */
+function hasKey() {
+  return !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim());
+}
 
-/* Junta los datos del usuario disponibles en la BD para el análisis de la IA. */
-async function collectUserData(userId) {
-  const u = await db.get(
-    `SELECT id, name, email, gender, birthdate, country, country_code,
-            subscribed, is_admin, created_at, last_seen, credits,
-            chat_muted, chat_disabled, program_start
-     FROM users WHERE id = ?`, userId);
-  if (!u) return null;
-
-  const progRows = await db.all("SELECT day FROM progress WHERE user_id = ? ORDER BY day", userId);
-  const daysCompleted = progRows.map(r => r.day);
-  const currentDay = daysCompleted.length ? Math.min(30, Math.max(...daysCompleted) + 1) : 1;
-
-  const journalRows = await db.all(
-    "SELECT date, mood, text FROM journal WHERE user_id = ? ORDER BY date DESC LIMIT 5", userId);
-
-  let flags = 0;
-  try {
-    const fr = await db.get("SELECT COUNT(*) AS n FROM user_flags WHERE target_user_id = ?", userId);
-    flags = fr ? fr.n : 0;
-  } catch (e) { /* tabla puede no existir en instalaciones viejas */ }
-
-  let age = null;
-  if (u.birthdate && /^\d{4}-\d{2}-\d{2}$/.test(u.birthdate)) {
-    const b = new Date(u.birthdate + "T12:00:00");
-    const now = new Date();
-    age = now.getFullYear() - b.getFullYear() -
-      (now < new Date(now.getFullYear(), b.getMonth(), b.getDate()) ? 1 : 0);
+/* Llamada base a OpenAI. Devuelve { ok, text } o { ok:false, error }. */
+async function callAI(prompt, systemPrompt) {
+  if (!hasKey()) {
+    return { ok: false, error: "OPENAI_API_KEY no configurada en el servidor" };
   }
+  try {
+    const r = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + process.env.OPENAI_API_KEY.trim(),
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt || SYSTEM_BASE },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 1500,
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => "");
+      return { ok: false, error: "OpenAI respondió " + r.status + ": " + t.slice(0, 200) };
+    }
+    const j = await r.json();
+    const text = j.choices && j.choices[0] && j.choices[0].message
+      ? j.choices[0].message.content.trim()
+      : "";
+    if (!text) return { ok: false, error: "OpenAI devolvió respuesta vacía" };
+    return { ok: true, text };
+  } catch (e) {
+    return { ok: false, error: "Error llamando a OpenAI: " + e.message };
+  }
+}
 
+/* Analiza el caso de un usuario a partir de sus datos en la BD.
+ * userData: { name, gender, age, planType, currentDay, daysCompleted, journalEntries,
+ *             testScores, flags, chatMuted, rvBalance, country } */
+async function analyzeUserCase(userData) {
+  const u = userData || {};
+  const prompt = `Analiza el caso de este usuario de Reaviva y redacta un informe para el ADMINISTRADOR.
+
+DATOS DEL USUARIO:
+- Nombre: ${u.name || "—"} | Sexo: ${u.gender === "F" ? "mujer" : u.gender === "M" ? "hombre" : "—"} | Edad: ${u.age || "—"} | País: ${u.country || "—"}
+- Plan: ${u.planType || "gratis"} | Día actual del programa: ${u.currentDay || 1} | Días completados: ${u.daysCompleted || 0}/30
+- Entradas de diario: ${u.journalEntries || 0} | Balance RV: ${u.rvBalance || 0}
+- Banderas recibidas: ${u.flags || 0} | Chat deshabilitado: ${u.chatMuted ? "sí" : "no"}
+${u.testScores ? "- Puntajes de tests de progreso: " + u.testScores : ""}
+${u.recentJournal ? "- Fragmentos recientes del diario:\n" + String(u.recentJournal).slice(0, 1500) : ""}
+
+Redacta el informe en este formato exacto:
+1. RESUMEN DEL CASO (2-3 líneas: en qué punto está)
+2. TEMAS CLAVE (lista de 3-5 temas emocionales que detectas)
+3. NIVEL DE RIESGO: bajo / medio / alto (alto solo si hay señales de autolesión, crisis severa o estancamiento total)
+4. RECOMENDACIONES PARA EL ADMIN (3 acciones concretas: qué reto crearle, qué test aplicarle, si necesita atención especial)
+5. MENSAJE SUGERIDO AL USUARIO (2-3 líneas cálidas, motivadoras, sin prometer resultados)
+
+Recuerda: nada religioso, nada de diagnósticos clínicos. Si hay señales de riesgo, indícalo claramente para que el admin actúe.`;
+  return callAI(prompt, SYSTEM_BASE + "\nRedactas informes para el administrador de la app. Sé claro, estructurado y accionable.");
+}
+
+/* Genera un reto personalizado para un usuario. Devuelve { ok, title, description }. */
+async function generateChallenge(userData) {
+  const u = userData || {};
+  const prompt = `Crea UN reto personalizado para este usuario de Reaviva (app de sanación tras ruptura).
+
+DATOS:
+- Nombre: ${u.name || "—"} | Sexo: ${u.gender === "F" ? "mujer" : u.gender === "M" ? "hombre" : "—"}
+- Día actual: ${u.currentDay || 1}/30 | Días completados: ${u.daysCompleted || 0}
+${u.analysisSummary ? "- Resumen del análisis de su caso: " + String(u.analysisSummary).slice(0, 800) : ""}
+${u.testScores ? "- Puntajes de tests: " + u.testScores : ""}
+
+El reto debe:
+- Ser concreto y realizable en 1-3 días
+- Estar adaptado a su punto del programa y su estado emocional
+- Ser 100% secular y saludable (nada de contactar al ex, nada riesgoso)
+- Tener un título corto (máx 60 caracteres) y una descripción clara (2-4 líneas con pasos)
+
+Responde EXACTAMENTE en este formato:
+TÍTULO: <título>
+DESCRIPCIÓN: <descripción>`;
+  const r = await callAI(prompt);
+  if (!r.ok) return r;
+  const mTitle = r.text.match(/TÍTULO:\s*(.+)/);
+  const mDesc = r.text.match(/DESCRIPCIÓN:\s*([\s\S]+)/);
   return {
-    id: u.id,
-    name: u.name,
-    gender: u.gender,
-    age,
-    country: u.country,
-    planType: u.subscribed === 1 ? "pago" : "gratis",
-    currentDay,
-    daysCompleted: daysCompleted.length,
-    journalEntries: journalRows.length,
-    recentJournal: journalRows.map(j => `[${j.date} ${j.mood || ""}] ${String(j.text || "").slice(0, 400)}`).join("\n"),
-    flags,
-    chatMuted: u.chat_muted === 1 || u.chat_disabled === 1,
-    rvBalance: u.credits || 0,
-    testScores: null, // los tests de progreso viven en localStorage del frontend
+    ok: true,
+    title: (mTitle ? mTitle[1] : "Reto personalizado").trim().slice(0, 120),
+    description: (mDesc ? mDesc[1] : r.text).trim().slice(0, 2000),
+    raw: r.text,
   };
 }
 
-/* Guarda (o actualiza) el análisis en ai_user_analysis. */
-async function saveAnalysis(userId, text) {
-  const risk = /alto/i.test(text.slice(0, 2000)) && /riesgo/i.test(text.slice(0, 2000))
-    ? "alto" : (/medio/i.test(text) ? "medio" : "bajo");
-  // Extrae temas clave si la IA los listó (best-effort).
-  const keyIssues = (text.match(/TEMAS CLAVE([\s\S]{0,600})/i) || [])[1] || "";
-  const summary = (text.match(/RESUMEN DEL CASO([\s\S]{0,600})/i) || [])[1] || "";
-  await db.run(
-    `INSERT INTO ai_user_analysis (user_id, analysis_text, key_issues, progress_summary, risk_level, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(user_id) DO UPDATE SET
-       analysis_text = excluded.analysis_text,
-       key_issues = excluded.key_issues,
-       progress_summary = excluded.progress_summary,
-       risk_level = excluded.risk_level,
-       updated_at = datetime('now')`,
-    userId, text, keyIssues.trim().slice(0, 2000), summary.trim().slice(0, 2000), risk);
+/* Genera preguntas de test personalizadas según el progreso del usuario. */
+async function generateTestQuestions(userData) {
+  const u = userData || {};
+  const prompt = `Genera 10 preguntas de test emocional personalizadas para este usuario de Reaviva.
+
+DATOS:
+- Nombre: ${u.name || "—"} | Día actual: ${u.currentDay || 1}/30
+${u.analysisSummary ? "- Análisis de su caso: " + String(u.analysisSummary).slice(0, 800) : ""}
+${u.testScores ? "- Tests anteriores: " + u.testScores : ""}
+
+Las preguntas deben:
+- Medir su estado emocional actual (ánimo, apego al ex, autocuidado, claridad, esperanza)
+- Estar adaptadas a su momento del programa
+- Ser escala 1-5 (1 = peor, 5 = mejor) o abiertas y reflexivas
+- 100% seculares, cálidas, sin jerga clínica
+
+Responde con las 10 preguntas numeradas, cada una en una línea, indicando al final [escala] o [abierta].`;
+  return callAI(prompt);
 }
 
-/* Crea un reporte pendiente para el admin. Devuelve el id. */
-async function createReport(userId, reportType, title, content) {
-  const info = await db.run(
-    "INSERT INTO ai_reports (user_id, report_type, title, content, status) VALUES (?, ?, ?, ?, 'pending')",
-    userId, reportType, title, content);
-  return info.lastInsertRowid;
+/* Chat de ayuda con el usuario. userContext: perfil + día actual + resumen.
+ * NUNCA expone datos de otros usuarios. */
+async function chatWithUser(message, userContext) {
+  const u = userContext || {};
+  const msg = String(message || "").slice(0, 2000);
+  if (!msg.trim()) return { ok: false, error: "Mensaje vacío" };
+  const system = SYSTEM_BASE + `
+Estás conversando directamente con un usuario que está sanando una ruptura.
+- Su nombre: ${u.name || "—"}. Día del programa: ${u.currentDay || 1}/30.
+${u.analysisSummary ? "Contexto de su caso: " + String(u.analysisSummary).slice(0, 600) : ""}
+- Responde de forma breve (máx 150 palabras), cálida y práctica.
+- Puedes sugerir ejercicios del programa o pequeños retos diarios.
+- Si pide algo fuera de tu alcance (temas legales, médicos), dilo con honestidad y sugiere un profesional.
+- Jamás menciones que eres un modelo de IA de una empresa; eres "el asistente de Reaviva".`;
+  return callAI(msg, system);
 }
 
-/* ============ ADMIN ============ */
-
-/* POST /api/admin/ai/analyze/:userId — genera análisis del caso con IA.
- * Guarda en ai_user_analysis y crea ai_reports (analysis, pending). */
-router.post("/admin/ai/analyze/:userId", requireAdmin, ah(async (req, res) => {
-  const userId = Number(req.params.userId);
-  if (!userId) return res.status(400).json({ error: "ID inválido" });
-  if (!ai.hasKey())
-    return res.status(503).json({ error: "Falta configurar OPENAI_API_KEY en el servidor" });
-
-  const data = await collectUserData(userId);
-  if (!data) return res.status(404).json({ error: "Usuario no encontrado" });
-
-  const r = await ai.analyzeUserCase(data);
-  if (!r.ok) return res.status(502).json({ error: "La IA no respondió: " + r.error });
-
-  await saveAnalysis(userId, r.text);
-  const reportId = await createReport(
-    userId, "analysis",
-    `Análisis IA: ${data.name}`,
-    r.text);
-
-  res.json({ ok: true, reportId, analysis: r.text });
-}));
-
-/* GET /api/admin/ai/reports — lista reportes (filtro ?status=pending). */
-router.get("/admin/ai/reports", requireAdmin, ah(async (req, res) => {
-  const status = String(req.query.status || "pending");
-  const rows = await db.all(
-    `SELECT r.*, u.name AS user_name, u.email AS user_email
-     FROM ai_reports r JOIN users u ON u.id = r.user_id
-     WHERE r.status = ?
-     ORDER BY r.created_at DESC LIMIT 100`, status);
-  res.json({ reports: rows });
-}));
-
-/* POST /api/admin/ai/reports/:id/approve — aprueba un reporte. */
-router.post("/admin/ai/reports/:id/approve", requireAdmin, ah(async (req, res) => {
-  const id = Number(req.params.id);
-  const info = await db.run(
-    "UPDATE ai_reports SET status = 'approved', reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'", id);
-  if (!info.changes) return res.status(404).json({ error: "Reporte no encontrado o ya revisado" });
-  res.json({ ok: true });
-}));
-
-/* POST /api/admin/ai/reports/:id/reject — rechaza con feedback del admin. */
-router.post("/admin/ai/reports/:id/reject", requireAdmin, ah(async (req, res) => {
-  const id = Number(req.params.id);
-  const feedback = String(req.body?.admin_feedback || "").slice(0, 2000);
-  const info = await db.run(
-    "UPDATE ai_reports SET status = 'rejected', admin_feedback = ?, reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'",
-    feedback, id);
-  if (!info.changes) return res.status(404).json({ error: "Reporte no encontrado o ya revisado" });
-  res.json({ ok: true });
-}));
-
-/* POST /api/admin/ai/challenge/:userId — genera un reto personalizado (pending + reporte). */
-router.post("/admin/ai/challenge/:userId", requireAdmin, ah(async (req, res) => {
-  const userId = Number(req.params.userId);
-  if (!userId) return res.status(400).json({ error: "ID inválido" });
-  if (!ai.hasKey())
-    return res.status(503).json({ error: "Falta configurar OPENAI_API_KEY en el servidor" });
-
-  const data = await collectUserData(userId);
-  if (!data) return res.status(404).json({ error: "Usuario no encontrado" });
-
-  const analysis = await db.get("SELECT progress_summary FROM ai_user_analysis WHERE user_id = ?", userId);
-  if (analysis) data.analysisSummary = analysis.progress_summary;
-
-  const r = await ai.generateChallenge(data);
-  if (!r.ok) return res.status(502).json({ error: "La IA no respondió: " + r.error });
-
-  const info = await db.run(
-    "INSERT INTO ai_challenges (user_id, title, description, day_target, status) VALUES (?, ?, ?, ?, 'pending')",
-    userId, r.title, r.description, data.currentDay);
-  const challengeId = info.lastInsertRowid;
-
-  const reportId = await createReport(
-    userId, "challenge",
-    `Reto IA para ${data.name}: ${r.title}`,
-    `TÍTULO: ${r.title}\n\nDESCRIPCIÓN:\n${r.description}\n\n(challenge_id: ${challengeId})`);
-
-  res.json({ ok: true, challengeId, reportId, title: r.title, description: r.description });
-}));
-
-/* GET /api/admin/ai/challenges — retos pendientes de aprobación. */
-router.get("/admin/ai/challenges", requireAdmin, ah(async (req, res) => {
-  const status = String(req.query.status || "pending");
-  const rows = await db.all(
-    `SELECT c.*, u.name AS user_name, u.email AS user_email
-     FROM ai_challenges c JOIN users u ON u.id = c.user_id
-     WHERE c.status = ?
-     ORDER BY c.created_at DESC LIMIT 100`, status);
-  res.json({ challenges: rows });
-}));
-
-/* POST /api/admin/ai/challenges/:id/approve — aprueba el reto (llega al usuario). */
-router.post("/admin/ai/challenges/:id/approve", requireAdmin, ah(async (req, res) => {
-  const id = Number(req.params.id);
-  const info = await db.run(
-    "UPDATE ai_challenges SET status = 'approved' WHERE id = ? AND status = 'pending'", id);
-  if (!info.changes) return res.status(404).json({ error: "Reto no encontrado o ya revisado" });
-  // Marca sus reportes como aprobados también.
-  await db.run("UPDATE ai_reports SET status = 'approved', reviewed_at = datetime('now') WHERE report_type = 'challenge' AND status = 'pending' AND content LIKE ?", `%challenge_id: ${id}%`);
-  res.json({ ok: true });
-}));
-
-/* POST /api/admin/ai/challenges/:id/modify — el admin edita título/descripción y aprueba. */
-router.post("/admin/ai/challenges/:id/modify", requireAdmin, ah(async (req, res) => {
-  const id = Number(req.params.id);
-  const title = String(req.body?.title || "").trim().slice(0, 120);
-  const description = String(req.body?.description || "").trim().slice(0, 2000);
-  const adminNotes = String(req.body?.admin_notes || "").trim().slice(0, 1000);
-  if (!title || !description)
-    return res.status(400).json({ error: "Título y descripción son requeridos" });
-  const info = await db.run(
-    "UPDATE ai_challenges SET title = ?, description = ?, admin_notes = ?, status = 'approved' WHERE id = ? AND status = 'pending'",
-    title, description, adminNotes || null, id);
-  if (!info.changes) return res.status(404).json({ error: "Reto no encontrado o ya revisado" });
-  await db.run("UPDATE ai_reports SET status = 'approved', reviewed_at = datetime('now') WHERE report_type = 'challenge' AND status = 'pending' AND content LIKE ?", `%challenge_id: ${id}%`);
-  res.json({ ok: true });
-}));
-
-/* POST /api/admin/ai/challenges/:id/reject — rechaza un reto pendiente. */
-router.post("/admin/ai/challenges/:id/reject", requireAdmin, ah(async (req, res) => {
-  const id = Number(req.params.id);
-  const adminNotes = String(req.body?.admin_notes || "").trim().slice(0, 1000);
-  const info = await db.run(
-    "UPDATE ai_challenges SET status = 'rejected', admin_notes = ? WHERE id = ? AND status = 'pending'",
-    adminNotes || null, id);
-  if (!info.changes) return res.status(404).json({ error: "Reto no encontrado o ya revisado" });
-  res.json({ ok: true });
-}));
-
-/* POST /api/admin/ai/test/:userId — genera test personalizado (reporte pending para validar). */
-router.post("/admin/ai/test/:userId", requireAdmin, ah(async (req, res) => {
-  const userId = Number(req.params.userId);
-  if (!userId) return res.status(400).json({ error: "ID inválido" });
-  if (!ai.hasKey())
-    return res.status(503).json({ error: "Falta configurar OPENAI_API_KEY en el servidor" });
-
-  const data = await collectUserData(userId);
-  if (!data) return res.status(404).json({ error: "Usuario no encontrado" });
-  const analysis = await db.get("SELECT progress_summary FROM ai_user_analysis WHERE user_id = ?", userId);
-  if (analysis) data.analysisSummary = analysis.progress_summary;
-
-  const r = await ai.generateTestQuestions(data);
-  if (!r.ok) return res.status(502).json({ error: "La IA no respondió: " + r.error });
-
-  const reportId = await createReport(
-    userId, "test",
-    `Test personalizado IA para ${data.name}`,
-    r.text);
-
-  res.json({ ok: true, reportId, questions: r.text });
-}));
-
-/* ============ USUARIO ============ */
-
-/* GET /api/ai/challenges — retos aprobados del usuario actual. */
-router.get("/ai/challenges", requireAuth, ah(async (req, res) => {
-  const rows = await db.all(
-    "SELECT id, title, description, day_target, created_at FROM ai_challenges WHERE user_id = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 20",
-    req.user.id);
-  res.json({ challenges: rows });
-}));
-
-/* POST /api/ai/chat { message } — chat de ayuda con la IA. */
-router.post("/ai/chat", requireAuth, ah(async (req, res) => {
-  const message = String(req.body?.message || "").slice(0, 2000);
-  if (!message.trim()) return res.status(400).json({ error: "Escribe un mensaje" });
-  if (!ai.hasKey())
-    return res.status(503).json({ error: "El asistente IA no está configurado todavía. Escríbenos por contacto 💛" });
-
-  const data = await collectUserData(req.user.id);
-  const analysis = await db.get("SELECT progress_summary FROM ai_user_analysis WHERE user_id = ?", req.user.id);
-
-  const r = await ai.chatWithUser(message, {
-    name: data ? data.name : req.user.name,
-    currentDay: data ? data.currentDay : 1,
-    analysisSummary: analysis ? analysis.progress_summary : null,
-  });
-  if (!r.ok) return res.status(502).json({ error: "La IA no respondió ahorita. Inténtalo de nuevo 💛" });
-  res.json({ ok: true, reply: r.text });
-}));
-
-module.exports = { router };
+module.exports = {
+  callAI,
+  analyzeUserCase,
+  generateChallenge,
+  generateTestQuestions,
+  chatWithUser,
+  hasKey,
+};
