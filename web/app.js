@@ -1279,6 +1279,8 @@ function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
   openDayNum = d;
   const p = window.REAVIVA_PROGRAM[d-1];
+  const savedEx = getExerciseText(d);
+  const done = isDone(d);
   $("#day-detail").innerHTML = `
     <div class="day-hero">
       <div class="part">${esc(p.part)}</div>
@@ -1287,12 +1289,16 @@ function openDay(d){
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(p.reflexion)}</p></div>
-    <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(p.ejercicio)}</p></div>
+    <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(p.ejercicio)}</p>
+      <textarea id="exercise-text" class="journal" rows="8" placeholder="Escribe aquí tu ejercicio… (mínimo 500 palabras para completar el día)" ${done?"disabled":""}>${esc(savedEx)}</textarea>
+      <div id="exercise-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-top:4px"></div>
+    </div>
     <div class="block"><h4>✅ Acción de hoy</h4><p>${esc(p.accion)}</p></div>
     <div class="complete-row">
-      <button class="btn ${isDone(d)?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})">
-        ${isDone(d) ? "✓ Día completado" : "Marcar día como completado"}
+      <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})" ${(!done && countWords(savedEx) < 500)?"disabled":""}>
+        ${done ? "✓ Día completado" : "Marcar día como completado"}
       </button>
+      ${(!done)?'<p id="complete-hint" style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px"></p>':''}
     </div>
     <div class="day-nav">
       <button class="btn btn-ghost" ${d<=1?"disabled":""} onclick="openDay(${d-1})">← Anterior</button>
@@ -1302,6 +1308,43 @@ function openDay(d){
   $("#panel-programa-list").style.display = "none";
   $("#day-detail").style.display = "";
   window.scrollTo(0,0);
+  if(!done){
+    const ta = $("#exercise-text");
+    const update = ()=>{
+      const n = countWords(ta.value);
+      saveExerciseText(d, ta.value);
+      const cd = $("#exercise-count");
+      if(cd) cd.innerHTML = `<b style="color:${n>=500?"#2e7d32":"var(--terra)"}">${n}</b> / 500 palabras mínimas`;
+      const btn = $("#complete-day-btn"), hint = $("#complete-hint");
+      if(n >= 500){
+        if(btn) btn.disabled = false;
+        if(hint) hint.textContent = "";
+      }else{
+        if(btn) btn.disabled = true;
+        if(hint) hint.textContent = `Te faltan ${500-n} palabras para completar el día ✍️`;
+      }
+    };
+    ta.addEventListener("input", update);
+    update();
+  }else{
+    const cd = $("#exercise-count");
+    if(cd){ const n = countWords(savedEx); cd.innerHTML = `<b>${n}</b> palabras`; }
+  }
+}
+/* Cuenta palabras de un texto. */
+function countWords(t){
+  if(!t) return 0;
+  return t.trim().split(/\s+/).filter(w=>w.length).length;
+}
+/* Guarda/lee el texto del ejercicio por día (local). */
+function getExerciseText(d){
+  const all = store.get("reaviva_exercises", {});
+  return all[d] || "";
+}
+function saveExerciseText(d, text){
+  const all = store.get("reaviva_exercises", {});
+  all[d] = text;
+  store.set("reaviva_exercises", all);
 }
 function backToList(){
   $("#day-detail").style.display = "none";
@@ -1309,6 +1352,10 @@ function backToList(){
   renderPrograma();
 }
 function completeDay(d){
+  if(!isDone(d) && countWords(getExerciseText(d)) < 500){
+    toast("Escribe al menos 500 palabras en el ejercicio para completar el día ✍️");
+    return;
+  }
   markDone(d);
   toast(t("t.day_done", {d: d}));
   openDay(d);
