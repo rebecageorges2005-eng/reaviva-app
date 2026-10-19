@@ -67,6 +67,7 @@ function publicUser(row) {
     codigoPais: row.country_code || null,
     ultimoAcceso: row.last_seen || null,
     gender: row.gender || null,
+    bio: row.bio || null,
   };
 }
 
@@ -734,6 +735,13 @@ router.post("/profile/cover", requireAuth, ah(async (req, res) => {
   }
   await db.run("UPDATE users SET cover_photo = ? WHERE id = ?", cover, req.user.id);
   res.json({ ok: true });
+}));
+
+/* Actualizar descripción/bio del perfil (máx 300 caracteres). */
+router.post("/profile/bio", requireAuth, ah(async (req, res) => {
+  const bio = String(req.body?.bio || "").trim().slice(0, 300);
+  await db.run("UPDATE users SET bio = ? WHERE id = ?", bio, req.user.id);
+  res.json({ ok: true, bio });
 }));
 
 module.exports = { router, requireAuth, verifyToken };
