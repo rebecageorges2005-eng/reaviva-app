@@ -742,9 +742,11 @@ router.post("/profile/cover", requireAuth, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/* Actualizar descripción/bio del perfil (máx 300 caracteres). */
+/* Actualizar descripción/bio del perfil (mín 10, máx 100 caracteres). */
 router.post("/profile/bio", requireAuth, ah(async (req, res) => {
-  const bio = String(req.body?.bio || "").trim().slice(0, 300);
+  const bio = String(req.body?.bio || "").trim().slice(0, 100);
+  if (bio.length < 10)
+    return res.status(400).json({ error: "La descripción debe tener mínimo 10 caracteres" });
   await db.run("UPDATE users SET bio = ? WHERE id = ?", bio, req.user.id);
   res.json({ ok: true, bio });
 }));
