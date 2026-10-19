@@ -14,6 +14,7 @@
 
 const express = require("express");
 const db = require("../db");
+const { ah } = db;
 const { requireAuth } = require("./auth");
 const { detectSpam } = require("../spam");
 
@@ -68,13 +69,12 @@ function nombreCreador(row) {
 
 /* GET /api/topics → temas activos, más recientes primero.
  * Limpieza oportunista: borra los expirados al listar. */
-router.get("/", requireAuth, (req, res) => {
+router.get("/", requireAuth, ah(async (req, res) => {
   try {
-    db.prepare("DELETE FROM chat_topics WHERE expires_at <= datetime('now')").run();
+    await db.run("DELETE FROM chat_topics WHERE expires_at <= datetime('now')");
   } catch (e) { /* no bloquea */ }
 
-  const rows = db
-    .prepare(
+  const rows = await db.all(
       `SELECT t.id, t.name AS topic_name, t.created_at, t.expires_at,
               u.name AS user_name, u.subscribed, u.is_admin, u.country_code
        FROM chat_topics t
@@ -82,8 +82,7 @@ router.get("/", requireAuth, (req, res) => {
        WHERE t.expires_at > datetime('now')
        ORDER BY t.created_at DESC
        LIMIT 50`
-    )
-    .all();
+    );
 
   res.json({
     temas: rows.map((t) => ({
@@ -94,10 +93,10 @@ router.get("/", requireAuth, (req, res) => {
       minutosRestantes: minutosRestantes(t.expires_at),
     })),
   });
-});
+}));
 
 /* POST /api/topics { name } → crear tema (solo con plan). */
-router.post("/", requireAuth, (req, res) => {
+router.post("/", requireAuth, ah(async (req, res) => {
   const u = req.user;
   if (!isPaidUser(u))
     return res
@@ -116,23 +115,19 @@ router.post("/", requireAuth, (req, res) => {
       .json({ error: "🚩 El nombre del tema no puede contener " + spam.detalle + "." });
 
   // Límite: 5 temas por usuario por día.
-  const hoy = db
-    .prepare(
+  const hoy = (await db.get(
       `SELECT COUNT(*) AS n FROM chat_topics
        WHERE user_id = ? AND created_at >= datetime('now', '-1 day')`
-    )
-    .get(u.id).n;
+    , u.id)).n;
   if (hoy >= TOPICS_PER_DAY)
     return res
       .status(429)
       .json({ error: "Creaste muchos temas hoy. Intenta mañana 💛" });
 
-  const r = db
-    .prepare(
+  const r = await db.run(
       `INSERT INTO chat_topics (user_id, name, expires_at)
        VALUES (?, ?, datetime('now', '+${TOPIC_TTL_MINUTES} minutes'))`
-    )
-    .run(u.id, v.name);
+    , u.id, v.name);
 
   res.status(201).json({
     ok: true,
@@ -140,15 +135,13 @@ router.post("/", requireAuth, (req, res) => {
     nombre: v.name,
     mensaje: `Tema "#${v.name}" creado 🎉 Durará 2 horas.`,
   });
-});
+}));
 
 /* Devuelve el nombre de un tema activo por id, o null si no existe/expiró. */
-function temaActivoPorId(id) {
+async function temaActivoPorId(id) {
   const n = Number(id);
   if (!n) return null;
-  const t = db
-    .prepare("SELECT name FROM chat_topics WHERE id = ? AND expires_at > datetime('now')")
-    .get(n);
+  const t = await db.get("SELECT name FROM chat_topics WHERE id = ? AND expires_at > datetime('now')", n);
   return t ? t.name : null;
 }
 

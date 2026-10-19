@@ -26,6 +26,7 @@
 
 const express = require("express");
 const db = require("../db");
+const { ah } = db;
 const { requireAuth } = require("./auth");
 const {
   paypalOrdersConfigured,
@@ -50,29 +51,25 @@ function paidOnly(req, res, next) {
 }
 
 /* GET /api/rv/balance → { rv } (el admin tiene RV ilimitado). */
-router.get("/balance", requireAuth, (req, res) => {
+router.get("/balance", requireAuth, ah(async (req, res) => {
   if (req.user && req.user.is_admin === 1)
     return res.json({ rv: -1, unlimited: true });
-  res.json({ rv: getRV(req.user.id) });
-});
+  res.json({ rv: await getRV(req.user.id) });
+}));
 
 /* GET /api/rv/history → { purchases: [...], spending: [...], balance } */
-router.get("/history", requireAuth, (req, res) => {
-  const purchases = db
-    .prepare(
+router.get("/history", requireAuth, ah(async (req, res) => {
+  const purchases = await db.all(
       `SELECT pack_credits AS rv, amount_usd AS monto, paypal_order_id AS orden,
               status AS estado, created_at AS fecha
        FROM credit_purchases WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`
-    )
-    .all(req.user.id);
-  const spending = db
-    .prepare(
+    , req.user.id);
+  const spending = await db.all(
       `SELECT credits_used AS rv, reason AS motivo, created_at AS fecha
        FROM credit_spending WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`
-    )
-    .all(req.user.id);
-  res.json({ purchases, spending, balance: getRV(req.user.id) });
-});
+    , req.user.id);
+  res.json({ purchases, spending, balance: await getRV(req.user.id) });
+}));
 
 /* GET /api/rv/packs → lista pública de paquetes (para el modal). */
 router.get("/packs", (req, res) => {
@@ -92,7 +89,7 @@ router.get("/packs", (req, res) => {
 
 /* POST /api/rv/create-order  { pack: "120"|"300"|"700" }
  * → { id, approveUrl } */
-router.post("/create-order", requireAuth, paidOnly, async (req, res) => {
+router.post("/create-order", requireAuth, paidOnly, ah(async (req, res) => {
   if (!paypalOrdersConfigured())
     return res.status(503).json({ error: "Pagos no configurados todavía" });
 
@@ -134,11 +131,11 @@ router.post("/create-order", requireAuth, paidOnly, async (req, res) => {
       return res.status(502).json({ error: "PayPal no devolvió link de aprobación" });
     // Guardamos la orden como pendiente para idempotencia en la captura.
     try {
-      db.prepare(
+      await db.run(
         `INSERT OR IGNORE INTO credit_purchases
            (user_id, pack_credits, amount_usd, paypal_order_id, status, created_at)
          VALUES (?, ?, ?, ?, 'pending', datetime('now'))`
-      ).run(req.user.id, pack.rv, pack.amount, j.id);
+      , req.user.id, pack.rv, pack.amount, j.id);
     } catch (e) {
       /* no bloquea */
     }
@@ -146,12 +143,12 @@ router.post("/create-order", requireAuth, paidOnly, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: "Error conectando con PayPal" });
   }
-});
+}));
 
 /* POST /api/rv/capture-order  { orderID }
  * Captura el pago, verifica el monto y acredita los RV.
  * Idempotente: si la orden ya fue acreditada, no duplica. */
-router.post("/capture-order", requireAuth, paidOnly, async (req, res) => {
+router.post("/capture-order", requireAuth, paidOnly, ah(async (req, res) => {
   if (!paypalOrdersConfigured())
     return res.status(503).json({ error: "Pagos no configurados todavía" });
 
@@ -159,20 +156,18 @@ router.post("/capture-order", requireAuth, paidOnly, async (req, res) => {
   if (!orderID) return res.status(400).json({ error: "Falta el ID de la orden" });
 
   // Idempotencia: ¿ya acreditada?
-  const prev = db
-    .prepare("SELECT id, status, pack_credits FROM credit_purchases WHERE paypal_order_id = ?")
-    .get(orderID);
+  const prev = await db.get("SELECT id, status, pack_credits FROM credit_purchases WHERE paypal_order_id = ?", orderID);
   if (prev && prev.status === "completed") {
     return res.json({
       ok: true,
       yaAcreditado: true,
       rvAgregados: Number(prev.pack_credits),
-      rv: getRV(req.user.id),
+      rv: await getRV(req.user.id),
     });
   }
 
   try {
-    // 1) Verificar el estado de la orden en PayPal.
+    // 1)) Verificar el estado de la orden en PayPal.
     const ord = await paypalFetch(`/v2/checkout/orders/${encodeURIComponent(orderID)}`);
     const oj = await ord.json();
     if (!ord.ok || oj.status !== "APPROVED")
@@ -208,23 +203,23 @@ router.post("/capture-order", requireAuth, paidOnly, async (req, res) => {
       return res.status(400).json({ error: "El monto capturado no coincide" });
 
     // 3) Acreditar (idempotente por UNIQUE en paypal_order_id).
-    db.prepare(
+    await db.run(
       `INSERT INTO credit_purchases
          (user_id, pack_credits, amount_usd, paypal_order_id, status, created_at)
        VALUES (?, ?, ?, ?, 'completed', datetime('now'))
        ON CONFLICT(paypal_order_id) DO UPDATE SET status = 'completed'`
-    ).run(req.user.id, pack.rv, pack.amount, orderID);
-    db.prepare("UPDATE users SET credits = credits + ? WHERE id = ?").run(pack.rv, req.user.id);
+    , req.user.id, pack.rv, pack.amount, orderID);
+    await db.run("UPDATE users SET credits = credits + ? WHERE id = ?", pack.rv, req.user.id);
 
     res.json({
       ok: true,
       rvAgregados: pack.rv,
-      rv: getRV(req.user.id),
+      rv: await getRV(req.user.id),
       monto: pack.amount,
     });
   } catch (e) {
     res.status(502).json({ error: "Error procesando el pago con PayPal" });
   }
-});
+}));
 
 module.exports = { router, PACKS };
