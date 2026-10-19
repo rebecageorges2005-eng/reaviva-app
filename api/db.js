@@ -345,6 +345,10 @@ async function migrate() {
       await db.exec("ALTER TABLE users ADD COLUMN photo TEXT");
       console.log("[db] migración: columna users.photo agregada");
     }
+    if (!cols7.includes("cover_photo")) {
+      await db.exec("ALTER TABLE users ADD COLUMN cover_photo TEXT");
+      console.log("[db] migración: columna users.cover_photo agregada");
+    }
   } catch (e) {
     console.error("[db] migración photo:", e.message);
   }
