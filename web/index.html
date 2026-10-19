@@ -190,14 +190,24 @@
           <select id="signup-month" class="field" required aria-label="Mes"><option value="" data-i18n="auth.month">Mes</option></select>
           <select id="signup-year" class="field" required aria-label="Año"><option value="" data-i18n="auth.year">Año</option></select>
         </div>
-        <label class="bd-label" style="text-align:center;display:block">Sexo</label>
-        <div class="bd-row" style="gap:24px;align-items:center;justify-content:center">
-          <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
-            <input type="radio" name="signup-sexo" value="M" onchange="pickGender('M')" style="width:18px;height:18px;accent-color:var(--terra)"> M
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
-            <input type="radio" name="signup-sexo" value="F" onchange="pickGender('F')" style="width:18px;height:18px;accent-color:var(--terra)"> F
-          </label>
+        <div style="display:flex;gap:12px;align-items:flex-end;justify-content:center;margin:4px 0">
+          <div style="flex:1;max-width:170px">
+            <label class="bd-label" style="text-align:center;display:block">Sexo</label>
+            <div class="bd-row" style="gap:20px;align-items:center;justify-content:center">
+              <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
+                <input type="radio" name="signup-sexo" value="M" onchange="pickGender('M')" style="width:18px;height:18px;accent-color:var(--terra)"> M
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
+                <input type="radio" name="signup-sexo" value="F" onchange="pickGender('F')" style="width:18px;height:18px;accent-color:var(--terra)"> F
+              </label>
+            </div>
+          </div>
+          <div style="flex:1;max-width:170px">
+            <label class="bd-label" style="text-align:center;display:block">País</label>
+            <select id="signup-country" class="field" required aria-label="País" style="text-align:center">
+              <option value="">Selecciona</option>
+            </select>
+          </div>
         </div>
         <input type="hidden" id="signup-gender" value="">
         <div class="pwd-wrap">
@@ -485,6 +495,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=28"></script>
+<script src="/app.js?v=30"></script>
 </body>
 </html>

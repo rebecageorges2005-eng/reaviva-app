@@ -377,6 +377,8 @@ function switchAuthMode(mode, fromHash){
   });
   document.querySelectorAll('input[name="signup-sexo"]').forEach(r=>{ r.checked = false; });
   const hg = $("#signup-gender"); if(hg) hg.value = "";
+  document.querySelectorAll('input[name="signup-sexo"]').forEach(r => r.checked = false);
+  const cs = $("#signup-country"); if(cs) cs.value = "";
   if(mode === "signup") populateBirthdateSelects();
   if(!fromHash) syncHash();
 }
@@ -693,6 +695,11 @@ async function doSignup(ev){
   if(gender !== "M" && gender !== "F"){
     errBox.textContent = "Elige si eres hombre o mujer 👆"; return;
   }
+  // País: requerido.
+  const country = $("#signup-country") ? $("#signup-country").value : "";
+  if(!country){
+    errBox.textContent = "Elige tu país 🌎"; return;
+  }
   // Si el captcha está visible, exigir que lo marquen.
   let recaptchaToken = null;
   if(recaptchaWidgetId !== null){
@@ -704,7 +711,7 @@ async function doSignup(ev){
     const r = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, birthdate, gender, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
+      body: JSON.stringify({ name, email, password, birthdate, gender, country, recaptchaToken, referred_by: localStorage.getItem("reaviva_ref") || null })
     });
     const j = await r.json();
     if(!r.ok){ errBox.textContent = j.error || "No se pudo crear la cuenta. Inténtalo de nuevo."; return; }
@@ -951,6 +958,8 @@ function enterApp(initialTab){
   try{ startDmWinPoll(); }catch(e){}
 }
 function switchTab(tab, fromHash){
+  // Al cambiar de pestaña, borrar el borrador del día si había uno abierto.
+  try{ if(typeof openDayNum !== "undefined" && openDayNum) clearDayDraft(openDayNum); }catch(e){}
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id==="panel-"+tab));
   // El sondeo de mensajes nuevos corre con el chat abierto: pestaña de comunidad
@@ -1329,6 +1338,10 @@ function renderPrograma(){
 /* ---------- day detail ---------- */
 function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
+  // Si había otro día abierto, borrar su borrador.
+  try{
+    if(typeof openDayNum !== "undefined" && openDayNum && openDayNum !== d) clearDayDraft(openDayNum);
+  }catch(e){}
   openDayNum = d;
   const p = window.REAVIVA_PROGRAM[d-1];
   const savedEx = getExerciseText(d);
@@ -1369,18 +1382,28 @@ function openDay(d){
     const ta = $("#exercise-text");
     const sta = $("#story-text");
     const updateStoryCount = ()=>{
-      if(!sta) return 0;
-      const len = sta.value.length;
-      const scd = $("#story-count");
+      const el = document.getElementById("story-text");
+      if(!el) return 0;
+      const len = el.value.length;
+      const scd = document.getElementById("story-count");
       if(scd) scd.innerHTML = `<b style="color:${len>=500?"#2e7d32":"var(--terra)"}">${len}</b> / 500 caracteres mínimos`;
+      // Quitar el rojo automáticamente al llegar a 500.
+      if(len >= 500) el.classList.remove("incomplete-red");
       return len;
     };
-    if(sta) sta.addEventListener("input", ()=>{ saveStoryText(d, sta.value); checkComplete(); });
-    const update = ()=>{
-      const n = countWords(ta.value);
-      saveExerciseText(d, ta.value);
-      const cd = $("#exercise-count");
+    const updateExCount = ()=>{
+      const el = document.getElementById("exercise-text");
+      if(!el) return 0;
+      const n = countWords(el.value);
+      const cd = document.getElementById("exercise-count");
       if(cd) cd.innerHTML = `<b style="color:${n>=500?"#2e7d32":"var(--terra)"}">${n}</b> / 500 palabras mínimas`;
+      if(n >= 500) el.classList.remove("incomplete-red");
+      return n;
+    };
+    if(sta) sta.addEventListener("input", ()=>{ saveStoryText(d, sta.value); updateStoryCount(); checkComplete(); });
+    const update = ()=>{
+      const n = updateExCount();
+      saveExerciseText(d, ta.value);
       checkComplete();
     };
     const checkComplete = ()=>{
@@ -1432,6 +1455,8 @@ function saveStoryText(d, text){
   store.set("reaviva_stories", all);
 }
 function backToList(){
+  // Borrar el borrador del día al salir de la vista.
+  try{ if(typeof openDayNum !== "undefined" && openDayNum) clearDayDraft(openDayNum); }catch(e){}
   $("#day-detail").style.display = "none";
   $("#panel-programa-list").style.display = "";
   renderPrograma();
@@ -3486,6 +3511,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   refreshPaidStatus();
   // reCAPTCHA v2 en el formulario de registro (si hay site key configurada)
   initRecaptcha();
+  // Lista de países en el registro.
+  initCountrySelect();
   // Inactividad: 30 min sin actividad -> aviso 10 seg -> cierra sesion.
   initInactivityTimer();
   // URL secreta de admin: /admin/ingzoe
@@ -3522,11 +3549,28 @@ function doLogout(){
   try{ stopChatPoll(); }catch(e){}
   try{ hideInactivityWarning(); }catch(e){}
   if(typeof inactivityTimer !== "undefined" && inactivityTimer) clearTimeout(inactivityTimer);
+  // Borrar los textos escritos (historia y ejercicios) al cerrar sesión.
+  try{
+    localStorage.removeItem("reaviva_stories");
+    localStorage.removeItem("reaviva_exercises");
+  }catch(e){}
   localStorage.removeItem(LS.user);
   localStorage.removeItem("reaviva_token");
   localStorage.removeItem("reaviva_admin");
   localStorage.removeItem("reaviva_paid");
   showView("landing");
+}
+
+/* Borra el borrador del día actual (historia + ejercicio) al salir de la vista. */
+function clearDayDraft(d){
+  try{
+    const s = JSON.parse(localStorage.getItem("reaviva_stories") || "{}");
+    delete s[d];
+    localStorage.setItem("reaviva_stories", JSON.stringify(s));
+    const e = JSON.parse(localStorage.getItem("reaviva_exercises") || "{}");
+    delete e[d];
+    localStorage.setItem("reaviva_exercises", JSON.stringify(e));
+  }catch(err){}
 }
 
 /* ---------- Inactividad: 30 min sin actividad -> aviso de 10 seg -> cierra sesion ----------
@@ -3982,5 +4026,47 @@ async function viewUserAlbums(uid){
   }catch(e){
     const box = document.getElementById("alb-other");
     if(box) box.innerHTML = `<p style="text-align:center;color:#a33">${esc(e.message)}</p>`;
+  }
+}
+
+/* Lista de países para el registro (nombres en español). */
+const COUNTRY_LIST = [
+  "Argentina","Bolivia","Brasil","Chile","Colombia","Costa Rica","Cuba","Ecuador",
+  "El Salvador","España","Estados Unidos","Guatemala","Honduras","México","Nicaragua",
+  "Panamá","Paraguay","Perú","Puerto Rico","República Dominicana","Uruguay","Venezuela",
+  "Alemania","Canadá","Francia","Italia","Portugal","Reino Unido","Suiza",
+  "China","Japón","Corea del Sur","India",
+  "Australia","Nueva Zelanda",
+  "Afganistán","Albania","Alemania","Andorra","Angola","Antigua y Barbuda","Arabia Saudita",
+  "Argelia","Armenia","Austria","Azerbaiyán","Bahamas","Bangladés","Barbados","Baréin",
+  "Bélgica","Belice","Benín","Bielorrusia","Birmania","Bosnia y Herzegovina","Botsuana",
+  "Brunéi","Bulgaria","Burkina Faso","Burundi","Bután","Cabo Verde","Camboya","Camerún",
+  "Catar","Chad","Chipre","Ciudad del Vaticano","Comoras","Congo","Corea del Norte",
+  "Costa de Marfil","Croacia","Dinamarca","Dominica","Egipto","Emiratos Árabes Unidos",
+  "Eritrea","Eslovaquia","Eslovenia","Estonia","Etiopía","Filipinas","Finlandia","Fiyi",
+  "Gabón","Gambia","Georgia","Ghana","Granada","Grecia","Guinea","Guinea-Bisáu",
+  "Guinea Ecuatorial","Guyana","Haití","Hungría","Indonesia","Irak","Irán","Irlanda",
+  "Islandia","Islas Marshall","Islas Salomón","Israel","Jamaica","Jordania","Kazajistán",
+  "Kenia","Kirguistán","Kiribati","Kuwait","Laos","Lesoto","Letonia","Líbano","Liberia",
+  "Libia","Liechtenstein","Lituania","Luxemburgo","Macedonia del Norte","Madagascar",
+  "Malasia","Malaui","Maldivas","Malí","Malta","Marruecos","Mauricio","Mauritania",
+  "Micronesia","Moldavia","Mónaco","Mongolia","Montenegro","Mozambique","Namibia",
+  "Nauru","Nepal","Nigeria","Noruega","Omán","Países Bajos","Pakistán","Palaos",
+  "Papúa Nueva Guinea","Polonia","Rumania","Rusia","Ruanda","Samoa","San Cristóbal y Nieves",
+  "San Marino","San Vicente y las Granadinas","Santa Lucía","Santo Tomé y Príncipe",
+  "Senegal","Serbia","Seychelles","Sierra Leona","Singapur","Siria","Somalia","Sri Lanka",
+  "Suazilandia","Sudáfrica","Sudán","Sudán del Sur","Suecia","Surinam","Tailandia",
+  "Tanzania","Tayikistán","Timor Oriental","Togo","Tonga","Trinidad y Tobago","Túnez",
+  "Turkmenistán","Turquía","Tuvalu","Ucrania","Uganda","Uzbekistán","Vanuatu","Yemen",
+  "Yibuti","Zambia","Zimbabue"
+];
+function initCountrySelect(){
+  const sel = document.getElementById("signup-country");
+  if(!sel) return;
+  const unicos = [...new Set(COUNTRY_LIST)].sort((a,b)=>a.localeCompare(b,"es"));
+  for(const c of unicos){
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
   }
 }
