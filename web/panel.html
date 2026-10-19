@@ -232,21 +232,6 @@ async function render(){
       '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
       '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
-      '<h2 class="sec">🤖 IA — Asistente del administrador</h2>'+
-      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">La IA analiza el caso de cada usuario, genera retos y tests personalizados. <b>Tú validas todo antes de que llegue al usuario.</b> Requiere OPENAI_API_KEY en el servidor.</p>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
-      '<button class="btn" onclick="loadAiReports()">🔄 Actualizar reportes</button>'+
-      '<button class="btn" onclick="loadAiChallenges()">🔄 Actualizar retos</button></div>'+
-      '<h3 style="margin:12px 0 8px">📋 Reportes pendientes de revisión</h3>'+
-      '<div id="ai-reports"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
-      '<h3 style="margin:16px 0 8px">🎯 Retos pendientes de aprobación</h3>'+
-      '<div id="ai-challenges"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
-      '<h3 style="margin:16px 0 8px">👥 Analizar usuario con IA</h3>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap"><select id="ai-user" class="field" style="flex:1;min-width:200px"><option value="">Selecciona un usuario…</option></select>'+
-      '<button class="btn" onclick="aiAnalyzeUser()">🔍 Analizar caso</button>'+
-      '<button class="btn" onclick="aiGenChallenge()">🎯 Generar reto</button>'+
-      '<button class="btn" onclick="aiGenTest()">📝 Generar test</button></div>'+
-      '<div id="ai-action-result" style="margin-top:10px"></div></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
       '<input id="pw-current" type="password" class="field" placeholder="Contraseña actual o código de admin" autocomplete="current-password">'+
@@ -264,7 +249,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadAiReports(); loadAiChallenges(); loadAiUserSelect();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -433,110 +418,6 @@ async function loadBannedUsers(){
   }catch(e){ $("#banned-body").innerHTML = '<tr><td colspan="5">Error cargando.</td></tr>'; }
 }
 
-/* ============ 🤖 IA — reportes, retos y análisis ============ */
-async function loadAiReports(){
-  try{
-    var r = await api("GET","/api/admin/ai/reports?status=pending");
-    var rows = r.reports || [];
-    $("#ai-reports").innerHTML = rows.length ? rows.map(function(rep){
-      return '<div class="block" style="margin-bottom:10px;border-left:4px solid var(--terra)">'+
-        '<p><b>'+esc(rep.title)+'</b> <small style="color:var(--cocoa-soft)">'+esc(rep.report_type)+' · '+esc(rep.user_name||"")+' ('+esc(rep.user_email||"")+') · '+esc(rep.created_at||"")+'</small></p>'+
-        '<div style="max-height:200px;overflow:auto;background:#faf7f2;border-radius:8px;padding:10px;margin:8px 0;white-space:pre-wrap;font-size:.85rem">'+esc(rep.content)+'</div>'+
-        '<div style="display:flex;gap:8px">'+
-        '<button class="btn btn-sm" onclick="aiApproveReport('+rep.id+')">✅ Aprobar</button>'+
-        '<button class="btn btn-sm btn-ghost" onclick="aiRejectReport('+rep.id+')">❌ Rechazar</button>'+
-        '</div></div>';
-    }).join("") : '<p style="color:var(--cocoa-soft)">No hay reportes pendientes 🎉</p>';
-  }catch(e){ $("#ai-reports").innerHTML = '<p>Error cargando reportes: '+esc(e.message)+'</p>'; }
-}
-async function aiApproveReport(id){
-  if(!confirm("¿Aprobar este reporte?")) return;
-  try{ await api("POST","/api/admin/ai/reports/"+id+"/approve"); toast("Reporte aprobado ✅"); loadAiReports(); }
-  catch(e){ alert("Error: "+e.message); }
-}
-async function aiRejectReport(id){
-  var fb = prompt("Motivo del rechazo (opcional):") || "";
-  try{ await api("POST","/api/admin/ai/reports/"+id+"/reject",{admin_feedback:fb}); toast("Reporte rechazado"); loadAiReports(); }
-  catch(e){ alert("Error: "+e.message); }
-}
-async function loadAiChallenges(){
-  try{
-    var r = await api("GET","/api/admin/ai/challenges?status=pending");
-    var rows = r.challenges || [];
-    $("#ai-challenges").innerHTML = rows.length ? rows.map(function(c){
-      return '<div class="block" style="margin-bottom:10px;border-left:4px solid #b5892e)">'+
-        '<p><b>🎯 '+esc(c.title)+'</b> <small style="color:var(--cocoa-soft)">para '+esc(c.user_name||"")+' ('+esc(c.user_email||"")+') · día '+esc(c.day_target||"—")+'</small></p>'+
-        '<p style="font-size:.88rem;white-space:pre-wrap">'+esc(c.description)+'</p>'+
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-        '<button class="btn btn-sm" onclick="aiApproveChallenge('+c.id+')">✅ Aprobar</button>'+
-        '<button class="btn btn-sm" onclick="aiModifyChallenge('+c.id+')">✏️ Modificar y aprobar</button>'+
-        '<button class="btn btn-sm btn-ghost" onclick="aiRejectChallenge('+c.id+')">❌ Rechazar</button>'+
-        '</div></div>';
-    }).join("") : '<p style="color:var(--cocoa-soft)">No hay retos pendientes 🎉</p>';
-  }catch(e){ $("#ai-challenges").innerHTML = '<p>Error cargando retos: '+esc(e.message)+'</p>'; }
-}
-async function aiApproveChallenge(id){
-  if(!confirm("¿Aprobar este reto? Llegará al usuario.")) return;
-  try{ await api("POST","/api/admin/ai/challenges/"+id+"/approve"); toast("Reto aprobado ✅"); loadAiChallenges(); }
-  catch(e){ alert("Error: "+e.message); }
-}
-async function aiRejectChallenge(id){
-  if(!confirm("¿Rechazar este reto?")) return;
-  try{ await api("POST","/api/admin/ai/challenges/"+id+"/reject"); toast("Reto rechazado"); loadAiChallenges(); }
-  catch(e){ alert("Error: "+e.message); }
-}
-async function aiModifyChallenge(id){
-  var title = prompt("Nuevo título del reto:");
-  if(title === null) return;
-  var desc = prompt("Nueva descripción del reto:");
-  if(desc === null) return;
-  if(!title.trim() || !desc.trim()){ alert("Título y descripción son requeridos"); return; }
-  try{
-    await api("POST","/api/admin/ai/challenges/"+id+"/modify",{title:title.trim(),description:desc.trim()});
-    toast("Reto modificado y aprobado ✅"); loadAiChallenges();
-  }catch(e){ alert("Error: "+e.message); }
-}
-async function loadAiUserSelect(){
-  try{
-    var r = await api("GET","/api/admin/users");
-    var rows = r.users || [];
-    $("#ai-user").innerHTML = '<option value="">Selecciona un usuario…</option>' + rows.map(function(u){
-      return '<option value="'+u.id+'">'+esc(u.nombre||u.name||"")+' ('+esc(u.email||"")+')</option>';
-    }).join("");
-  }catch(e){ /* silencioso */ }
-}
-function aiSelectedUser(){
-  var v = $("#ai-user") ? $("#ai-user").value : "";
-  if(!v){ alert("Selecciona un usuario primero"); return null; }
-  return v;
-}
-async function aiAnalyzeUser(){
-  var uid = aiSelectedUser(); if(!uid) return;
-  $("#ai-action-result").innerHTML = '<p>🔍 Analizando caso con IA… (puede tardar unos segundos)</p>';
-  try{
-    var r = await api("POST","/api/admin/ai/analyze/"+uid);
-    $("#ai-action-result").innerHTML = '<div class="block" style="border-left:4px solid var(--terra)"><b>✅ Análisis generado</b><div style="max-height:300px;overflow:auto;white-space:pre-wrap;font-size:.85rem;margin-top:8px">'+esc(r.analysis)+'</div><p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Reporte #'+r.reportId+' creado como pendiente de revisión.</p></div>';
-    loadAiReports();
-  }catch(e){ $("#ai-action-result").innerHTML = '<p style="color:#a33">Error: '+esc(e.message)+'</p>'; }
-}
-async function aiGenChallenge(){
-  var uid = aiSelectedUser(); if(!uid) return;
-  $("#ai-action-result").innerHTML = '<p>🎯 Generando reto personalizado…</p>';
-  try{
-    var r = await api("POST","/api/admin/ai/challenge/"+uid);
-    $("#ai-action-result").innerHTML = '<div class="block" style="border-left:4px solid #b5892e"><b>✅ Reto generado (pendiente de tu aprobación)</b><p style="margin-top:8px"><b>'+esc(r.title)+'</b></p><p style="white-space:pre-wrap;font-size:.88rem">'+esc(r.description)+'</p></div>';
-    loadAiChallenges();
-  }catch(e){ $("#ai-action-result").innerHTML = '<p style="color:#a33">Error: '+esc(e.message)+'</p>'; }
-}
-async function aiGenTest(){
-  var uid = aiSelectedUser(); if(!uid) return;
-  $("#ai-action-result").innerHTML = '<p>📝 Generando test personalizado…</p>';
-  try{
-    var r = await api("POST","/api/admin/ai/test/"+uid);
-    $("#ai-action-result").innerHTML = '<div class="block" style="border-left:4px solid var(--terra)"><b>✅ Test generado (revísalo en reportes)</b><div style="max-height:300px;overflow:auto;white-space:pre-wrap;font-size:.85rem;margin-top:8px">'+esc(r.questions)+'</div></div>';
-    loadAiReports();
-  }catch(e){ $("#ai-action-result").innerHTML = '<p style="color:#a33">Error: '+esc(e.message)+'</p>'; }
-}
 async function unbanUser(id){
   if(!confirm("¿Quitar el baneo a este usuario?")) return;
   try{ await api("POST","/api/admin/users/"+id+"/unban",{}); loadBannedUsers(); loadUsers(); }

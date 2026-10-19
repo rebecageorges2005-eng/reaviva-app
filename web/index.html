@@ -379,19 +379,6 @@
       <div id="dm-list" class="dm-list"></div>
       <div id="dm-chat" class="dm-chat" style="display:none"></div>
     </div>
-    <div class="panel" id="panel-retos">
-      <div class="greet">🎯 Mis retos</div>
-      <p class="greet-sub">Retos personalizados creados para ti 💛</p>
-      <div id="challenges-list"><p style="text-align:center;color:var(--cocoa-soft)">Cargando…</p></div>
-      <div class="greet" style="margin-top:24px">💬 Ayuda IA</div>
-      <p class="greet-sub">Habla con el asistente de Reaviva sobre lo que necesites 🤗</p>
-      <div id="ai-chat-box" class="block" style="max-height:320px;overflow-y:auto;margin-bottom:10px"></div>
-      <div style="display:flex;gap:8px">
-        <input id="ai-chat-input" class="field" placeholder="¿En qué te ayudo hoy?…" maxlength="2000" style="flex:1" onkeydown="if(event.key==='Enter')sendAiChat()">
-        <button class="btn btn-primary" onclick="sendAiChat()">Enviar</button>
-      </div>
-      <p id="ai-chat-err" style="font-size:.8rem;color:#a33"></p>
-    </div>
   </main>
 
   <nav class="tabbar">
@@ -402,7 +389,6 @@
     <button class="tab" data-tab="comunidad" onclick="openGroupChat()"><span class="ticon">💬</span><span data-i18n="tab.community">Comunidad</span></button>
     <button class="tab" data-tab="privados" onclick="switchTab('privados')"><span class="ticon">✉️</span><span data-i18n="tab.dm">Privados</span><span id="dm-badge" class="dm-badge" style="display:none"></span></button>
     <button class="tab" data-tab="perfil" onclick="switchTab('perfil')"><span class="ticon">👤</span><span data-i18n="tab.profile">Perfil</span></button>
-    <button class="tab" data-tab="retos" onclick="switchTab('retos')"><span class="ticon">🎯</span><span>Retos</span></button>
     <button class="tab" data-tab="admin" onclick="switchTab('admin')" style="display:none"><span class="ticon">👑</span><span data-i18n="tab.admin">Admin</span></button>
   </nav>
 </div>
@@ -499,6 +485,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=18"></script>
+<script src="/app.js?v=19"></script>
 </body>
 </html>
