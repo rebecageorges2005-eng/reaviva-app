@@ -368,6 +368,15 @@ function switchAuthMode(mode, fromHash){
   $("#form-signup").style.display = mode === "signup" ? "" : "none";
   $("#login-err").textContent = "";
   $("#signup-err").textContent = "";
+  // Al cambiar de pestaña: limpiar todos los campos de ambas.
+  ["login-email","login-password","signup-name","signup-email","signup-password","signup-password2"].forEach(id=>{
+    const f = document.getElementById(id); if(f) f.value = "";
+  });
+  ["signup-day","signup-month","signup-year"].forEach(id=>{
+    const s = document.getElementById(id); if(s) s.selectedIndex = 0;
+  });
+  document.querySelectorAll('input[name="signup-sexo"]').forEach(r=>{ r.checked = false; });
+  const hg = $("#signup-gender"); if(hg) hg.value = "";
   if(mode === "signup") populateBirthdateSelects();
   if(!fromHash) syncHash();
 }
@@ -1314,7 +1323,7 @@ function openDay(d){
       <div class="part">${esc(p.part)}</div>
       <h2>Día ${p.day} · ${esc(p.title)}</h2>
     </div>
-    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}.mp3" style="width:100%"></audio></div>
+    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}${userGender()==="F"?"-f":""}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(gtext(p.ejercicio))}</p>
