@@ -190,21 +190,21 @@
           <select id="signup-month" class="field" required aria-label="Mes"><option value="" data-i18n="auth.month">Mes</option></select>
           <select id="signup-year" class="field" required aria-label="Año"><option value="" data-i18n="auth.year">Año</option></select>
         </div>
-        <div style="display:flex;gap:12px;align-items:flex-end;justify-content:center;margin:4px 0">
-          <div style="flex:1;max-width:170px">
-            <label class="bd-label" style="text-align:center;display:block">Sexo</label>
-            <div class="bd-row" style="gap:20px;align-items:center;justify-content:center">
-              <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
-                <input type="radio" name="signup-sexo" value="M" onchange="pickGender('M')" style="width:18px;height:18px;accent-color:var(--terra)"> M
+        <div style="display:flex;gap:16px;align-items:center;justify-content:center;margin:8px 0">
+          <div style="text-align:center">
+            <div class="bd-label" style="margin-bottom:6px">Sexo</div>
+            <div style="display:flex;gap:24px;align-items:center;justify-content:center">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:1.15rem;cursor:pointer;padding:6px 10px">
+                <input type="radio" name="signup-sexo" value="M" onchange="pickGender('M')" style="width:26px;height:26px;accent-color:var(--terra);cursor:pointer"> M
               </label>
-              <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer">
-                <input type="radio" name="signup-sexo" value="F" onchange="pickGender('F')" style="width:18px;height:18px;accent-color:var(--terra)"> F
+              <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:1.15rem;cursor:pointer;padding:6px 10px">
+                <input type="radio" name="signup-sexo" value="F" onchange="pickGender('F')" style="width:26px;height:26px;accent-color:var(--terra);cursor:pointer"> F
               </label>
             </div>
           </div>
-          <div style="flex:1;max-width:170px">
-            <label class="bd-label" style="text-align:center;display:block">País</label>
-            <select id="signup-country" class="field" required aria-label="País" style="text-align:center">
+          <div style="text-align:center;min-width:150px">
+            <div class="bd-label" style="margin-bottom:6px">País</div>
+            <select id="signup-country" class="field" required aria-label="País" style="text-align:center;max-width:170px;margin:0 auto">
               <option value="">Selecciona</option>
             </select>
           </div>
