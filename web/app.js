@@ -1343,7 +1343,8 @@ function openDay(d){
     <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>📝 Su historia</h4><p>Cuéntanos tu historia: ¿cómo empezó todo?</p>
-      <textarea id="story-text" class="journal" rows="6" placeholder="Escribe aquí tu historia… ¿cómo empezó todo?" ${done?"disabled":""}>${esc(savedStory)}</textarea>
+      <textarea id="story-text" class="journal" rows="6" placeholder="Escribe aquí tu historia… (mínimo 500 caracteres)" ${done?"disabled":""}>${esc(savedStory)}</textarea>
+      <div id="story-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-top:4px"></div>
     </div>
     <div class="block"><h4>✍️ Ejercicio</h4><p>${esc(gtext(p.ejercicio))}</p>
       <textarea id="exercise-text" class="journal" rows="8" placeholder="Escribe aquí tu ejercicio… (mínimo 500 palabras para completar el día)" ${done?"disabled":""}>${esc(savedEx)}</textarea>
@@ -1351,7 +1352,7 @@ function openDay(d){
     </div>
     <div class="block"><h4>✅ Acción de hoy</h4><p>${esc(gtext(p.accion))}</p></div>
     <div class="complete-row">
-      <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})" ${(!done && countWords(savedEx) < 500)?"disabled":""}>
+      <button id="complete-day-btn" class="btn ${done?"btn-ghost":"btn-primary"} btn-block" onclick="completeDay(${d})" ${(!done && countWords(savedEx) < 500 || savedStory.length < 500)?"disabled":""}>
         ${done ? "✓ Día completado" : "Marcar día como completado"}
       </button>
       ${(!done)?'<p id="complete-hint" style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px"></p>':''}
@@ -1367,23 +1368,41 @@ function openDay(d){
   if(!done){
     const ta = $("#exercise-text");
     const sta = $("#story-text");
-    if(sta) sta.addEventListener("input", ()=>saveStoryText(d, sta.value));
+    const updateStoryCount = ()=>{
+      if(!sta) return 0;
+      const len = sta.value.length;
+      const scd = $("#story-count");
+      if(scd) scd.innerHTML = `<b style="color:${len>=500?"#2e7d32":"var(--terra)"}">${len}</b> / 500 caracteres mínimos`;
+      return len;
+    };
+    if(sta) sta.addEventListener("input", ()=>{ saveStoryText(d, sta.value); checkComplete(); });
     const update = ()=>{
       const n = countWords(ta.value);
       saveExerciseText(d, ta.value);
       const cd = $("#exercise-count");
       if(cd) cd.innerHTML = `<b style="color:${n>=500?"#2e7d32":"var(--terra)"}">${n}</b> / 500 palabras mínimas`;
+      checkComplete();
+    };
+    const checkComplete = ()=>{
+      const n = countWords(ta.value);
+      const len = sta ? sta.value.length : 500;
+      updateStoryCount();
       const btn = $("#complete-day-btn"), hint = $("#complete-hint");
-      if(n >= 500){
+      const okStory = len >= 500, okEx = n >= 500;
+      if(okStory && okEx){
         if(btn) btn.disabled = false;
         if(hint) hint.textContent = "";
       }else{
         if(btn) btn.disabled = true;
-        if(hint) hint.textContent = `Te faltan ${500-n} palabras para completar el día ✍️`;
+        const faltan = [];
+        if(!okStory) faltan.push(`${500-len} caracteres en tu historia 📝`);
+        if(!okEx) faltan.push(`${500-n} palabras en el ejercicio ✍️`);
+        if(hint) hint.textContent = "Te faltan " + faltan.join(" y ");
       }
     };
     ta.addEventListener("input", update);
     update();
+    updateStoryCount();
   }else{
     const cd = $("#exercise-count");
     if(cd){ const n = countWords(savedEx); cd.innerHTML = `<b>${n}</b> palabras`; }
@@ -1422,6 +1441,10 @@ function backToList(){
 function completeDay(d){
   if(!isDone(d) && countWords(getExerciseText(d)) < 500){
     toast("Escribe al menos 500 palabras en el ejercicio para completar el día ✍️");
+    return;
+  }
+  if(!isDone(d) && getStoryText(d).length < 500){
+    toast("Escribe al menos 500 caracteres en tu historia 📝");
     return;
   }
   markDone(d);
