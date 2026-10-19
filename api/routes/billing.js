@@ -19,6 +19,7 @@
 
 const express = require("express");
 const db = require("../db");
+const { ah } = db;
 
 const router = express.Router();
 
@@ -98,7 +99,7 @@ router.get("/paypal/plans", (req, res) => {
 /* POST /api/paypal/create-subscription  { plan: "monthly"|"yearly", email }
  * → { id, approveUrl }. MVP: no JWT required — the buyer's email travels in
  * custom_id so the webhook can match the subscription to the buyer. */
-router.post("/paypal/create-subscription", async (req, res) => {
+router.post("/paypal/create-subscription", ah(async (req, res) => {
   if (!paypalConfigured())
     return res.status(503).json({ error: "Pagos no configurados todavía" });
 
@@ -136,7 +137,7 @@ router.post("/paypal/create-subscription", async (req, res) => {
     if (!approve)
       return res.status(502).json({ error: "PayPal no devolvió enlace de aprobación" });
 
-    db.prepare(
+    await db.run(
       `INSERT INTO paypal_subscriptions (email, subscription_id, plan, status)
        VALUES (?, ?, ?, 'PENDING')
        ON CONFLICT(email) DO UPDATE SET
@@ -144,26 +145,24 @@ router.post("/paypal/create-subscription", async (req, res) => {
          plan = excluded.plan,
          status = 'PENDING',
          updated_at = datetime('now')`
-    ).run(email, sub.id, plan);
+    , email, sub.id, plan);
 
     res.json({ id: sub.id, approveUrl: approve.href });
   } catch (e) {
     console.error("[paypal] create error:", e.message);
     res.status(500).json({ error: "No se pudo crear la suscripción" });
   }
-});
+}));
 
 /* GET /api/paypal/status?email=… → { subscribed, planType } */
-router.get("/paypal/status", (req, res) => {
+router.get("/paypal/status", ah(async (req, res) => {
   const email = String(req.query.email || "").trim().toLowerCase();
   if (!email) return res.status(400).json({ error: "Email requerido" });
-  const row = db
-    .prepare("SELECT status FROM paypal_subscriptions WHERE email = ?")
-    .get(email);
+  const row = await db.get("SELECT status FROM paypal_subscriptions WHERE email = ?", email);
   const subscribed = row?.status === "ACTIVE";
   let planType = "free";
   if (subscribed) {
-    const u = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    const u = await db.get("SELECT * FROM users WHERE email = ?", email);
     if (u) {
       try {
         planType = require("../plan").getPlanType(u);
@@ -171,7 +170,7 @@ router.get("/paypal/status", (req, res) => {
     }
   }
   res.json({ subscribed, planType });
-});
+}));
 
 /* GET /api/billing/upgrade-quote → cotización prorrateada mensual → anual.
  * Requiere sesión. El usuario mensual ya pagó $4.99 del mes en curso:
@@ -258,7 +257,7 @@ async function webhookHandler(req, res) {
       } else {
         nextBilling = String(nextBilling).slice(0, 10);
       }
-      db.prepare(
+      await db.run(
         `INSERT INTO paypal_subscriptions (email, subscription_id, plan, status, next_billing_date, reminder_sent)
          VALUES (?, ?, ?, 'ACTIVE', ?, 0)
          ON CONFLICT(email) DO UPDATE SET
@@ -267,28 +266,26 @@ async function webhookHandler(req, res) {
            next_billing_date = excluded.next_billing_date,
            reminder_sent = 0,
            updated_at = datetime('now')`
-      ).run(email, subId, resource.plan_id || null, nextBilling);
+      , email, subId, resource.plan_id || null, nextBilling);
       // also flip the users row if the buyer has an account
       const yearly = resource.plan_id === PAYPAL_PLAN_YEARLY;
-      db.prepare(
+      await db.run(
         "UPDATE users SET subscribed = 1, paypal_subscription_id = ?, plan_type = ? WHERE email = ?"
-      ).run(subId, yearly ? "yearly" : "monthly", email);
+      , subId, yearly ? "yearly" : "monthly", email);
       /* Bono de bienvenida RV 💰: se SUMA al saldo existente (no lo reemplaza).
        * Mensual: +50 RV. Anual: +200 RV. Idempotente: solo una vez por
        * suscripción (rv_bonus_for guarda el subscription_id que ya lo recibió). */
       try {
-        const u = db
-          .prepare("SELECT id, credits, rv_bonus_for FROM users WHERE email = ?")
-          .get(email);
+        const u = await db.get("SELECT id, credits, rv_bonus_for FROM users WHERE email = ?", email);
         if (u && u.rv_bonus_for !== subId) {
           const bonus = yearly ? 200 : 50;
-          db.prepare(
+          await db.run(
             "UPDATE users SET credits = credits + ?, rv_bonus_for = ? WHERE id = ?"
-          ).run(bonus, subId, u.id);
-          db.prepare(
+          , bonus, subId, u.id);
+          await db.run(
             `INSERT INTO credit_purchases (user_id, pack_credits, amount_usd, paypal_order_id, status, created_at)
              VALUES (?, ?, 0, ?, 'welcome_bonus', datetime('now'))`
-          ).run(u.id, bonus, "BONO-" + subId);
+          , u.id, bonus, "BONO-" + subId);
           console.log(`[paypal] bono bienvenida: +${bonus} RV para ${email}`);
         }
       } catch (e) {
@@ -306,17 +303,14 @@ async function webhookHandler(req, res) {
       ].includes(type)
     ) {
       const row = subId
-        ? db
-            .prepare("SELECT email FROM paypal_subscriptions WHERE subscription_id = ?")
-            .get(subId)
+        ? await db.get("SELECT email FROM paypal_subscriptions WHERE subscription_id = ?", subId)
         : null;
       const targetEmail = email || row?.email;
       if (targetEmail) {
         const status = type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ? "PAST_DUE" : "CANCELLED";
-        db.prepare("UPDATE paypal_subscriptions SET status = ?, updated_at = datetime('now') WHERE email = ?")
-          .run(status, targetEmail);
+        await db.run("UPDATE paypal_subscriptions SET status = ?, updated_at = datetime('now') WHERE email = ?", status, targetEmail);
         if (status === "CANCELLED")
-          db.prepare("UPDATE users SET subscribed = 0, plan_type = NULL WHERE email = ?").run(targetEmail);
+          await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE email = ?", targetEmail);
         console.log(`[paypal] ${targetEmail} → ${type}`);
       }
     }

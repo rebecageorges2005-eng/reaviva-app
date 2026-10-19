@@ -22,54 +22,49 @@
 
 const express = require("express");
 const db = require("../db");
+const { ah } = db;
 const { requireAuth } = require("./auth");
 
 const router = express.Router();
 
 /* Nivel de advertencia de un usuario: COUNT de flags (cap 4). */
-function flagLevel(userId) {
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM user_flags WHERE target_user_id = ?")
-    .get(userId);
+async function flagLevel(userId) {
+  const row = await db.get("SELECT COUNT(*) AS n FROM user_flags WHERE target_user_id = ?", userId);
   return Math.min(4, Number(row?.n || 0));
 }
 
 /* Envía un mensaje interno al usuario (visible en GET /api/messages). */
-function notifyUser(userId, email, title, body) {
+async function notifyUser(userId, email, title, body) {
   try {
-    db.prepare(
+    await db.run(
       "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)"
-    ).run(userId, email || null, title, body);
+    , userId, email || null, title, body);
   } catch (e) { /* no bloquea */ }
 }
 
 /* POST /api/flags  { target_user_id } — banderear a un usuario. */
-router.post("/", requireAuth, (req, res) => {
+router.post("/", requireAuth, ah(async (req, res) => {
   const me = req.user;
   const targetId = Number(req.body?.target_user_id);
 
   if (!targetId || targetId === me.id)
     return res.status(400).json({ error: "Usuario inválido" });
 
-  const target = db
-    .prepare("SELECT id, email, name, is_admin, chat_disabled FROM users WHERE id = ?")
-    .get(targetId);
+  const target = await db.get("SELECT id, email, name, is_admin, chat_disabled FROM users WHERE id = ?", targetId);
   if (!target) return res.status(404).json({ error: "Usuario no encontrado" });
   if (target.is_admin === 1)
     return res.status(400).json({ error: "No puedes reportar al administrador" });
 
   // ¿Ya lo bandereé? (un flag por reportero).
-  const existing = db
-    .prepare("SELECT id FROM user_flags WHERE target_user_id = ? AND reporter_user_id = ?")
-    .get(targetId, me.id);
+  const existing = await db.get("SELECT id FROM user_flags WHERE target_user_id = ? AND reporter_user_id = ?", targetId, me.id);
   if (existing)
     return res.status(400).json({ error: "Ya enviaste una advertencia a este usuario" });
 
-  db.prepare(
+  await db.run(
     "INSERT INTO user_flags (target_user_id, reporter_user_id) VALUES (?, ?)"
-  ).run(targetId, me.id);
+  , targetId, me.id);
 
-  const level = flagLevel(targetId);
+  const level = await flagLevel(targetId);
 
   // Notificación de comportamiento al usuario bandereado (cada click).
   const levelNames = ["", "azul 🔵", "amarilla 🟡", "negra ⚫", "roja 🔴"];
@@ -84,7 +79,7 @@ router.post("/", requireAuth, (req, res) => {
 
   // Bandera roja: deshabilitar chat + avisar al admin (ultimadecision).
   if (level >= 4 && target.chat_disabled !== 1) {
-    db.prepare("UPDATE users SET chat_disabled = 1 WHERE id = ?").run(targetId);
+    await db.run("UPDATE users SET chat_disabled = 1 WHERE id = ?", targetId);
     notifyUser(
       targetId,
       target.email,
@@ -94,7 +89,7 @@ router.post("/", requireAuth, (req, res) => {
         `El administrador revisará tu caso y decidirá si rehabilita tu cuenta.`
     );
     // Aviso al admin: ultimadecision.
-    const admin = db.prepare("SELECT id, email FROM users WHERE is_admin = 1 LIMIT 1").get();
+    const admin = await db.get("SELECT id, email FROM users WHERE is_admin = 1 LIMIT 1");
     if (admin) {
       notifyUser(
         admin.id,
@@ -108,10 +103,10 @@ router.post("/", requireAuth, (req, res) => {
   }
 
   res.json({ ok: true, level });
-});
+}));
 
 /* GET /api/flags/levels?ids=1,2,3 — niveles para pintar las banderas. */
-router.get("/levels", requireAuth, (req, res) => {
+router.get("/levels", requireAuth, ah(async (req, res) => {
   const raw = String(req.query.ids || "");
   const ids = raw
     .split(",")
@@ -121,16 +116,14 @@ router.get("/levels", requireAuth, (req, res) => {
   const levels = {};
   if (ids.length) {
     const placeholders = ids.map(() => "?").join(",");
-    const rows = db
-      .prepare(
+    const rows = await db.all(
         `SELECT target_user_id AS uid, COUNT(*) AS n FROM user_flags
          WHERE target_user_id IN (${placeholders}) GROUP BY target_user_id`
-      )
-      .all(...ids);
+      , ...ids);
     for (const r of rows) levels[r.uid] = Math.min(4, Number(r.n));
   }
   for (const id of ids) if (!(id in levels)) levels[id] = 0;
   res.json({ levels });
-});
+}));
 
 module.exports = { router, flagLevel };
