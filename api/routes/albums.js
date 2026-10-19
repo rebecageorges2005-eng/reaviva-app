@@ -29,16 +29,15 @@ const MAX_PHOTO_LEN = Math.floor(1.5 * 1024 * 1024);
  * Devuelve null si es válida, o un mensaje de error. */
 function validarFoto(photo) {
   if (typeof photo !== "string" || !photo) return "Imagen inválida";
-  const m = photo.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
-  if (!m) return "Formato de imagen inválido (usa JPG, PNG o WebP)";
+  const m = photo.match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return "Formato de imagen inválido (usa JPG o PNG)";
   if (photo.length > MAX_PHOTO_LEN) return "La imagen es muy grande (máx 1.5MB)";
   try {
     const buf = Buffer.from(m[2].slice(0, 32), "base64");
     const declared = m[1];
     const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
     const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-    const isWebp = buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP";
-    const valid = (declared === "jpeg" && isJpeg) || (declared === "png" && isPng) || (declared === "webp" && isWebp);
+    const valid = (declared === "jpeg" && isJpeg) || (declared === "png" && isPng);
     if (!valid) return "El archivo no es una imagen válida";
   } catch (e) {
     return "No se pudo verificar la imagen";
