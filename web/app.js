@@ -862,10 +862,10 @@ function applyHashRoute(){
 function showView(name, fromHash){
   ["landing","auth","app","admin-login","verify-email"].forEach(v => {
     const el = $("#view-"+v);
-    if(el) el.style.display = v===name ? "" : "none";
+    if(el) el.style.display = v===name ? "block" : "none";
   });
   const target = $("#view-"+name);
-  if(target) target.style.display = "";
+  if(target) target.style.display = "block";
   try{ window.scrollTo(0,0); }catch(e){}
   if(!fromHash) syncHash();
   // Tour de bienvenida: se muestra (una sola vez) al llegar a la página de registro.
