@@ -636,12 +636,6 @@ function calcAgeFromBirthdate(bd){
 function pickGender(g){
   const hid = $("#signup-gender");
   if(hid) hid.value = g;
-  const bm = $("#gender-m"), bf = $("#gender-f");
-  if(bm) bm.className = "btn " + (g === "M" ? "btn-primary" : "btn-ghost");
-  if(bf) bf.className = "btn " + (g === "F" ? "btn-primary" : "btn-ghost");
-  // Aplicar estilo flex que se pierde al cambiar className
-  if(bm) bm.style.flex = "1";
-  if(bf) bf.style.flex = "1";
 }
 async function doSignup(ev){
   ev.preventDefault();
@@ -901,6 +895,8 @@ function showView(name, fromHash){
     ["signup-day","signup-month","signup-year"].forEach(id=>{
       const s = document.getElementById(id); if(s) s.selectedIndex = 0;
     });
+    document.querySelectorAll('input[name="signup-sexo"]').forEach(r=>{ r.checked = false; });
+    const hg = $("#signup-gender"); if(hg) hg.value = "";
     const err1 = $("#login-err"); if(err1) err1.textContent = "";
     const err2 = $("#signup-err"); if(err2) err2.textContent = "";
   }
