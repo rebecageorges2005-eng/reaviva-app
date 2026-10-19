@@ -3525,6 +3525,13 @@ document.addEventListener("DOMContentLoaded", ()=>{
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
     return;
   }
+  // Al recargar la página, ir siempre a la página de inicio (no restaurar el hash).
+  // Se preserva ?ref= para los links de afiliado.
+  try{
+    if(location.hash){
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  }catch(e){}
   // deep-link con nombre: #registro, #entrar, #comunidad, etc.
   if(applyHashRoute()){
     restoreSession().then(()=>{});
@@ -3539,10 +3546,10 @@ document.addEventListener("DOMContentLoaded", ()=>{
     suppressHashUpdate = true;
     try{ applyHashRoute(); }finally{ setTimeout(()=>{ suppressHashUpdate = false; }, 0); }
   });
-  // Referido: si llegó con ?ref=USERID, guardarlo para el registro.
+  // Referido: si llegó con ?ref= (ID o nombre), guardarlo para el registro.
   try{
     const refParam = new URLSearchParams(location.search).get("ref");
-    if(refParam && /^\d+$/.test(refParam)) localStorage.setItem("reaviva_ref", refParam);
+    if(refParam && refParam.trim()) localStorage.setItem("reaviva_ref", refParam.trim().slice(0, 60));
   }catch(e){}
   // Tour de bienvenida: se muestra una vez al primer ingreso.
   setTimeout(maybeShowTour, 1500);
