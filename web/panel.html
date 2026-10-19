@@ -204,6 +204,9 @@ async function render(){
       '<div class="card clickable" onclick="showCardDetail(\'today\')" title="Ver detalles"><b>'+s.signupsToday+'</b><span>📝 Registros hoy</span></div>'+
       '<div class="card clickable" onclick="showCardDetail(\'mrr\')" title="Ver detalles"><b>$'+(s.mrr||0)+'</b><span>💰 MRR estimado</span></div>'+
       '<div class="card clickable" onclick="showCardDetail(\'countries\')" title="Ver detalles"><b>'+(s.countriesCount||0)+'</b><span>🌍 Países</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'chat\')" title="Ver detalles"><b>'+(s.mutedChats||0)+'</b><span>🚩 Chats deshabilitados</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'flag\')" title="Ver detalles"><b>'+(s.flaggedUsers||0)+'</b><span>🚩 Con banderas'+(s.redFlags?' ('+s.redFlags+' 🔴)':'')+'</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'cancel\')" title="Ver detalles"><b>'+(s.cancelledPlans||0)+'</b><span>❌ Planes cancelados</span></div>'+
       (s.referredUsers?'<div class="card clickable" onclick="showCardDetail(\'referrals\')" title="Ver detalles"><b>'+s.referredUsers+'</b><span>📤 Llegaron por referido</span></div>':'')+
       '</div>'+
       (s.topCountries&&s.topCountries.length?
@@ -220,6 +223,7 @@ async function render(){
       '<div id="growth-chart" class="chart"></div>'+
       '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
+      '<div class="toolbar"><input id="user-search" class="field" placeholder="🔍 Buscar por nombre o correo…" oninput="filterUsers()" style="max-width:320px"></div>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
@@ -322,8 +326,46 @@ function showCardDetail(kind){
       (tops.map(function(r,i){
         return '<div class="rowline"><span>'+(i+1)+'. '+esc(r.nombre)+'</span><span>'+r.referidos+' referido'+(r.referidos===1?"":"s")+'</span></div>';
       }).join("")||'<p style="color:var(--cocoa-soft)">Aún no hay referidos.</p>');
+  }else if(kind==="chat"){
+    var mut=users.filter(function(u){return u.chatMuted;});
+    title="🚩 Chats deshabilitados";
+    body=kv("Total", "<b>"+(s.mutedChats||0)+"</b>")+
+      kv("Por anti-spam (3 strikes)", mut.length)+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (users.filter(function(u){return u.chatMuted;}).map(function(u){
+        return '<div class="rowline clickable" onclick="closeDetailModal();showUser('+u.id+')"><span>🚩 '+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span class="badge">ver</span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Ningún chat deshabilitado. 🎉</p>')+'</div>';
+  }else if(kind==="flag"){
+    title="🚩 Usuarios con banderas";
+    body=kv("Con banderas", "<b>"+(s.flaggedUsers||0)+"</b>")+
+      kv("🔴 Rojas pendientes", "<b>"+(s.redFlags||0)+"</b>")+
+      '<div style="margin-top:10px"><button class="btn btn-sm" onclick="closeDetailModal();loadFlagged()">Ver banderas rojas pendientes</button></div>'+
+      '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Toca un usuario en la tabla para ponerle o quitarle banderas desde su perfil.</p>';
+  }else if(kind==="cancel"){
+    var canc=users.filter(function(u){return u.estadoSuscripcion==="CANCELLED";});
+    title="❌ Planes cancelados";
+    body=kv("Total cancelados", "<b>"+(s.cancelledPlans||0)+"</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (canc.map(function(u){
+        return '<div class="rowline clickable" onclick="closeDetailModal();showUser('+u.id+')"><span>❌ '+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span class="badge">ver</span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Sin cancelaciones. 🎉</p>')+'</div>';
   }
   showDetailModal(title, body, [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
+}
+
+/* ---------- banderas rojas pendientes ---------- */
+async function loadFlagged(){
+  try{
+    var d=await api("GET","/api/admin/flagged");
+    var list=d.flagged||[];
+    var body='<p style="font-size:.85rem;color:var(--cocoa-soft)">Usuarios con 4+ banderas (chat deshabilitado). Decide reactivar o mantener.</p>'+
+      '<div style="max-height:400px;overflow-y:auto;margin-top:10px">'+
+      (list.map(function(u){
+        return '<div class="rowline"><span>🔴 '+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small><br><small>'+u.flags+' banderas · última: '+esc(u.ultimo||'—')+'</small></span>'+
+        '<span><button class="btn btn-sm" onclick="showUser('+u.id+')">ver</button></span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Sin banderas rojas pendientes. 🎉</p>')+'</div>';
+    showDetailModal("🔴 Banderas rojas pendientes", body, [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
+  }catch(e){ if(e.message==="AUTH") authFail(); }
 }
 
 /* ---------- seguridad: IPs bloqueadas y baneados ---------- */
@@ -479,14 +521,24 @@ async function loadUsers(){
   try{
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
-    $("#users-body").innerHTML=usersCache.map(function(u){
-      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv===-1?'∞':(u.rv||0))+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
-    }).join("")||'<tr><td colspan="6">Sin usuarios</td></tr>';
+    renderUsersTable();
     var sel=$("#msg-user");
     sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
       return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+')</option>';
     }).join("");
   }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+/* Filtra la tabla de usuarios por el texto del buscador. */
+function filterUsers(){ renderUsersTable(); }
+function renderUsersTable(){
+  var q=(($("#user-search")||{}).value||"").toLowerCase().trim();
+  var list=usersCache.filter(function(u){
+    if(!q) return true;
+    return (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0;
+  });
+  $("#users-body").innerHTML=list.map(function(u){
+      return '<tr class="clickable" onclick="showUser('+u.id+')"><td>'+esc(u.nombre)+(u.chatMuted?' <span title="Chat deshabilitado por anti-spam">🚩</span>':'')+'</td><td>'+esc(u.email)+'</td><td>'+verifyBadge(u)+'</td><td>'+planBadge(u)+'</td><td>'+paisCell(u)+'</td><td>'+(u.rv===-1?'∞':(u.rv||0))+'</td><td><span class="dot'+(u.enLinea?' on':'')+'"></span>'+esc(u.ultimaConexion||'—')+'</td></tr>';
+    }).join("")||'<tr><td colspan="7">Sin usuarios que coincidan</td></tr>';
 }
 /* ---------- detalle de usuario: modal con pestañas ---------- */
 var userModalData=null;
