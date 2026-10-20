@@ -3339,7 +3339,8 @@ async function openDmWindow(uid, target){
   el.innerHTML = `
     <div class="dm-win-head" onclick="toggleMinDmWindow(${uid})">
       <div class="comment-avatar">${dmAvatarHtml(target)}</div>
-      <div class="dm-win-title"><b>${esc(target.nombre)}</b>${flagHtml(uid)}<br><small class="dm-win-countdown">⏳ 48h</small></div>
+      <div class="dm-win-title"><b>${esc(target.nombre)}</b></div>
+      <div class="dm-win-meta">${flagHtml(uid)}<small class="dm-win-countdown">⏳ 48h</small></div>
       <span class="dm-win-unread" style="display:none"></span>
       <button class="dm-win-headbtn" title="📸" aria-label="Álbumes"
         onclick="event.stopPropagation();viewUserAlbums(${uid})">📸</button>
@@ -3354,6 +3355,11 @@ async function openDmWindow(uid, target){
       <div class="dm-win-msgs"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
       <div class="dm-win-rec" style="display:none">🔴 <span class="dm-win-rec-time">0:00</span>
         <button class="btn btn-sm" onclick="detenerDmVoiceWin()">⏹</button></div>
+      <div class="dm-win-selbar" style="display:none">
+        <span class="dm-sel-count">0 seleccionados</span>
+        <button class="btn btn-sm" style="background:#c0392b;color:#fff;border:none" onclick="deleteSelectedDm(${uid})">🗑️ Eliminar</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleDmSelect(${uid})">Cancelar</button>
+      </div>
       <div id="dm-emoji-${uid}" class="emoji-panel" data-target="#dm-input-${uid}" style="display:none"></div>
       <div class="dm-win-more">
         <button class="dm-more-opt" data-emoji-toggle onclick="toggleEmojiGrid('dm-emoji-${uid}');toggleDmMore(${uid})">😊 Emojis</button>
@@ -3362,6 +3368,7 @@ async function openDmWindow(uid, target){
         <button class="dm-more-opt" onclick="dmWinFileClick(${uid});toggleDmMore(${uid})">📎 Archivo</button>
         <button class="dm-more-opt" onclick="startVideoCallWin(${uid});toggleDmMore(${uid})">📹 Videollamada${annual ? "" : " 🔒"}</button>
         <button class="dm-more-opt" onclick="viewUserAlbums(${uid});toggleDmMore(${uid})">📸 Álbumes</button>
+        <button class="dm-more-opt" onclick="toggleDmMore(${uid});toggleDmSelect(${uid})">☑️ Seleccionar mensajes</button>
       </div>
       <div class="dm-win-composer">
         <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
@@ -3393,6 +3400,53 @@ function toggleDmMore(uid){
   const btn = w.el.querySelector(".dm-plus-btn");
   if(panel) panel.classList.toggle("open");
   if(btn) btn.classList.toggle("open");
+}
+
+/* ---------- Seleccionar y eliminar mensajes privados ----------
+ * Modo selección: tocas los mensajes que quieras y los eliminas
+ * de una vez. Los tuyos se borran para ambos; los recibidos se
+ * quitan solo de tu vista. */
+function toggleDmSelect(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  w.selMode = !w.selMode;
+  if(!w.selSet) w.selSet = new Set();
+  if(!w.selMode) w.selSet.clear();
+  w.el.classList.toggle("selecting", !!w.selMode);
+  const bar = w.el.querySelector(".dm-win-selbar");
+  if(bar) bar.style.display = w.selMode ? "flex" : "none";
+  paintDmSelection(uid);
+}
+function paintDmSelection(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  const set = w.selSet || new Set();
+  w.el.querySelectorAll(".dm-msg[data-dm-id]").forEach(el => {
+    el.classList.toggle("selected", set.has(Number(el.dataset.dmId)));
+  });
+  const cnt = w.el.querySelector(".dm-sel-count");
+  if(cnt) cnt.textContent = set.size + (set.size === 1 ? " seleccionado" : " seleccionados");
+}
+async function deleteSelectedDm(uid){
+  const w = dmWindows[uid];
+  if(!w || !w.selSet || !w.selSet.size){ toast("Toca los mensajes que quieres eliminar ☑️"); return; }
+  const ids = [...w.selSet];
+  if(!confirm("¿Eliminar " + ids.length + " mensaje(s)? Los tuyos se borran para ambos; los recibidos, solo de tu vista.")) return;
+  try{
+    const r = await fetch("/api/dm/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ ids })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    toast("🗑️ " + (j.eliminados || 0) + " mensaje(s) eliminados");
+    toggleDmSelect(uid);
+    await loadDmWinMessages(uid);
+    updateDmBadge();
+  }catch(e){
+    toast(e.message);
+  }
 }
 
 /* Botón 📎: miembros con plan (mensual y anual) pueden adjuntar. */
@@ -3665,13 +3719,13 @@ function updateDmWinHead(uid){
   if(av) av.innerHTML = dmAvatarHtml(t);
   const b = head.querySelector(".dm-win-title b");
   if(b) b.textContent = t.nombre || t("dm.win_user");
-  // Refrescar la banderita junto al nombre.
-  const title = head.querySelector(".dm-win-title");
-  if(title){
-    const old = title.querySelector("[data-flag-uid]");
+  // Refrescar la banderita (ahora en la columna vertical de meta).
+  const meta = head.querySelector(".dm-win-meta");
+  if(meta){
+    const old = meta.querySelector("[data-flag-uid]");
     const html = flagHtml(uid);
     if(old){ if(html) old.outerHTML = html; else old.remove(); }
-    else if(html && b) b.insertAdjacentHTML("afterend", html);
+    else if(html) meta.insertAdjacentHTML("afterbegin", html);
   }
   refreshFlagLevels([uid]).catch(()=>{});
 }
@@ -3698,6 +3752,7 @@ function dmMessageHtml(m){
   }
   return `
     <div class="dm-msg ${m.mio ? "dm-mine" : "dm-theirs"}"${m.expira ? ` data-expira="${esc(m.expira)}"` : ""} data-dm-id="${Number(m.id)}">
+      <span class="dm-sel-check"></span>
       ${cuerpo}
       <span class="dm-meta">${esc(m.fecha)} · ${esc(t("dm.expires_in"))} 48h</span>
       ${reactionHtmlDm(m.id, m.likes, m.dislikes, m.mi_reaccion)}
@@ -3723,6 +3778,22 @@ async function loadDmWinMessages(uid){
       || `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`;
     box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
     updateDmWinCountdowns();
+    // Modo selección: un solo listener delegado + repintar marcas.
+    if(!box.dataset.selBound){
+      box.dataset.selBound = "1";
+      box.addEventListener("click", (e) => {
+        const w = dmWindows[uid];
+        if(!w || !w.selMode) return;
+        const msgEl = e.target.closest(".dm-msg[data-dm-id]");
+        if(!msgEl) return;
+        e.preventDefault(); e.stopPropagation();
+        const id = Number(msgEl.dataset.dmId);
+        if(!w.selSet) w.selSet = new Set();
+        if(w.selSet.has(id)) w.selSet.delete(id); else w.selSet.add(id);
+        paintDmSelection(uid);
+      }, true);
+    }
+    if(w.selMode) paintDmSelection(uid);
   }catch(e){
     box.innerHTML = `<p style="text-align:center;color:#a33">⚠️</p>`;
   }

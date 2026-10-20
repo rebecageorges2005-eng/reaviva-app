@@ -530,6 +530,19 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .dm-win-title{flex:1;min-width:0;line-height:1.25}
 .dm-win-title b{display:block;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dm-win-title small{font-size:.68rem;opacity:.85}
+/* Meta vertical del encabezado: bandera arriba, tiempo debajo */
+.dm-win-meta{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;flex:none;min-width:46px}
+.dm-win-meta .flag-btn{font-size:1rem;line-height:1.1}
+.dm-win-meta small{font-size:.64rem;opacity:.92;white-space:nowrap;line-height:1.1}
+/* Selección de mensajes privados */
+.dm-win-selbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dm-sel-count{font-size:.85rem;font-weight:700;flex:1}
+.dm-sel-check{display:none;width:20px;height:20px;flex:none;border:2px solid var(--terra,#c2703d);border-radius:6px;background:#fff;position:relative;margin-top:2px;float:left;margin-right:8px}
+.selecting .dm-msg{cursor:pointer}
+.selecting .dm-sel-check{display:inline-block}
+.dm-msg.selected{outline:2px solid var(--terra,#c2703d);outline-offset:1px}
+.dm-msg.selected .dm-sel-check{background:var(--terra,#c2703d)}
+.dm-msg.selected .dm-sel-check::after{content:"✓";color:#fff;font-size:.8rem;font-weight:800;position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .dm-win-headbtn{
   background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:8px;
   width:30px;height:30px;font-size:.95rem;cursor:pointer;line-height:1;flex:none;
