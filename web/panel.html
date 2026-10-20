@@ -1349,10 +1349,11 @@ async function deleteContactMessage(id){
 
 /* ---------- Planes manuales y apodo en el chat ---------- */
 async function setUserPlan(id, plan){
-  var labels={monthly:"plan Mensual",annual:"plan Anual",none:"quitar el plan"};
-  if(!confirm("¿Seguro? Vas a "+(labels[plan]||plan)+" a este usuario.")) return;
+  var labels={monthly:"dar el plan Mensual (+50 RV de bono y correo al usuario)",annual:"dar el plan Anual (+200 RV de bono y correo al usuario)",none:"quitar el plan (se avisa por correo)"};
+  if(!confirm("¿Seguro? Vas a "+(labels[plan]||plan)+".")) return;
   try{
-    await api("POST","/api/admin/users/"+id+"/plan",{plan:plan});
+    var r=await api("POST","/api/admin/users/"+id+"/plan",{plan:plan});
+    alert(plan==="none" ? "✅ Plan retirado. Se avisó al usuario por correo." : "✅ Plan activado con todos sus beneficios: +"+(r.bonus||0)+" RV de bono y correo enviado al usuario.");
     var u=await api("GET","/api/admin/users/"+id);
     userModalData=u; renderUserModal();
     loadUsers();
