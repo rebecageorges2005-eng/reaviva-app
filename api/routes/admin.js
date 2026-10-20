@@ -583,6 +583,50 @@ router.delete("/verified-domains/:id", requireAdmin, ah(async (req, res) => {
   if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
   res.json({ ok: true });
 }));
+/* ---------- Link Pub: links publicados en el perfil de los usuarios ----------
+ * El admin promociona un link (su canal, blog…) segmentando por usuarios
+ * específicos, países (solo los de usuarios registrados) y sexo (M/F). */
+router.get("/links", requireAdmin, ah(async (req, res) => {
+  const links = await db.all("SELECT * FROM admin_links ORDER BY id DESC");
+  const cRows = await db.all(
+    "SELECT DISTINCT country FROM users WHERE country IS NOT NULL AND country != '' ORDER BY country");
+  res.json({
+    links: links.map((l) => ({
+      id: l.id, url: l.url, title: l.title || "",
+      target_users: l.target_users ? JSON.parse(l.target_users) : [],
+      target_countries: l.target_countries ? JSON.parse(l.target_countries) : [],
+      target_gender: l.target_gender || "",
+      created_at: l.created_at,
+    })),
+    countries: cRows.map((r) => r.country),
+  });
+}));
+
+router.post("/links", requireAdmin, ah(async (req, res) => {
+  const b = req.body || {};
+  const url = String(b.url || "").trim();
+  if (!/^https?:\/\//i.test(url))
+    return res.status(400).json({ error: "El link debe empezar con http:// o https://" });
+  const title = String(b.title || "").trim().slice(0, 120);
+  const userIds = Array.isArray(b.userIds) ? b.userIds.map(Number).filter((n) => n > 0) : [];
+  const countries = Array.isArray(b.countries) ? b.countries.map((c) => String(c)).filter(Boolean) : [];
+  const gender = ["M", "F"].includes(String(b.gender || "").toUpperCase())
+    ? String(b.gender).toUpperCase() : "";
+  const r = await db.run(
+    "INSERT INTO admin_links (url, title, target_users, target_countries, target_gender) VALUES (?, ?, ?, ?, ?)",
+    url, title || null,
+    userIds.length ? JSON.stringify(userIds) : null,
+    countries.length ? JSON.stringify(countries) : null,
+    gender || null);
+  res.json({ ok: true, id: r.lastID });
+}));
+
+router.delete("/links/:id", requireAdmin, ah(async (req, res) => {
+  const r = await db.run("DELETE FROM admin_links WHERE id = ?", req.params.id);
+  if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  res.json({ ok: true });
+}));
+
 router.get("/messages", requireAdmin, ah(async (req, res) => {
   const rows = await db.all(
       `SELECT id, user_id, email, title, body, created_at, read_at
