@@ -136,6 +136,9 @@ router.post("/create-order", requireAuth, paidOnly, ah(async (req, res) => {
         application_context: {
           brand_name: "Reaviva",
           user_action: "PAY_NOW",
+          // BILLING: abre directo en "pagar con tarjeta" (invitado, sin cuenta
+          // de PayPal) cuando el pago invitado está habilitado en la cuenta.
+          landing_page: "BILLING",
           return_url: `${base}/?rv=ok#comunidad`,
           cancel_url: `${base}/?rv=cancel#comunidad`,
         },
