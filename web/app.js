@@ -391,6 +391,9 @@ function togglePassword(id){
 /* Guarda la sesión del backend y entra a la app. */
 function saveSession(token, user){
   store.set("reaviva_token", token);
+  // Marca de vida del navegador: vive en sessionStorage, que el navegador
+  // borra al cerrarse. Si al cargar no está la marca, la sesión se cierra.
+  try{ sessionStorage.setItem("reaviva_alive", "1"); }catch(e){}
   store.set(LS.user, {
     id: user.id, email: user.email, name: user.name,
     planType: user.planType || "free",
@@ -3647,6 +3650,17 @@ document.addEventListener("DOMContentLoaded", ()=>{
   initCountrySelect();
   // Inactividad: 30 min sin actividad -> aviso 10 seg -> cierra sesion.
   initInactivityTimer();
+  // Si el navegador se cerró, la sesión no debe seguir abierta: la marca
+  // "reaviva_alive" vive en sessionStorage y desaparece al cerrar el
+  // navegador. Si hay token pero no hay marca, cerrar la sesión guardada.
+  try{
+    if(store.get("reaviva_token", null) && !sessionStorage.getItem("reaviva_alive")){
+      localStorage.removeItem(LS.user);
+      localStorage.removeItem("reaviva_token");
+      localStorage.removeItem("reaviva_admin");
+      localStorage.removeItem("reaviva_paid");
+    }
+  }catch(e){}
   // URL secreta de admin: /admin/ingzoe
   if(location.pathname === "/admin/ingzoe"){
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
