@@ -2838,6 +2838,7 @@ function startChatPoll(){
     })
     .catch(()=>{});
   chatPollTimer = setInterval(async () => {
+    if(document.hidden) return; // no gastar datos con la pestaña oculta
     try{
       const r = await fetch("/api/community", { headers: authHeaders() });
       if(!r.ok) return;
@@ -2854,7 +2855,7 @@ function startChatPoll(){
         else renderComunidad();
       }
     }catch(e){ /* reintentar en el próximo ciclo */ }
-  }, 30000); // 30s: suficiente para mensajes y presencia en línea
+  }, 8000); // 8s: los mensajes nuevos aparecen casi al instante
 }
 function stopChatPoll(){
   if(chatPollTimer){ clearInterval(chatPollTimer); chatPollTimer = null; }
@@ -3543,7 +3544,7 @@ async function refreshDmWindows(){
 function startDmWinPoll(){
   stopDmWinPoll();
   refreshDmWindows();
-  dmWinPollTimer = setInterval(refreshDmWindows, 20000);
+  dmWinPollTimer = setInterval(refreshDmWindows, 10000);
   if(!dmWinCountdownTimer) dmWinCountdownTimer = setInterval(updateDmWinCountdowns, 60000);
 }
 function stopDmWinPoll(){
