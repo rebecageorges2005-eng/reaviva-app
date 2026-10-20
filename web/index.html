@@ -451,6 +451,23 @@
   </div>
 </div>
 
+<div class="modal-bg" id="contact-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeContactModal()" aria-label="Cerrar">✕</button>
+    <h3>📩 Sugerencias y problemas</h3>
+    <p style="font-size:.85rem;color:var(--cocoa-soft)">Cuéntanos tu sugerencia o el problema que encontraste. Lo lee directamente el equipo de Reaviva.</p>
+    <select id="contact-type" class="field" style="margin:12px 0 8px">
+      <option value="sugerencia">💡 Tengo una sugerencia</option>
+      <option value="problema">⚠️ Tengo un problema</option>
+      <option value="otro">❓ Otra consulta</option>
+    </select>
+    <textarea id="contact-text" class="field" rows="5" maxlength="2000" placeholder="Escribe aquí tu mensaje…"></textarea>
+    <p id="contact-err" class="auth-err"></p>
+    <button class="btn btn-primary btn-block" onclick="sendContact()">Enviar 📩</button>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeContactModal()">Cerrar ✕</button>
+  </div>
+</div>
+
 <div class="modal-bg" id="online-modal">
   <div class="modal">
     <button class="modal-x" onclick="closeOnlineModal()" aria-label="Cerrar">✕</button>
@@ -502,6 +519,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=55"></script>
+<script src="/app.js?v=56"></script>
 </body>
 </html>

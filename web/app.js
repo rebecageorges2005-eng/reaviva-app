@@ -354,6 +354,43 @@ function closeRVModal(){
   if(modal) modal.classList.remove("open");
 }
 
+/* ---------- Contacto dentro de la app: sugerencias y problemas ---------- */
+function openContactModal(){
+  const modal = $("#contact-modal");
+  if(!modal) return;
+  const err = $("#contact-err"); if(err) err.textContent = "";
+  const txt = $("#contact-text"); if(txt) txt.value = "";
+  modal.classList.add("open");
+}
+function closeContactModal(){
+  const modal = $("#contact-modal");
+  if(modal) modal.classList.remove("open");
+}
+async function sendContact(){
+  const err = $("#contact-err");
+  const u = currentUser();
+  const type = ($("#contact-type") || {}).value || "otro";
+  const message = (($("#contact-text") || {}).value || "").trim();
+  if(message.length < 10){
+    if(err) err.textContent = "Escribe un mensaje un poco más completo (mínimo 10 caracteres).";
+    return;
+  }
+  try{
+    const r = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: u ? u.name : "Usuario", email: u ? u.email : "", type, message }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || "No se pudo enviar.");
+    if(err){ err.style.color = "#2e7d32"; err.textContent = "✅ ¡Gracias! Tu mensaje fue enviado."; }
+    const txt = $("#contact-text"); if(txt) txt.value = "";
+    setTimeout(closeContactModal, 1400);
+  }catch(e){
+    if(err){ err.style.color = ""; err.textContent = e.message || "No se pudo enviar. Intenta de nuevo."; }
+  }
+}
+
 /* Comprar RV: crea la orden en PayPal y redirige a aprobar. */
 async function buyRV(pack){
   const err = $("#rv-modal-err");
@@ -1917,6 +1954,10 @@ function renderPerfil(){
         <button class="btn btn-sm btn-primary" onclick="openCreateAlbumModal()">${t("alb.create")}</button>
       </div>
       <div id="perfil-albums" style="margin-top:10px"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
+    </div>
+    <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
+      <button class="btn btn-ghost btn-block" onclick="openContactModal()">📩 Sugerencias y problemas</button>
+      <p style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px">¿Algo no funciona o tienes una idea? Escríbenos aquí.</p>
     </div>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
       <button class="btn btn-ghost btn-block" onclick="togglePwForm()">🔑 Cambiar contraseña</button>

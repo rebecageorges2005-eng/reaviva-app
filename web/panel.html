@@ -267,6 +267,8 @@ async function render(){
       '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔗 Link Pub</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Publica un link en el <b>perfil</b> de los usuarios (tu canal de YouTube, tu blog…). Aparece con el logo de la plataforma y solo lo ven los usuarios que elijas. Si no hay links para un usuario, la sección no se muestra.</p><div id="linkpub"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
+      '<h2 class="sec">📩 Sugerencias y contacto</h2>'+
+      '<div class="block"><div id="contact-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
@@ -285,7 +287,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -1261,6 +1263,25 @@ function lpRenderList(){
 async function deleteLinkPub(id){
   if(!confirm("¿Quitar este link de los perfiles?")) return;
   try{ await api("DELETE","/api/admin/links/"+id); loadLinkPub(); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+
+/* ---------- Sugerencias y contacto ---------- */
+async function loadContactMessages(){
+  var box=$("#contact-list"); if(!box) return;
+  try{
+    var d=await api("GET","/api/admin/contact-messages");
+    var msgs=d.messages||[];
+    if(!msgs.length){ box.innerHTML='<p style="color:var(--cocoa-soft)">Todavía no hay mensajes de contacto.</p>'; return; }
+    var badge={sugerencia:"💡 Sugerencia",problema:"⚠️ Problema",otro:"❓ Consulta"};
+    box.innerHTML=msgs.map(function(m){
+      return '<div class="rowline" style="align-items:flex-start"><span><b>'+esc(badge[m.type]||"❓ Consulta")+'</b> · '+esc(m.name)+' <small style="color:var(--cocoa-soft)">'+esc(m.email)+' · '+esc(m.created_at||"")+'</small><br><span style="font-size:.92rem">'+esc(m.message)+'</span></span>'+
+      '<button class="btn btn-sm" onclick="deleteContactMessage('+m.id+')">🗑️</button></div>';
+    }).join("");
+  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">Error cargando mensajes: '+esc(e.message)+'</div>'; }
+}
+async function deleteContactMessage(id){
+  try{ await api("DELETE","/api/admin/contact-messages/"+id); loadContactMessages(); }
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
 </script>
