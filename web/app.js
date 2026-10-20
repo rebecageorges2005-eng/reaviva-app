@@ -2900,30 +2900,18 @@ function pickChatPhoto(){
   if(inp) inp.click();
 }
 
-function sendChatPhoto(input){
+async function sendChatPhoto(input){
   const file = input && input.files && input.files[0];
-  input.value = "";
+  if(input) input.value = "";
   if(!file) return;
   if(!file.type.startsWith("image/")){ toast("Elige una imagen válida."); return; }
-  // Redimensionar a máx 800px en el cliente para no saturar el servidor.
-  const img = new Image();
-  const url = URL.createObjectURL(file);
-  img.onload = () => {
-    URL.revokeObjectURL(url);
-    const MAX = 800;
-    let w = img.width, h = img.height;
-    if(w > MAX || h > MAX){
-      const k = MAX / Math.max(w, h);
-      w = Math.round(w * k); h = Math.round(h * k);
-    }
-    const cv = document.createElement("canvas");
-    cv.width = w; cv.height = h;
-    cv.getContext("2d").drawImage(img, 0, 0, w, h);
-    const dataUrl = cv.toDataURL("image/jpeg", 0.75);
+  try{
+    // Mismo lector robusto de los álbumes (con respaldo FileReader).
+    const dataUrl = await resizeImageDataUrl(file);
     postChatPhoto(dataUrl);
-  };
-  img.onerror = () => { URL.revokeObjectURL(url); toast("No se pudo leer la imagen."); };
-  img.src = url;
+  }catch(e){
+    toast("No se pudo leer esa imagen. Si es HEIC (de iPhone), conviértela a JPG o PNG. 🙏");
+  }
 }
 
 async function postChatPhoto(dataUrl){
