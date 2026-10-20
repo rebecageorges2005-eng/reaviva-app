@@ -271,9 +271,11 @@ async function render(){
       '<option value="8">Últimos 8 días</option><option value="15">Últimos 15 días</option>'+
       '<option value="30" selected>Últimos 30 días</option><option value="60">Últimos 60 días</option>'+
       '<option value="90">Últimos 90 días</option><option value="180">Últimos 6 meses</option>'+
-      '<option value="365">Último año</option></select></div>'+
+      '<option value="365">Último año</option></select> '+
+      '<select id="growth-view" class="field" onchange="loadGrowth()">'+
+      '<option value="fecha">📅 Por fecha</option><option value="pais">🌍 Por país</option><option value="ciudad">🏙️ Por ciudad</option></select></div>'+
       '<div id="growth-chart" class="chart"></div>'+
-      '<div class="scroll-box small"><table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table></div>'+
+      '<div class="scroll-box small"><table><thead><tr id="growth-head"><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table></div>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
       '<div class="toolbar"><input id="user-search" class="field" placeholder="🔍 Buscar por nombre o correo…" oninput="filterUsers()" style="max-width:320px"></div>'+
       '<div class="scroll-box tall"><table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table></div>'+
@@ -538,9 +540,25 @@ async function unbanUserModal(id){
 /* ---------- crecimiento ---------- */
 async function loadGrowth(){
   var days=($("#growth-days")||{}).value||30;
+  var view=($("#growth-view")||{}).value||"fecha";
+  var head=$("#growth-head");
   try{
-    var g=await api("GET","/api/admin/growth?days="+encodeURIComponent(days));
-    growthCache=g.periods||[];
+    if(view==="pais"||view==="ciudad"){
+      var g=await api("GET","/api/admin/growth-geo?days="+encodeURIComponent(days));
+      var rows=(view==="pais"?g.paises:g.ciudades)||[];
+      growthCache=rows.map(function(r){
+        return {
+          etiqueta: view==="pais" ? (flagEmoji(r.codigo)+" "+r.pais) : (r.ciudad+" · "+r.pais),
+          nuevosUsuarios: r.nuevosUsuarios||0,
+          nuevosConPlan: r.nuevosConPlan||0
+        };
+      });
+      if(head) head.innerHTML='<th>'+(view==="pais"?"🌍 País":"🏙️ Ciudad")+'</th><th>Nuevos usuarios</th><th>Nuevos con plan</th>';
+    }else{
+      var g2=await api("GET","/api/admin/growth?days="+encodeURIComponent(days));
+      growthCache=g2.periods||[];
+      if(head) head.innerHTML='<th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th>';
+    }
     var max=1;
     growthCache.forEach(function(p){ max=Math.max(max,p.nuevosUsuarios||0); });
     $("#growth-chart").innerHTML=growthCache.map(function(p,idx){
@@ -549,7 +567,7 @@ async function loadGrowth(){
     }).join("");
     $("#growth-body").innerHTML=growthCache.map(function(p,idx){
       return '<tr class="clickable" onclick="showGrowthDetail('+idx+')" title="Ver detalles"><td>'+esc(p.etiqueta)+'</td><td>'+(p.nuevosUsuarios||0)+'</td><td>'+(p.nuevosConPlan||0)+'</td></tr>';
-    }).join("")||'<tr><td colspan="3">Sin datos</td></tr>';
+    }).join("")||'<tr><td colspan="3">'+(view==="ciudad"?"Todavía no hay ciudades registradas: la ciudad se guarda desde el próximo ingreso de cada usuario.":"Sin datos")+'</td></tr>';
   }catch(e){ if(e.message==="AUTH") authFail(); }
 }
 /* Detalle de un período de crecimiento. */
