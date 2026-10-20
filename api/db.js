@@ -956,6 +956,17 @@ async function migrate() {
       key TEXT PRIMARY KEY,
       value TEXT
     )`);
+    // Link Pub: links que el admin publica en el perfil de los usuarios
+    // (segmentados por usuarios, países y sexo; NULL/vacío = todos).
+    await db.exec(`CREATE TABLE IF NOT EXISTS admin_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL,
+      title TEXT,
+      target_users TEXT,
+      target_countries TEXT,
+      target_gender TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
     // Agregar columnas user_id/user_name si la tabla ya existía sin ellas.
     try {
       const cols = await tableCols("admin_reports");
