@@ -149,7 +149,7 @@ function fechaCorta(iso) {
         .replace(/((https?:\/\/)?(www\.)?[a-z0-9][a-z0-9\-]*\.(com|net|org|io|co|mx|es|app|store|shop|online|site|link|bio|ly|me|tv)(\/[^\s]*)?)/gi, " ")
         .replace(/(tiktok\.com|instagram\.com|youtube\.com|youtu\.be|facebook\.com|fb\.com|twitter\.com|x\.com|whatsapp\.com|telegram\.me|t\.me)(\/[^\s]*)?/gi, " ");
     }
-    const spam = checkMessage(req.user.id, textoFiltro);
+    const spam = await checkMessage(req.user.id, textoFiltro);
     if (spam) return res.status(spam.status).json({ error: spam.code, message: spam.message });
   }
   const info = await db.run(
