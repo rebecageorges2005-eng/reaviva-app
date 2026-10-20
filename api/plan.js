@@ -99,9 +99,11 @@ function trialEnded(user) {
 
 /* billingAccess(user): reglas de cobro automático de PayPal.
  * - El pago es automático: PayPal cobra solo al vencimiento (suscripción recurrente).
- * - Si el cobro falla (PAYMENT.FAILED): 48 HORAS DE GRACIA con acceso total.
- * - Tras la gracia: todo deshabilitado, EXCEPTO si el usuario tiene saldo de
- *   RV (> 0), que lo mantiene activo hasta que actualice su método de pago.
+ * - Al culminar el mes/anual sin pago: 48 HORAS DE GRACIA con acceso total.
+ * - Tras la gracia: TODO deshabilitado (aunque tenga RV — el saldo solo se
+ *   conserva, no se pierde). Debe actualizar su pago para volver.
+ * Los usuarios SIN plan no tienen gracia: al culminar su prueba, todo se
+ * deshabilita de inmediato (ver trialEnded).
  * Devuelve { blocked: bool, reason: 'failed'|null }. */
 async function billingAccess(user) {
   if (!user || user.is_admin === 1 || user.subscribed !== 1)
@@ -119,10 +121,7 @@ async function billingAccess(user) {
       : 0;
     if (!isNaN(g) && Date.now() < g)
       return { blocked: false, reason: "grace" }; // 48h de gracia: acceso total
-    const rv = Number(user.credits) || 0;
-    if (rv > 0)
-      return { blocked: false, reason: null }; // el saldo RV lo mantiene hasta actualizar el pago
-    return { blocked: true, reason: "failed" };
+    return { blocked: true, reason: "failed" }; // sin gracia: todo deshabilitado (el RV se conserva)
   }
   return { blocked: false, reason: null };
 }
