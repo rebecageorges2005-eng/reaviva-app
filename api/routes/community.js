@@ -224,7 +224,7 @@ router.get("/", requireAuth, ah(async (req, res) => {
          AND (c.msg_type = 'photo' OR c.expires_at IS NULL OR c.expires_at > datetime('now'))
          AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.user_id = ? AND h.message_id = c.id)
        ORDER BY c.created_at DESC
-       LIMIT 100`
+       LIMIT 60`
     , req.user.id);
   // Reacciones 👍👎: conteos por mensaje + mi reacción, en una sola consulta.
   const ids = rows.map((c) => c.id);
