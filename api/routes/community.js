@@ -414,14 +414,12 @@ router.post("/", requireAuth, ah(async (req, res) => {
     return res.status(400).json({ error: MSG_SIN_AUDIO });
   }
 
-  /* --- Filtro anti-spam: correos, teléfonos y redes sociales ---
-   * Usuarios GRATUITOS: solo texto plano, PERO pueden gastar RV para
-   * publicar enlaces (3 RV por mensaje, 10 RV = 3 publicaciones).
-   * No pueden enviar fotos ni temas.
-   * Usuarios CON PLAN: pueden gastar RV para publicar contenido promocional:
-   *   - Mensaje de texto con enlaces: 2 RV por mensaje (10 RV = 5 links).
-   *   - Imagen con contenido promocional: bloque de 10 RV = 8 envíos.
-   * Las fotos normales (sin contenido promocional) siguen siendo gratis. */
+  /* --- Filtro anti-spam y cobro RV (regla de Georges, 20 oct 2026) ---
+   * NADIE publica links ni fotos sin RV suficiente, tenga plan o no:
+   *   - Mensaje de texto con enlaces: 2 RV con plan / 3 RV sin plan.
+   *   - Foto (cualquiera): bloque de 10 RV = 8 envíos, SOLO con plan.
+   *   - Sin plan: solo texto plano (y texto con enlaces pagando 3 RV).
+   * El texto normal sin enlaces sigue gratis para todos. */
   let isPromo = 0;
   const muteado = await mutedPayload(req.user.id);
   if (muteado)
@@ -429,23 +427,18 @@ router.post("/", requireAuth, ah(async (req, res) => {
   const violacion = detectSpam(finalText);
   // El admin publica sin restricciones: sin verificación de enlaces ni cobro de RV.
   const esAdmin = req.user.is_admin === 1;
-  if (violacion && !esAdmin) {
-    const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
-    // Gratuitos: no pueden enviar fotos promocionales (solo texto con RV).
-    if (!conPlan && msgType === "photo") {
+  const conPlan = req.user.subscribed === 1 || req.user.is_admin === 1;
+  if (!esAdmin && msgType === "photo") {
+    /* TODA foto del chat grupal cuesta RV (bloque 10 RV = 8 envíos),
+     * traiga o no enlace: con el plan pero 0 RV NO se puede publicar. */
+    if (!conPlan) {
       return res.status(403).json({
         error: "SOLO_PLAN",
         message: "💎 Las fotos son para miembros con plan. Actualiza tu plan para enviar fotos.",
       });
     }
-    /* Con plan O gratuito con RV: verificar enlaces y descontar.
-     * Gratuitos pagan 3 RV por mensaje (10 RV = 3 publicaciones). */
-    /* Todos pueden gastar RV (con plan o sin plan). La tasa depende del plan. */
-    {
-      /* --- Verificación de enlaces 🔒 ---
-       * Antes de descontar RV: el enlace debe ser de una página
-       * verificada (anti-phishing/hackers). Si no pasa, se bloquea
-       * SIN descontar RV y se registra para revisión del admin. */
+    // Si el texto trae un enlace, se verifica ANTES de cobrar (anti-phishing).
+    if (violacion) {
       const verif = verifyLinks(finalText);
       if (!verif.ok) {
         try {
@@ -459,34 +452,45 @@ router.post("/", requireAuth, ah(async (req, res) => {
           message: mensajeBloqueo(verif),
         });
       }
-      if (msgType === "photo") {
-        // Imagen promocional: bloque de 10 RV = 8 envíos.
-        const r = await trySpendImageSend(req.user.id, req.user);
-        if (r.ok) {
-          isPromo = 1;
-        } else {
-          return res.status(402).json({
-            error: "NO_RV",
-            tipo: "imagen",
-            message:
-              "💰 Necesitas RV para compartir imágenes promocionales. Recarga aquí (10 RV = 8 imágenes).",
-            needsRecharge: true,
-          });
-        }
-      } else {
-        // Mensaje de texto promocional: 2 RV por mensaje.
-        if (await trySpendRV(req.user.id, req.user)) {
-          isPromo = 1;
-        } else {
-          const tasa = conPlan ? "10 RV = 5 publicaciones" : "10 RV = 3 publicaciones";
-          return res.status(402).json({
-            error: "NO_RV",
-            tipo: "texto",
-            message: `💰 Necesitas RV para compartir enlaces. Recarga aquí (${tasa}).`,
-            needsRecharge: true,
-          });
-        }
-      }
+    }
+    const rImg = await trySpendImageSend(req.user.id, req.user);
+    if (rImg.ok) {
+      isPromo = 1;
+    } else {
+      return res.status(402).json({
+        error: "NO_RV",
+        tipo: "imagen",
+        message:
+          "💰 Necesitas RV para publicar fotos. Recarga aquí (10 RV = 8 imágenes).",
+        needsRecharge: true,
+      });
+    }
+  } else if (violacion && !esAdmin) {
+    /* Texto con enlaces/contacto: verificar la página y cobrar
+     * 2 RV con plan / 3 RV sin plan. Sin RV suficiente, no se publica. */
+    const verif = verifyLinks(finalText);
+    if (!verif.ok) {
+      try {
+        await db.run(
+          `INSERT INTO chat_violations (user_id, attempted_text, violation_type, detail, created_at)
+           VALUES (?, ?, 'link no verificado', ?, datetime('now'))`
+        , req.user.id, String(finalText || "").slice(0, 500), "motivo: " + verif.motivo + " (" + verif.url + ")");
+      } catch (e) { /* no bloquea */ }
+      return res.status(403).json({
+        error: "LINK_NO_VERIFICADO",
+        message: mensajeBloqueo(verif),
+      });
+    }
+    if (await trySpendRV(req.user.id, req.user)) {
+      isPromo = 1;
+    } else {
+      const tasa = conPlan ? "10 RV = 5 publicaciones" : "10 RV = 3 publicaciones";
+      return res.status(402).json({
+        error: "NO_RV",
+        tipo: "texto",
+        message: `💰 Necesitas RV para compartir enlaces. Recarga aquí (${tasa}).`,
+        needsRecharge: true,
+      });
     }
   }
 
