@@ -56,12 +56,13 @@ tr.clickable:hover{background:var(--sand)}
 .community-scroll::-webkit-scrollbar-track{background:transparent}
 @media (max-width:640px){.community-scroll{max-height:60vh}}
 /* Scroll propio para CADA sección del panel */
-.scroll-box{max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.scroll-box{max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding:6px;border:1px solid var(--hatch-widget-border,#e8ded2);border-radius:12px;background:rgba(255,255,255,.35);scrollbar-width:thin}
 .scroll-box::-webkit-scrollbar{width:8px}
 .scroll-box::-webkit-scrollbar-thumb{background:#d8c9b8;border-radius:4px}
 .scroll-box::-webkit-scrollbar-track{background:transparent}
-.scroll-box.tall{max-height:500px}
+.scroll-box.tall{max-height:340px}
 .scroll-box.small{max-height:230px}
+.scroll-box table{width:100%}
 .scroll-box thead th{position:sticky;top:0;background:#fff;z-index:1}
 .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px;animation:livePulse 1.6s infinite}
 @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.35}}
