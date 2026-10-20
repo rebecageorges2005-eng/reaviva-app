@@ -269,6 +269,8 @@ async function render(){
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Publica un link en el <b>perfil</b> de los usuarios (tu canal de YouTube, tu blog…). Aparece con el logo de la plataforma y solo lo ven los usuarios que elijas. Si no hay links para un usuario, la sección no se muestra.</p><div id="linkpub"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">📩 Sugerencias y contacto</h2>'+
       '<div class="block"><div id="contact-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
+      '<h2 class="sec">🕵️ Mi apodo en el chat grupal</h2>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Déjalo vacío para usar tu nombre normal del chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
@@ -287,7 +289,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadChatAlias();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -637,6 +639,11 @@ function userTabContent(u){
     '<p><b>Registrado:</b> '+esc(u.registrado||'—')+'</p>'+
     '<p><b>Última conexión:</b> '+(u.enLinea?'🟢 ':'')+esc(u.ultimaConexion||'—')+'</p>'+
     '<p><b>Plan:</b> '+esc(u.plan||'—')+(u.planDetalle?' ('+esc(u.planDetalle)+')':'')+(u.proximoCobro?' · Próximo cobro: '+esc(u.proximoCobro):'')+'</p>'+
+    '<div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">'+
+    '<button class="btn btn-sm" onclick="setUserPlan('+u.id+',\'monthly\')">💳 Dar plan Mensual</button>'+
+    '<button class="btn btn-sm" onclick="setUserPlan('+u.id+',\'annual\')">⭐ Dar plan Anual</button>'+
+    (u.conPlan?'<button class="btn btn-sm btn-ghost" onclick="setUserPlan('+u.id+',\'none\')">❌ Quitar plan</button>':'')+
+    '</div>'+
     '<p><b>📧 Correo:</b> '+(u.emailVerificado?'✅ verificado':'⚠️ sin confirmar')+'</p>'+
     (!u.emailVerificado&&u.verificationLink?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span></div>':'')+
     (!u.emailVerificado&&!u.esAdmin?'<div style="margin:10px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
@@ -1283,6 +1290,30 @@ async function loadContactMessages(){
 async function deleteContactMessage(id){
   try{ await api("DELETE","/api/admin/contact-messages/"+id); loadContactMessages(); }
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+
+/* ---------- Planes manuales y apodo en el chat ---------- */
+async function setUserPlan(id, plan){
+  var labels={monthly:"plan Mensual",annual:"plan Anual",none:"quitar el plan"};
+  if(!confirm("¿Seguro? Vas a "+(labels[plan]||plan)+" a este usuario.")) return;
+  try{
+    await api("POST","/api/admin/users/"+id+"/plan",{plan:plan});
+    var u=await api("GET","/api/admin/users/"+id);
+    userModalData=u; renderUserModal();
+    loadUsers();
+  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+async function loadChatAlias(){
+  var inp=$("#chat-alias"); if(!inp) return;
+  try{ var d=await api("GET","/api/admin/chat-alias"); inp.value=d.alias||""; }catch(e){}
+}
+async function saveChatAlias(){
+  var inp=$("#chat-alias"), msg=$("#chat-alias-msg");
+  try{
+    var d=await api("POST","/api/admin/chat-alias",{alias:inp.value});
+    msg.style.color="#2e7d32";
+    msg.textContent=d.alias?("✅ Apodo guardado: en el chat te verán como «"+d.alias+"»"):"✅ Apodo borrado: usarás tu nombre normal del chat.";
+  }catch(e){ if(e.message==="AUTH") authFail(); else { msg.style.color="#a33"; msg.textContent="Error: "+e.message; } }
 }
 </script>
 </body>
