@@ -35,10 +35,36 @@ const DM_MAX_CHARS = 1000;
 const DM_CONV_PER_DAY = { annual: 90, monthly: 15, free: 90 };
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
+/* Convierte una nota de voz (data URL) a AAC dentro de MP4
+ * (data:audio/mp4), el formato que suena en todos los navegadores,
+ * incluido Safari/iPhone. El webm/opus que graba Chrome llegaba
+ * mudo a muchos receptores. Si ffmpeg falla, devuelve null y el
+ * endpoint guarda el audio original. */
+function transcodeToM4a(dataUrl){
+  return new Promise((resolve) => {
+    try {
+      const m = /^data:audio\/[a-zA-Z0-9.+-]+(?:;[^,]*)?;base64,(.+)$/s.exec(String(dataUrl || ""));
+      if (!m) return resolve(null);
+      const input = Buffer.from(m[1], "base64");
+      const { spawn } = require("child_process");
+      const ff = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", "pipe:0",
+        "-vn", "-c:a", "aac", "-b:a", "64k", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"]);
+      const chunks = [];
+      ff.stdout.on("data", (c) => chunks.push(c));
+      ff.on("error", () => resolve(null));
+      ff.on("close", (code) => {
+        if (code !== 0 || !chunks.length) return resolve(null);
+        resolve("data:audio/mp4;base64," + Buffer.concat(chunks).toString("base64"));
+      });
+      ff.stdin.on("error", () => {});
+      ff.stdin.end(input);
+    } catch (e) { resolve(null); }
+  });
+}
+
 /* ¿El texto contiene SOLO emojis? (usuarios sin plan solo pueden
  * enviar emojis dentro de un chat ya empezado por alguien con plan). */
-function soloEmojis(txt){
-  let t = String(txt || "").replace(/\s+/g, "");
+function soloEmojis(txt){  let t = String(txt || "").replace(/\s+/g, "");
   if (!t) return false;
   t = t.replace(/[#*0-9]\uFE0F?\u20E3/gu, ""); // keycaps: 1️⃣ #️⃣ *️⃣
   const sin = t.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]/gu, "");
@@ -215,10 +241,13 @@ router.post("/voice", requireAuth, ah(async (req, res) => {
     return res.status(chk.status).json({ error: chk.code, message: chk.message });
   }
   cleanupExpired();
+  // Convertir a AAC/MP4 (suena en TODOS los navegadores; el webm/opus
+  // de Chrome no se escucha en Safari/iPhone del receptor).
+  const audioFinal = (await transcodeToM4a(audio)) || audio;
   const info = await db.run(
       `INSERT INTO private_messages (from_user_id, to_user_id, text, msg_type, audio_data, expires_at)
        VALUES (?, ?, '', 'voice', ?, datetime('now', '+48 hours'))`
-    , req.user.id, toId, audio);
+    , req.user.id, toId, audioFinal);
   res.status(201).json({ ok: true, id: info.lastInsertRowid });
 }));
 
@@ -450,7 +479,7 @@ router.get("/:uid", requireAuth, ah(async (req, res) => {
        FROM private_messages
        WHERE ((from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?))
          AND id NOT IN (SELECT message_id FROM dm_hidden WHERE user_id = ?)
-       ORDER BY created_at ASC`
+       ORDER BY created_at DESC, id DESC`
     , me, other, other, me, me);
   await db.run(
     "UPDATE private_messages SET read_at = datetime('now') WHERE to_user_id = ? AND from_user_id = ? AND read_at IS NULL"
