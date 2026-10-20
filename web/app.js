@@ -3085,6 +3085,24 @@ function dmAvatarHtml(p){
     : esc(p.avatar || "💛");
 }
 
+/* Refresca la lista de conversaciones si la pestaña Privados está
+ * en pantalla (para que la notificación desaparezca al abrir el
+ * chat y la vista previa se mantenga al día). Conserva el scroll. */
+let dmListRefreshAt = 0;
+function refreshDmListIfVisible(){
+  const tab = document.querySelector(".tab.active");
+  const list = document.getElementById("dm-list");
+  if(!tab || tab.dataset.tab !== "privados" || !list || list.style.display === "none") return;
+  const now = Date.now();
+  if(now - dmListRefreshAt < 1200) return;
+  dmListRefreshAt = now;
+  const st = list.scrollTop;
+  renderDmList().then(() => {
+    const l2 = document.getElementById("dm-list");
+    if(l2) l2.scrollTop = st;
+  }).catch(() => {});
+}
+
 /* ---------- lista de conversaciones (pestaña "Privados") ---------- */
 /* Al tocar una conversación se abre la ventana flotante. */
 async function renderDmList(){
@@ -3869,6 +3887,10 @@ async function loadDmWinMessages(uid){
         : `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`);
     box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
     updateDmWinCountdowns();
+    // Los mensajes acaban de marcarse leídos: la notificación debe
+    // salir de la lista de Privados y de la pestaña al instante.
+    updateDmBadge();
+    refreshDmListIfVisible();
     // Modo selección: un solo listener delegado + repintar marcas.
     if(!box.dataset.selBound){
       box.dataset.selBound = "1";
@@ -4124,6 +4146,7 @@ async function refreshDmWindows(){
     updateDmWinCountdowns();
   }catch(e){ /* sin conexión: no hacer nada */ }
   updateDmBadge();
+  refreshDmListIfVisible();
 }
 
 /* Actualiza las insignias de no leídos:
