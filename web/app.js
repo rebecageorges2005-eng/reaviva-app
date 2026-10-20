@@ -68,11 +68,13 @@ function disableCommunityComposer(){
   const btn = document.querySelector("#community-wrap .community-composer .btn-primary");
   const photoBtn = $("#photo-btn");
   const emojiBtn = $("#emoji-btn");
+  const linkBtn = $("#link-btn");
   const topicBtn = $("#topic-add-btn");
   if(ta){ ta.disabled = true; ta.placeholder = "🚩 Solo puedes ver los mensajes (chat deshabilitado)"; }
   if(btn){ btn.disabled = true; btn.style.opacity = ".5"; }
   if(photoBtn) photoBtn.style.display = "none";
   if(emojiBtn) emojiBtn.style.display = "none";
+  if(linkBtn) linkBtn.style.display = "none";
   if(topicBtn) topicBtn.style.display = "none";
   let note = $("#muted-note");
   if(!note){
@@ -85,10 +87,82 @@ function disableCommunityComposer(){
   if(note) note.textContent = "🚩 Tu capacidad de escribir está deshabilitada. Solo puedes ver los mensajes.";
 }
 
+/* Solo lectura: prueba culminada ("trial") o cobro vencido sin RV ("billing").
+ * Se deshabilita todo el compositor (texto, fotos, links, temas, emojis):
+ * el usuario solo puede VER el chat grupal hasta actualizar su plan/pago. */
+function applyReadOnlyUI(kind){
+  const esBilling = kind === "billing";
+  const ta = $("#community-text");
+  const btn = document.querySelector("#community-wrap .community-composer .btn-primary");
+  const photoBtn = $("#photo-btn"), emojiBtn = $("#emoji-btn"), linkBtn = $("#link-btn"), topicBtn = $("#topic-add-btn");
+  if(ta){ ta.disabled = true; ta.placeholder = esBilling
+    ? "💳 Actualiza tu pago para seguir participando — solo puedes ver los mensajes"
+    : "⏰ Tu prueba gratuita terminó — solo puedes ver los mensajes"; }
+  if(btn){ btn.disabled = true; btn.style.opacity = ".5"; }
+  if(photoBtn) photoBtn.style.display = "none";
+  if(emojiBtn) emojiBtn.style.display = "none";
+  if(linkBtn) linkBtn.style.display = "none";
+  if(topicBtn) topicBtn.style.display = "none";
+  let note = $("#trial-note");
+  if(!note){
+    note = document.createElement("div");
+    note.id = "trial-note";
+    note.className = "muted-note";
+    note.style.cursor = "pointer";
+    note.onclick = function(){ openUpgradeModal(esBilling ? "Actualiza tu método de pago 💎 para seguir participando" : "Actualiza tu plan 💎 para seguir participando"); };
+    const comp = document.querySelector("#community-wrap .community-composer");
+    if(comp) comp.appendChild(note);
+  }
+  if(note) note.textContent = esBilling
+    ? "💳 Tu pago no pudo procesarse. Actualiza tu método de pago para seguir participando (tócalo aquí)"
+    : "⏰ Tu prueba gratuita terminó. Actualiza a un plan pago para seguir participando 💎 (tócalo aquí)";
+}
+
+/* Inserta un link en el compositor de la comunidad. */
+function insertChatLink(){
+  const ta = $("#community-text");
+  if(!ta || ta.disabled) return;
+  let url = prompt("Pega tu link (https://…):", "");
+  if(url === null) return;
+  url = url.trim();
+  if(!url) return;
+  if(!/^https?:\/\//i.test(url)) url = "https://" + url;
+  try{ new URL(url); }catch(e){ toast("Link inválido 🚫"); return; }
+  const add = (ta.value.trim() ? " " : "") + url + " ";
+  ta.value = (ta.value + add).slice(0, 500);
+  ta.focus();
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/* Botón 🔗: habilitado con plan; sin plan solo si tiene RV suficiente (3 RV por mensaje con link);
+ * bloqueado tras la prueba o sin RV. */
+function refreshLinkBtn(rvBalance){
+  const b = $("#link-btn");
+  if(!b) return;
+  const rv = rvBalance === -1 ? Infinity : (Number(rvBalance) || 0);
+  const puede = isPaid() || rv >= 3;
+  clearLockedTip(b);
+  if(puede){
+    b.classList.remove("locked-feature");
+    b.style.opacity = "";
+    b.onclick = insertChatLink;
+  }else{
+    b.classList.add("locked-feature");
+    b.style.opacity = ".5";
+    const msg = isPaid() ? "Publicar un link cuesta 2 RV 💰" : "Publicar un link cuesta 3 RV 💰 — consíguelos refiriendo amigos 🤝";
+    b.onclick = function(){ toast(msg); };
+    setLockedTip(b, msg);
+  }
+}
+
 /* Maneja los códigos de error del filtro anti-spam del servidor. */
 function handleSpamError(j){
   const code = j && j.error;
   const msg = (j && j.message) || "Contenido no permitido.";
+  if(code === "TRIAL_ENDED" || code === "BILLING_BLOCKED"){
+    openUpgradeModal(msg);
+    return true;
+  }
   if(code === "STRIKE_1" || code === "STRIKE_2" || code === "MUTED"){
     showStrikeBanner(msg);
     toast(msg); // también visible si el usuario está en otra pestaña
@@ -2256,6 +2330,9 @@ async function renderComunidad(){
     const j = await r.json();
     // Si el usuario está muteado por spam, deshabilitar el compositor (solo lectura).
     if(j.muted) disableCommunityComposer();
+    // Prueba culminada o cobro vencido sin RV: solo lectura (ver sin publicar).
+    if(j.trialEnded || j.billingBlocked) applyReadOnlyUI(j.billingBlocked ? "billing" : "trial");
+    refreshLinkBtn(j.rv);
     // Botón de usuarios en línea 🟢🔴.
     if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
     const items = (j.comentarios || []).slice().reverse(); // cronológico: lo nuevo ABAJO
