@@ -3358,13 +3358,16 @@ async function openDmWindow(uid, target){
       <div class="dm-win-more">
         <button class="dm-more-opt" data-emoji-toggle onclick="toggleEmojiGrid('dm-emoji-${uid}');toggleDmMore(${uid})">😊 Emojis</button>
         <button class="dm-more-opt" onclick="toggleDmVoiceWin(${uid});toggleDmMore(${uid})">🎤 Nota de voz</button>
-        <button class="dm-more-opt ${annual ? "" : "locked-feature"}" onclick="dmWinFileClick(${uid});toggleDmMore(${uid})">${annual ? "📎" : "📎🔒"} Archivo</button>
+        <button class="dm-more-opt" onclick="dmWinPhotoClick(${uid});toggleDmMore(${uid})">🖼️ Enviar foto</button>
+        <button class="dm-more-opt" onclick="dmWinFileClick(${uid});toggleDmMore(${uid})">📎 Archivo</button>
         <button class="dm-more-opt" onclick="startVideoCallWin(${uid});toggleDmMore(${uid})">📹 Videollamada${annual ? "" : " 🔒"}</button>
         <button class="dm-more-opt" onclick="viewUserAlbums(${uid});toggleDmMore(${uid})">📸 Álbumes</button>
       </div>
       <div class="dm-win-composer">
         <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
           onchange="sendDmFileWin(${uid}, this)">
+        <input type="file" class="dm-win-photo" accept="image/jpeg,image/png" style="display:none"
+          onchange="sendDmPhotoWin(${uid}, this)">
         <button class="dm-plus-btn" title="Más opciones" aria-label="Más opciones"
           onclick="toggleDmMore(${uid})">＋</button>
         <input id="dm-input-${uid}" class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
@@ -3392,12 +3395,54 @@ function toggleDmMore(uid){
   if(btn) btn.classList.toggle("open");
 }
 
-/* Botón 📎: solo anual puede adjuntar. */
+/* Botón 📎: miembros con plan (mensual y anual) pueden adjuntar. */
 function dmWinFileClick(uid){
-  if(!isAnnual()){ openUpgradeModal(t("dm.file_only_annual")); return; }
+  if(!isPaid()){ openUpgradeModal(t("dm.file_only_annual")); return; }
   const w = dmWindows[uid];
   const inp = w && w.el.querySelector(".dm-win-file");
   if(inp) inp.click();
+}
+
+/* Botón 🖼️: elegir la foto a enviar por privado. */
+function dmWinPhotoClick(uid){
+  if(!isPaid()){ openUpgradeModal("Enviar fotos es para miembros con plan 💎"); return; }
+  const w = dmWindows[uid];
+  const inp = w && w.el.querySelector(".dm-win-photo");
+  if(inp) inp.click();
+}
+
+async function sendDmPhotoWin(uid, input){
+  const file = input && input.files && input.files[0];
+  if(input) input.value = "";
+  if(!file) return;
+  try{
+    const dataUrl = await resizeImageDataUrl(file);
+    const r = await fetch("/api/dm/photo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ to_user_id: uid, photo: dataUrl })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.message || j.error || ("HTTP " + r.status));
+    playDing();
+    await loadDmWinMessages(uid);
+    updateDmBadge();
+  }catch(e){
+    toast(e.message);
+  }
+}
+
+/* Ver una foto del chat en grande (visor simple). */
+function viewPhotoFull(src){
+  closeUprofLightbox();
+  const lb = document.createElement("div");
+  lb.id = "up-lightbox";
+  lb.style.cssText = "position:fixed;inset:0;background:rgba(20,12,8,.94);z-index:3000;display:flex;align-items:center;justify-content:center";
+  lb.innerHTML = `
+    <button onclick="closeUprofLightbox()" style="position:absolute;top:14px;right:16px;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:50%;width:38px;height:38px;font-size:1.05rem;cursor:pointer">✕</button>
+    <img src="${esc(src)}" alt="Foto" style="max-width:92vw;max-height:88vh;object-fit:contain;border-radius:10px">`;
+  lb.addEventListener("click", (e) => { if(e.target === lb) closeUprofLightbox(); });
+  document.body.appendChild(lb);
 }
 
 function focusDmWindow(uid){
@@ -3637,6 +3682,8 @@ function dmMessageHtml(m){
   let cuerpo = "";
   if(tipo === "voice" && m.audio){
     cuerpo = `<audio controls preload="metadata" src="${esc(m.audio)}" style="max-width:100%"></audio>`;
+  }else if(tipo === "photo" && m.foto){
+    cuerpo = `<img src="${esc(m.foto)}" alt="Foto" onclick="viewPhotoFull(this.src)" style="max-width:100%;border-radius:10px;cursor:pointer;display:block">`;
   }else if(tipo === "video-invite" && m.texto){
     cuerpo = `<p>📹 <b>${esc(t("dm.join_call").replace(" 📹", ""))}</b></p>
       <button class="btn btn-primary btn-sm" onclick="window.open('${esc(m.texto)}','_blank')">${esc(t("dm.join_call"))}</button>`;
@@ -3816,7 +3863,7 @@ async function sendDmFileWin(uid, input){
   const f = input && input.files && input.files[0];
   if(input) input.value = "";
   if(!f) return;
-  if(!isAnnual()){ openUpgradeModal(t("dm.file_only_annual")); return; }
+  if(!isPaid()){ openUpgradeModal(t("dm.file_only_annual")); return; }
   const permitidos = ["application/pdf", "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
   if(!permitidos.includes(f.type)){
