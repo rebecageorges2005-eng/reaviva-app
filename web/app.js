@@ -3753,7 +3753,12 @@ async function toggleDmVoiceWin(uid){
   dmVoiceUid = uid;
   try{
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    dmRecorder = new MediaRecorder(stream);
+    // Elegir el formato más compatible: mp4 (Safari/Chrome) → webm/opus → ogg.
+    const tipos = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+    const mt = (window.MediaRecorder && MediaRecorder.isTypeSupported)
+      ? tipos.find(x => { try{ return MediaRecorder.isTypeSupported(x); }catch(e){ return false; } })
+      : null;
+    dmRecorder = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream);
     dmAudioChunks = [];
     dmRecorder.ondataavailable = e => { if(e.data && e.data.size) dmAudioChunks.push(e.data); };
     dmRecorder.onstop = enviarDmVoiceWin;
