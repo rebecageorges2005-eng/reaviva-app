@@ -517,21 +517,10 @@ router.post("/login", loginLimiter, ah(async (req, res) => {
 
   trackUserIp(row.id, req); // actualiza IP y país (asíncrono)
   notifyNewLogin(row, req); // alerta por correo si la IP cambió (background)
-  if (row.is_admin === 1) broadcastAdminOnline(row.id);
+  // (Sin aviso público cuando el admin se conecta — decisión de Georges:
+  // nadie debe saber cuándo el administrador está conectado.)
   res.json({ token: signToken(row), user: publicUser(row) });
 }));
-
-/* Aviso a todos los usuarios cuando el admin se conecta: mensaje de sistema
- * en el chat grupal ("👑 El administrador se ha conectado").
- * Se elimina solo después de 1 hora para no saturar el chat. */
-async function broadcastAdminOnline(adminId) {
-  try {
-    await db.run(
-      `INSERT INTO community_comments (user_id, text, msg_type, expires_at)
-       VALUES (?, ?, 'system', datetime('now', '+1 hour'))`
-    , adminId, "👑 El administrador se ha conectado");
-  } catch (e) { /* no bloquea el login */ }
-}
 
 /* ============ SEGURIDAD DE CUENTA: código temporal y cambio de contraseña ============
  * REGLAS (pedido de Georges):
@@ -708,7 +697,6 @@ router.post("/admin-login", loginLimiter, ah(async (req, res) => {
   }
 
   trackUserIp(row.id, req); // registra IP y país (asíncrono)
-  broadcastAdminOnline(row.id);
   res.json({ token: signToken(row), user: publicUser(row) });
 }));
 
