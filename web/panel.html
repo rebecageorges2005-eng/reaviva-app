@@ -55,6 +55,14 @@ tr.clickable:hover{background:var(--sand)}
 .community-scroll::-webkit-scrollbar-thumb{background:#d8c9b8;border-radius:4px}
 .community-scroll::-webkit-scrollbar-track{background:transparent}
 @media (max-width:640px){.community-scroll{max-height:60vh}}
+/* Scroll propio para CADA sección del panel */
+.scroll-box{max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.scroll-box::-webkit-scrollbar{width:8px}
+.scroll-box::-webkit-scrollbar-thumb{background:#d8c9b8;border-radius:4px}
+.scroll-box::-webkit-scrollbar-track{background:transparent}
+.scroll-box.tall{max-height:500px}
+.scroll-box.small{max-height:230px}
+.scroll-box thead th{position:sticky;top:0;background:#fff;z-index:1}
 .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px;animation:livePulse 1.6s infinite}
 @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.35}}
 .cmt .who{font-size:.8rem;color:var(--cocoa-soft);margin-bottom:4px}
@@ -238,7 +246,7 @@ async function render(){
     $("#app").innerHTML=
       '<h2 class="sec">📊 Estadísticas</h2>'+
       '<h2 class="sec">📋 Reportes de Muse <span id="reports-badge"></span></h2>'+
-      '<div class="block"><div id="muse-reports"><p style="color:var(--cocoa-soft)">Cargando reportes…</p></div></div>'+
+      '<div class="block"><div id="muse-reports" class="scroll-box"><p style="color:var(--cocoa-soft)">Cargando reportes…</p></div></div>'+
       '<div class="cards">'+
       '<div class="card clickable" onclick="showCardDetail(\'total\')" title="Ver detalles"><b>'+s.totalUsers+'</b><span>👥 Usuarios registrados</span></div>'+
       '<div class="card clickable" onclick="showCardDetail(\'plan\')" title="Ver detalles"><b>'+s.subscribedUsers+'</b><span>💳 Con plan pagado</span></div>'+
@@ -264,20 +272,20 @@ async function render(){
       '<option value="90">Últimos 90 días</option><option value="180">Últimos 6 meses</option>'+
       '<option value="365">Último año</option></select></div>'+
       '<div id="growth-chart" class="chart"></div>'+
-      '<table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table>'+
+      '<div class="scroll-box small"><table><thead><tr><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table></div>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
       '<div class="toolbar"><input id="user-search" class="field" placeholder="🔍 Buscar por nombre o correo…" oninput="filterUsers()" style="max-width:320px"></div>'+
-      '<table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table>'+
+      '<div class="scroll-box tall"><table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table></div>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
       '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
       '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
       '<textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>'+
       '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
-      '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
+      '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list" class="scroll-box"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔗 Link Pub</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Publica un link en el <b>perfil</b> de los usuarios (tu canal de YouTube, tu blog…). Aparece con el logo de la plataforma y solo lo ven los usuarios que elijas. Si no hay links para un usuario, la sección no se muestra.</p><div id="linkpub"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">📩 Sugerencias y contacto</h2>'+
-      '<div class="block"><div id="contact-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
+      '<div class="block"><div id="contact-list" class="scroll-box"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">🕵️ Mi apodo en el chat grupal</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Si lo dejas vacío, te verán como <b>«Guest007»</b>. Tu nombre real nunca se muestra en el chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
@@ -294,10 +302,10 @@ async function render(){
       '<div style="display:flex;gap:8px;margin-bottom:10px"><input id="block-ip" class="field" placeholder="IP a bloquear (ej. 1.2.3.4)" style="flex:1">'+
       '<input id="block-reason" class="field" placeholder="Motivo" style="flex:2">'+
       '<button class="btn" onclick="blockIpManual()">Bloquear</button></div>'+
-      '<table><thead><tr><th>IP</th><th>Motivo</th><th>Bloqueada</th><th>Por</th><th></th></tr></thead><tbody id="blocked-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>'+
+      '<div class="scroll-box small"><table><thead><tr><th>IP</th><th>Motivo</th><th>Bloqueada</th><th>Por</th><th></th></tr></thead><tbody id="blocked-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></div>'+
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
-      '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
+      '<div class="scroll-box small"><table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></div>';
     loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadChatAlias();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
@@ -1087,13 +1095,14 @@ async function loadCommunity(){
     /* Infracciones del anti-spam (intentos bloqueados). */
     try{
       var v=await api("GET","/api/admin/chat-violations");
-      var vh='<h3 style="margin-top:20px">🚩 Intentos bloqueados por anti-spam</h3>';
+      var vh='<h3 style="margin-top:20px">🚩 Intentos bloqueados por anti-spam</h3><div class="scroll-box small">';
       vh+=(v.infracciones||[]).map(function(x){
         return '<div class="block cmt"><div class="who">🚩 '+esc(x.usuario)+' · <b>'+esc(x.tipo)+'</b>'+(x.detalle?' ('+esc(x.detalle)+')':'')+' · '+esc(x.fecha)+'</div>'+
         '<p>'+esc(x.intento)+'</p><div class="actions">'+
         '<button class="btn btn-sm" onclick="showUser('+x.userId+')">👤 Ver usuario</button>'+
         '</div></div>';
       }).join("")||'<p style="color:var(--cocoa-soft)">Sin infracciones.</p>';
+      vh+='</div>';
       $("#community-list").innerHTML+=vh;
     }catch(e2){ /* sin infracciones visibles */ }
     /* Dominios verificados 🔒 (links permitidos en mensajes promocionales). */
@@ -1105,7 +1114,7 @@ async function loadCommunity(){
         '<div style="display:flex;gap:8px;margin:10px 0">'+
         '<input id="new-domain" class="field" placeholder="mitienda.com" style="max-width:260px">'+
         '<button class="btn btn-primary btn-sm" onclick="addDomain()">➕ Verificar</button></div>'+
-        '<div id="domain-list">'+
+        '<div id="domain-list" class="scroll-box small">'+
         domainsCache.map(function(dm,i){
           return '<div class="block cmt" style="display:flex;align-items:center;gap:10px;justify-content:space-between">'+
           '<span>🔒 <b>'+esc(dm.dominio)+'</b> <small style="color:var(--cocoa-soft)">'+esc(dm.fecha||"")+'</small></span>'+
@@ -1229,7 +1238,7 @@ async function loadLinkPub(){
       '<div style="margin-bottom:12px;font-size:.9rem"><b>Sexo</b><br>'+
       '<select id="lp-gender" class="field" style="max-width:240px"><option value="">👥 Todos</option><option value="M">👨 Solo hombres (M)</option><option value="F">👩 Solo mujeres (F)</option></select></div>'+
       '<button class="btn" onclick="publishLinkPub()">📤 Publicar link</button> <span id="lp-msg" style="font-size:.88rem"></span>'+
-      '<div id="lp-list" style="margin-top:16px"></div>';
+      '<div id="lp-list" class="scroll-box small" style="margin-top:16px"></div>';
     lpRenderList();
   }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">Error cargando Link Pub: '+esc(e.message)+'</div>'; }
 }
