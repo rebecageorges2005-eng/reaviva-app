@@ -627,6 +627,19 @@ router.delete("/links/:id", requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ---------- Contacto: sugerencias y problemas de los usuarios ---------- */
+router.get("/contact-messages", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
+    "SELECT id, name, email, message, type, created_at FROM contact_messages ORDER BY id DESC LIMIT 100");
+  res.json({ messages: rows });
+}));
+
+router.delete("/contact-messages/:id", requireAdmin, ah(async (req, res) => {
+  const r = await db.run("DELETE FROM contact_messages WHERE id = ?", req.params.id);
+  if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  res.json({ ok: true });
+}));
+
 router.get("/messages", requireAdmin, ah(async (req, res) => {
   const rows = await db.all(
       `SELECT id, user_id, email, title, body, created_at, read_at
