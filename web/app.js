@@ -3624,13 +3624,6 @@ document.addEventListener("DOMContentLoaded", ()=>{
     restoreSession().then(ok => { if(ok && isAdmin()) enterApp(); else showView("admin-login"); });
     return;
   }
-  // Al recargar la página, ir siempre a la página de inicio (no restaurar el hash).
-  // Se preserva ?ref= para los links de afiliado.
-  try{
-    if(location.hash){
-      history.replaceState(null, "", location.pathname + location.search);
-    }
-  }catch(e){}
   // deep-link con nombre: #registro, #entrar, #comunidad, etc.
   if(applyHashRoute()){
     restoreSession().then(()=>{});
