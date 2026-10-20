@@ -380,7 +380,10 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .community-composer{background:#fff;border:1px solid #eadfd3;border-radius:16px;padding:16px;margin:14px 0}
 .community-composer .field{width:100%;box-sizing:border-box;resize:vertical}
 .community-note{display:block;margin-top:8px;font-size:.78rem;color:var(--cocoa-soft)}
-.community-list{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.community-list{display:flex;flex-direction:column;gap:12px;margin-top:6px;max-height:60vh;overflow-y:auto;overflow-x:hidden;padding:4px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
+.community-list::-webkit-scrollbar{width:8px}
+.community-list::-webkit-scrollbar-thumb{background:#d8c3b0;border-radius:8px}
+.community-list::-webkit-scrollbar-track{background:transparent}
 .comment-card{background:#fff;border:1px solid #eadfd3;border-radius:14px;padding:14px;display:flex;gap:12px}
 /* Mensaje de sistema (ej. admin conectado): banner centrado dorado. */
 .system-msg{text-align:center;margin:8px 0}
