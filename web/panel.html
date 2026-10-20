@@ -294,6 +294,21 @@ async function render(){
       '<h2 class="sec">🕵️ Mi apodo en el chat grupal</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Si lo dejas vacío, te verán como <b>«Guest007»</b>. Tu nombre real nunca se muestra en el chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
+      '<h2 class="sec">🎙️ Contenido del programa</h2>'+
+      '<div class="block"><h4>🎧 Audios por día (reemplazan al original)</h4>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Sube un MP3 para un día y una voz: ese audio reemplaza al original SOLO para ese día y esa voz. Si lo quitas, vuelve el original.</p>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+      '<select id="pa-day" class="field" style="max-width:110px">'+Array.from({length:30},function(_,i){return '<option value="'+(i+1)+'">Día '+(i+1)+'</option>';}).join("")+'</select>'+
+      '<select id="pa-gender" class="field" style="max-width:150px"><option value="M">👨 Voz hombre</option><option value="F">👩 Voz mujer</option></select>'+
+      '<input id="pa-file" type="file" accept="audio/mpeg,.mp3" class="field" style="max-width:260px">'+
+      '<button class="btn" onclick="uploadProgramAudio()">⬆️ Subir audio</button></div>'+
+      '<span id="pa-msg" style="font-size:.85rem"></span><div id="pa-list" style="margin-top:10px"></div>'+
+      '<h4 style="margin-top:18px">🧠 Preguntas extra para los tests de progreso</h4>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Se agregan a los tests de cada 3 días de TODOS los usuarios (máximo 10 en total).</p>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="pq-text" class="field" placeholder="Escribe la pregunta…" maxlength="300" style="flex:1;min-width:200px">'+
+      '<select id="pq-kind" class="field" style="max-width:170px"><option value="scale">🔢 Escala 1–5</option><option value="open">✍️ Respuesta abierta</option></select>'+
+      '<button class="btn" onclick="addProgramQuestion()">➕ Agregar</button></div>'+
+      '<div id="pq-list" style="margin-top:10px"></div></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
       '<input id="pw-current" type="password" class="field" placeholder="Contraseña actual o código de admin" autocomplete="current-password">'+
@@ -311,7 +326,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<div class="scroll-box small"><table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadChatAlias();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadChatAlias(); loadProgramContent();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -1410,6 +1425,64 @@ async function setUserPlan(id, plan){
     loadUsers();
   }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
+/* ---------- contenido del programa (audios y preguntas de test) ---------- */
+async function loadProgramContent(){
+  try{
+    var d=await api("GET","/api/admin/program-audios");
+    var box=$("#pa-list");
+    if(box){
+      box.innerHTML=(d.audios||[]).map(function(a){
+        return '<div class="rowline"><span>🎧 Día '+a.day+' · '+(a.gender==="F"?"👩 Mujer":"👨 Hombre")+' <small style="color:var(--cocoa-soft)">'+a.kb+' KB'+(a.actualizado?' · '+esc(a.actualizado):'')+'</small></span><button class="btn btn-danger btn-sm" onclick="delProgramAudio('+a.day+',\''+a.gender+'\')">🗑️ Quitar</button></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft);font-size:.85rem">Sin audios personalizados: se usan los originales.</p>';
+    }
+  }catch(e){ /* la sección simplemente queda vacía */ }
+  try{
+    var q=await api("GET","/api/admin/program-questions");
+    var qb=$("#pq-list");
+    if(qb){
+      qb.innerHTML=(q.preguntas||[]).map(function(p){
+        return '<div class="rowline"><span>'+(p.kind==="open"?"✍️":"🔢")+' '+esc(p.question)+'</span><button class="btn btn-danger btn-sm" onclick="delProgramQuestion('+p.id+')">🗑️</button></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft);font-size:.85rem">Sin preguntas extra.</p>';
+    }
+  }catch(e){ /* idem */ }
+}
+function uploadProgramAudio(){
+  var f=$("#pa-file"), msg=$("#pa-msg");
+  if(!f || !f.files || !f.files[0]){ msg.textContent="Elige un archivo MP3 primero."; return; }
+  var file=f.files[0];
+  if(file.size > 6*1024*1024){ msg.textContent="⚠️ El MP3 pesa más de 6 MB."; return; }
+  var day=$("#pa-day").value, gender=$("#pa-gender").value;
+  var rd=new FileReader();
+  rd.onload=async function(){
+    msg.textContent="Subiendo…";
+    try{
+      await api("POST","/api/admin/program-audios",{day:Number(day),gender:gender,audio:rd.result});
+      msg.textContent="✅ Audio guardado para el día "+day+" ("+(gender==="F"?"mujer":"hombre")+").";
+      loadProgramContent();
+    }catch(e){ msg.textContent="❌ "+((e.data&&e.data.error)||"Error al subir."); }
+  };
+  rd.readAsDataURL(file);
+}
+async function delProgramAudio(day, gender){
+  if(!confirm("¿Quitar el audio personalizado del día "+day+"? Volverá el original.")) return;
+  try{ await api("DELETE","/api/admin/program-audios/"+day+"/"+gender); loadProgramContent(); }
+  catch(e){ if(e.message==="AUTH") authFail(); }
+}
+async function addProgramQuestion(){
+  var t=$("#pq-text").value.trim();
+  if(t.length<8){ alert("Escribe una pregunta un poco más completa."); return; }
+  try{
+    await api("POST","/api/admin/program-questions",{question:t,kind:$("#pq-kind").value});
+    $("#pq-text").value="";
+    loadProgramContent();
+  }catch(e){ alert((e.data&&e.data.error)||"Error al agregar."); }
+}
+async function delProgramQuestion(id){
+  if(!confirm("¿Quitar esta pregunta de los tests?")) return;
+  try{ await api("DELETE","/api/admin/program-questions/"+id); loadProgramContent(); }
+  catch(e){ if(e.message==="AUTH") authFail(); }
+}
+
 async function loadChatAlias(){
   var inp=$("#chat-alias"); if(!inp) return;
   try{ var d=await api("GET","/api/admin/chat-alias"); inp.value=d.alias||""; }catch(e){}
