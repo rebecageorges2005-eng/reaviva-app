@@ -253,7 +253,7 @@ async function showOnlineList(){
       const av = (u.foto && String(u.foto).startsWith("data:image/"))
         ? `<img src="${esc(u.foto)}" class="online-avatar-img" alt="">`
         : esc(u.avatar || "💛");
-      return `<div class="online-user"><span class="online-avatar">${av}</span><b>${esc(u.nombre)}</b><span class="online-dot">🟢</span></div>`;
+      return `<div class="online-user"${u.uid ? ` onclick="openUserProfile(${Number(u.uid)})" style="cursor:pointer" title="Ver perfil"` : ""}><span class="online-avatar">${av}</span><b>${esc(u.nombre)}</b><span class="online-dot">🟢</span></div>`;
     }).join("") : `<p style="text-align:center;color:var(--cocoa-soft)">No hay nadie en línea ahora mismo.<br>¡Vuelve en un rato! 💛</p>`;
   }catch(e){
     list.innerHTML = `<p style="text-align:center;color:#a33">No se pudo cargar la lista</p>`;
@@ -2367,9 +2367,8 @@ function communityMsgHtml(c){
       ? `<p><b class="topic-tag">${esc(tag)}</b> ${esc(resto)}</p>`
       : `<p>${esc(c.texto)}</p>`;
   }
-  // Avatar y nombre clicables → mensaje privado (usuarios con plan).
-  // Tooltip al pasar el mouse: "💬 Chat privado".
-  const tipText = planType() === "free" ? "" : "💬 Chat privado";
+  // Avatar y nombre clicables → perfil del usuario (con plan).
+  const tipText = planType() === "free" ? "" : "Ver perfil 👤";
   const clickAttr = c.uid ? ` onclick="onCommunityUserClick(${Number(c.uid)})" style="cursor:pointer"${tipText ? ` title="${tipText}"` : ""}` : "";
   // Indicador sutil de expiración del mensaje (según el plan del autor).
   const expiryTag = (c.msg_type !== "photo" && c.expira_en_horas != null)
@@ -3127,12 +3126,65 @@ function onCommunityUserClick(uid){
   uid = Number(uid);
   const me = currentUser();
   if(me && Number(me.id) === uid){ toast(t("dm.is_you")); return; }
-  const target = communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
-  if(planType() !== "free"){
-    openDmWindow(uid, target);
-  }else{
-    toast(t("dm.only_plan"));
+  openUserProfile(uid);
+}
+
+/* ============================================================
+   PERFIL DE OTRO USUARIO 👤 (portada, foto, descripción y álbumes)
+   Al tocar un usuario en el chat o en la lista de conectados.
+   Solo miembros con plan (el servidor lo valida): sin plan se
+   muestra el candado 💎 con la invitación a actualizar.
+   ============================================================ */
+async function openUserProfile(uid){
+  uid = Number(uid);
+  openDynModal(`<div id="uprof"><p style="text-align:center;color:var(--cocoa-soft)">Cargando perfil…</p></div>`);
+  try{
+    const r = await fetch(`/api/albums/user/${uid}/profile`, { headers: authHeaders() });
+    const j = await r.json().catch(()=>({}));
+    const box = document.getElementById("uprof");
+    if(!box) return;
+    if(!r.ok){
+      if(j.error === "SOLO_PLAN"){
+        box.innerHTML = `<div style="text-align:center;padding:12px 4px">
+          <div style="font-size:2.4rem">💎</div>
+          <h3 style="margin:8px 0">Perfiles solo para miembros con plan</h3>
+          <p style="color:var(--cocoa-soft)">${esc(j.message || "")}</p>
+          <button class="btn btn-primary" onclick="closeDynModal();openUpgradeModal('Actualiza tu plan 💎 para ver perfiles y álbumes')">Ver planes 💳</button></div>`;
+        return;
+      }
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
+    const cover = j.portada
+      ? `<img src="${esc(j.portada)}" alt="" style="width:100%;height:100%;object-fit:cover">`
+      : `<div style="width:100%;height:100%;background:linear-gradient(120deg,#e9b48c,#c4704f)"></div>`;
+    const avatar = j.foto
+      ? `<img src="${esc(j.foto)}" alt="" style="width:100%;height:100%;object-fit:cover">`
+      : `<span style="font-size:2.2rem">💛</span>`;
+    const albumsHtml = (j.albumes || []).length ? (j.albumes.map(a => `
+      <div style="margin-top:14px"><b>📁 ${esc(a.titulo)}</b> <small style="color:var(--cocoa-soft)">${a.fotos.length} foto(s)</small>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+        ${a.fotos.map(f => `<img src="${esc(f.foto)}" alt="" title="${esc(f.caption || "")}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px">`).join("")}
+        </div></div>`).join(""))
+      : `<p style="color:var(--cocoa-soft);margin-top:14px">Este usuario aún no tiene álbumes.</p>`;
+    box.innerHTML = `
+      <div style="position:relative;height:130px;border-radius:14px;overflow:hidden">${cover}</div>
+      <div style="display:flex;align-items:flex-end;gap:12px;margin-top:-34px;padding:0 10px;position:relative">
+        <div style="width:76px;height:76px;border-radius:50%;overflow:hidden;border:3px solid #fff;background:var(--bg-soft);display:flex;align-items:center;justify-content:center;flex:none">${avatar}</div>
+        <div style="padding-bottom:4px"><b style="font-size:1.1rem">${esc(j.nombre)}</b><br>
+        <small style="color:var(--cocoa-soft)">${j.pais ? "🌍 " + esc(j.pais) : ""}${j.conPlan ? " · 💳 Con plan" : ""}</small></div>
+      </div>
+      ${j.descripcion ? `<p style="margin:12px 2px 0;line-height:1.5">${esc(j.descripcion)}</p>` : ""}
+      <button class="btn" style="margin-top:14px" onclick="closeDynModal();openDmFromProfile(${uid})">💬 Mensaje privado</button>
+      ${albumsHtml}`;
+  }catch(e){
+    const box = document.getElementById("uprof");
+    if(box) box.innerHTML = `<p style="text-align:center;color:#a33">No se pudo cargar el perfil.</p>`;
   }
+}
+function openDmFromProfile(uid){
+  const target = communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
+  if(planType() !== "free") openDmWindow(uid, target);
+  else toast(t("dm.only_plan"));
 }
 
 /* ============================================================
