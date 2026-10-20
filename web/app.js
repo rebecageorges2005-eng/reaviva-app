@@ -2584,7 +2584,9 @@ function toggleEmojiPanel(){
 }
 
 function insertEmojiInto(sel, e){
-  const box = typeof sel === "string" ? document.querySelector(sel) : sel;
+  const box = typeof sel === "string"
+    ? (document.getElementById(sel) || document.querySelector(sel))
+    : sel;
   if(!box) return;
   const start = (box.selectionStart != null) ? box.selectionStart : box.value.length;
   const end = (box.selectionEnd != null) ? box.selectionEnd : box.value.length;
@@ -3042,7 +3044,10 @@ function openGroupChatWindow(){
     </div>
     <div class="dm-win-body">
       <div class="dm-win-msgs group-win-msgs"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
+      <div id="group-emoji-panel" class="emoji-panel" data-target=".group-win-input" style="display:none"></div>
       <div class="dm-win-composer">
+        <button class="dm-icon-btn" title="Emojis" aria-label="Emojis" data-emoji-toggle
+          onclick="toggleEmojiGrid('group-emoji-panel')">😊</button>
         <input class="field group-win-input" maxlength="500" placeholder="${esc(t("chat.ph"))}"
           onkeydown="if(event.key==='Enter')sendGroupWin()">
         <button class="dm-win-send" onclick="sendGroupWin()" aria-label="${esc(t("chat.send"))}">➤</button>
