@@ -3369,7 +3369,7 @@ async function openDmWindow(uid, target){
           onchange="sendDmPhotoWin(${uid}, this)">
         <button class="dm-plus-btn" title="Más opciones" aria-label="Más opciones"
           onclick="toggleDmMore(${uid})">＋</button>
-        <input id="dm-input-${uid}" class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
+        <input id="dm-input-${uid}" class="field dm-win-input" maxlength="1000" placeholder="${sinPlan ? "Sin plan: solo emojis 😊" : esc(t("dm.win_ph"))}"
           onkeydown="if(event.key==='Enter')sendDmWin(${uid})">
         <button class="dm-win-send" onclick="sendDmWin(${uid})" aria-label="Enviar">➤</button>
       </div>
@@ -3864,7 +3864,9 @@ async function loadDmWinMessages(uid){
     const j = await r.json();
     const msgs = (j.mensajes || []).slice().reverse(); // lo nuevo ABAJO
     box.innerHTML = msgs.map(dmMessageHtml).join("")
-      || `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`;
+      || (planType() === "free"
+        ? `<p style="text-align:center;color:var(--cocoa-soft)">💎 Solo los miembros con plan pueden empezar un chat.<br>Si alguien con plan te escribe, aquí podrás responder con emojis 😊</p>`
+        : `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`);
     box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
     updateDmWinCountdowns();
     // Modo selección: un solo listener delegado + repintar marcas.
@@ -3888,6 +3890,14 @@ async function loadDmWinMessages(uid){
   }
 }
 
+/* ¿El texto contiene SOLO emojis? (sin plan: solo emojis). */
+function soloEmojisWin(text){
+  let s = String(text || "").replace(/\s+/g, "");
+  if(!s) return false;
+  s = s.replace(/[#*0-9]️?\u20E3/gu, "");
+  return s.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}️‍\u{1F3FB}-\u{1F3FF}]/gu, "").length === 0;
+}
+
 /* Enviar texto desde una ventana. */
 async function sendDmWin(uid){
   const w = dmWindows[uid];
@@ -3895,6 +3905,11 @@ async function sendDmWin(uid){
   const inp = w.el.querySelector(".dm-win-input");
   const text = inp ? inp.value.trim() : "";
   if(!text) return;
+  // Sin plan: no puede escribir texto, solo emojis.
+  if(planType() === "free" && !soloEmojisWin(text)){
+    openUpgradeModal("Sin plan solo puedes enviar emojis 😊 Con un plan puedes escribir y enviar de todo 💎");
+    return;
+  }
   try{
     const r = await fetch("/api/dm", {
       method: "POST",
