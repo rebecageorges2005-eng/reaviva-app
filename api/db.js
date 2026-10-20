@@ -847,6 +847,15 @@ async function migrate() {
         kind       TEXT NOT NULL DEFAULT 'scale',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE TABLE IF NOT EXISTS celebration_log (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL,
+        kind         TEXT NOT NULL,
+        period_key   TEXT NOT NULL,
+        template_idx INTEGER NOT NULL DEFAULT 0,
+        sent_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (user_id, kind, period_key)
+      );
     `);
     console.log("[db] migración: tablas program_audios y program_test_questions listas");
   } catch (e) {

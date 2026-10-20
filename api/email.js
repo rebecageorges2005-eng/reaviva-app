@@ -167,6 +167,19 @@ function sendPlanChangedEmail({ to, name, plan, bonus }) {
   sendEmail({ to, subject, html }).catch(() => {});
 }
 
+/* Correo de celebración (cumpleaños / aniversario semestral).
+ * Lo dispara el motor de celebrations.js. Fire-and-forget. */
+function sendCelebrationEmail({ to, nombre, asunto, titulo, parrafos }) {
+  const safe = (s) => String(s || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const body = (parrafos || []).map(p =>
+    `<p style="font-size:1rem;line-height:1.65;color:#4a3728;margin:0 0 14px">${safe(p)}</p>`).join("");
+  const html = emailShell(
+    safe(titulo),
+    body + buttonHtml(SITE_URL + "/", "Abrir Reaviva 💛") +
+    `<p style="font-size:.82rem;color:#7a6252;margin-top:18px">Con cariño, el equipo de Reaviva. Un paso a la vez. 💛</p>`);
+  sendEmail({ to, subject: asunto, html });
+}
+
 module.exports = {
   isEmailConfigured,
   verificationUrl,
@@ -175,6 +188,7 @@ module.exports = {
   sendWelcomeEmail,
   sendLoginAlertEmail,
   sendPlanChangedEmail,
+  sendCelebrationEmail,
   SITE_URL,
 };
 
