@@ -907,18 +907,20 @@ function applyHashRoute(){
   // Vistas sueltas
   if(h === "inicio"){ showView("landing", true); return true; }
   if(h === "verificar"){ showView("verify-email", true); return true; }
+  // Pestañas de la app: si hay sesión, van a la app (aunque exista una
+  // sección del landing con el mismo id, como #programa).
+  const tabByHash = Object.keys(TAB_HASHES).find(t => TAB_HASHES[t] === h);
+  if(tabByHash){
+    if(currentUser()){ enterApp(tabByHash); return true; }
+    // Sin sesión y sin sección del landing con ese id: pedir login.
+    if(!document.getElementById(h)){ showView("auth", true); switchAuthMode("login", true); return true; }
+    // Existe la sección del landing: seguir al scroll de abajo.
+  }
   // Secciones del landing (Programa, Precios, Preguntas): scroll suave cuando
   // el landing está visible, en vez de mandar al login.
   if(landingVisible()){
     const sec = document.getElementById(h);
     if(sec){ try{ sec.scrollIntoView({behavior:"smooth"}); }catch(e){} return true; }
-  }
-  // Pestañas de la app (requieren sesión)
-  const tabByHash = Object.keys(TAB_HASHES).find(t => TAB_HASHES[t] === h);
-  if(tabByHash){
-    if(!currentUser()){ showView("auth", true); switchAuthMode("login", true); return true; }
-    enterApp(tabByHash);
-    return true;
   }
   return false;
 }
