@@ -254,6 +254,10 @@ async function migrate() {
       await db.exec("ALTER TABLE paypal_subscriptions ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0");
       console.log("[db] migración: columna paypal_subscriptions.reminder_sent agregada");
     }
+    if (!cols4.includes("grace_until")) {
+      await db.exec("ALTER TABLE paypal_subscriptions ADD COLUMN grace_until TEXT");
+      console.log("[db] migración: columna paypal_subscriptions.grace_until agregada");
+    }
   } catch (e) {
     console.error("[db] migración paypal_subscriptions:", e.message);
   }

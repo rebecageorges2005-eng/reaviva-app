@@ -84,4 +84,47 @@ function displayProfile(u) {
   };
 }
 
-module.exports = { getPlanType, normalizePlan, avatarFor, iniciales, displayProfile };
+/* trialEnded(user): la prueba gratuita dura 7 días desde el registro.
+ * Al culminar, el usuario sin plan pasa a SOLO LECTURA (puede ver el chat
+ * grupal pero no publicar ni usar opciones) hasta pagar un plan.
+ * Admin y usuarios con plan: nunca les aplica. */
+const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
+function trialEnded(user) {
+  if (!user || user.is_admin === 1 || user.subscribed === 1) return false;
+  if (!user.created_at) return false;
+  const t = new Date(String(user.created_at).replace(" ", "T") + "Z").getTime();
+  if (isNaN(t)) return false;
+  return Date.now() - t > TRIAL_MS;
+}
+
+/* billingAccess(user): reglas de cobro automático de PayPal.
+ * - El pago es automático: PayPal cobra solo al vencimiento (suscripción recurrente).
+ * - Si el cobro falla (PAYMENT.FAILED): 48 HORAS DE GRACIA con acceso total.
+ * - Tras la gracia: todo deshabilitado, EXCEPTO si el usuario tiene saldo de
+ *   RV (> 0), que lo mantiene activo hasta que actualice su método de pago.
+ * Devuelve { blocked: bool, reason: 'failed'|null }. */
+async function billingAccess(user) {
+  if (!user || user.is_admin === 1 || user.subscribed !== 1)
+    return { blocked: false, reason: null };
+  let sub = null;
+  try {
+    sub = await db.get(
+      "SELECT status, grace_until FROM paypal_subscriptions WHERE email = ?",
+      String(user.email || "").toLowerCase());
+  } catch (e) { return { blocked: false, reason: null }; }
+  if (!sub || sub.status === "ACTIVE") return { blocked: false, reason: null };
+  if (sub.status === "PAST_DUE") {
+    const g = sub.grace_until
+      ? new Date(String(sub.grace_until).replace(" ", "T") + "Z").getTime()
+      : 0;
+    if (!isNaN(g) && Date.now() < g)
+      return { blocked: false, reason: "grace" }; // 48h de gracia: acceso total
+    const rv = Number(user.credits) || 0;
+    if (rv > 0)
+      return { blocked: false, reason: null }; // el saldo RV lo mantiene hasta actualizar el pago
+    return { blocked: true, reason: "failed" };
+  }
+  return { blocked: false, reason: null };
+}
+
+module.exports = { getPlanType, normalizePlan, avatarFor, iniciales, displayProfile, trialEnded, billingAccess };
