@@ -391,7 +391,15 @@ function togglePassword(id){
 /* Guarda la sesión del backend y entra a la app. */
 function saveSession(token, user){
   store.set("reaviva_token", token);
-  store.set(LS.user, { id: user.id, email: user.email, name: user.name, planType: user.planType || "free" });
+  store.set(LS.user, {
+    id: user.id, email: user.email, name: user.name,
+    planType: user.planType || "free",
+    photo: user.photo || null,
+    coverPhoto: user.coverPhoto || null,
+    gender: user.gender || null,
+    bio: user.bio || null,
+    pais: user.pais || null,
+  });
   store.set("reaviva_admin", user.isAdmin === true);
   store.set("reaviva_paid", user.subscribed === true || user.isAdmin === true);
   if(!store.get(LS.start, null)) store.set(LS.start, todayKey());
