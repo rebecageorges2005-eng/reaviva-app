@@ -2222,6 +2222,9 @@ function communityMsgHtml(c){
   </div>`;
 }
 
+/* ---------- Chat comunitario 💬 (fuerza bajar al final tras publicar) ---------- */
+let forceChatBottom = false;
+
 async function renderComunidad(){
   const list = $("#community-list");
   list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">Cargando comentarios…</p>`;
@@ -2254,13 +2257,18 @@ async function renderComunidad(){
     if(j.muted) disableCommunityComposer();
     // Botón de usuarios en línea 🟢🔴.
     if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
-    const items = j.comentarios || [];
+    const items = (j.comentarios || []).slice().reverse(); // cronológico: lo nuevo ABAJO
+    const wasNearBottom = forceChatBottom || !list.dataset.loaded ||
+      (list.scrollHeight - list.scrollTop - list.clientHeight < 140);
+    forceChatBottom = false;
     // Mapa uid → datos para abrir DMs al hacer clic (sin exponer nada extra).
     communityUsers = {};
     list.innerHTML = items.map(c=>communityMsgHtml(c)).join("") ||
       `<div class="empty-state"><div style="font-size:2.5rem">💛</div>
        <p><b>Sé la primera persona en compartir</b></p>
        <p style="font-size:.85rem;color:var(--cocoa-soft)">Tu historia puede ayudar a alguien que lo necesita.</p></div>`;
+    list.dataset.loaded = "1";
+    if(wasNearBottom) list.scrollTop = list.scrollHeight;
     // Banderitas 🚩: cargar niveles de los usuarios visibles y pintar cada bandera.
     refreshFlagLevels(Object.keys(communityUsers).map(Number)).catch(()=>{});
   }catch(e){
@@ -2514,6 +2522,7 @@ async function postCommunity(){
     hideRVBanner();
     if(typeof j.rv === "number") loadRVBalance();
     toast(j.promo ? "¡Publicado con RV! 📢 Gracias por compartir 💛" : "¡Publicado! Gracias por compartir 💛");
+    forceChatBottom = true; // tras publicar, bajar al mensaje nuevo
     renderComunidad();
   }catch(e){
     toast(e.message);
@@ -3178,13 +3187,16 @@ function expandGroupChatWindow(){
 }
 
 /* Pinta los mensajes del chat grupal dentro de la ventanita. */
+let forceGroupBottom = false;
 function paintGroupWinMessages(j){
   if(!groupWinOpen()) return;
   const box = groupWin.el.querySelector(".group-win-msgs");
   if(!box) return;
   const prevTop = box.scrollTop;
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  const items = (j && j.comentarios) || [];
+  const nearBottom = forceGroupBottom ||
+    box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  forceGroupBottom = false;
+  const items = ((j && j.comentarios) || []).slice().reverse(); // lo nuevo ABAJO
   communityUsers = {};
   box.innerHTML = items.map(c=>communityMsgHtml(c)).join("") ||
     `<p style="text-align:center;color:var(--cocoa-soft)">💛</p>`;
@@ -3230,6 +3242,7 @@ async function sendGroupWin(){
     if(j.id){ myMsgIds.add(j.id); seenMsgIds.add(j.id); }
     inp.value = "";
     playDing();
+    forceGroupBottom = true;
     loadGroupWinMessages();
   }catch(e){
     toast(e.message);
@@ -3291,12 +3304,14 @@ async function loadDmWinMessages(uid){
   const box = w.el.querySelector(".dm-win-msgs");
   if(!box) return;
   const prevTop = box.scrollTop;
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80
+    || box.dataset.forceBottom === "1";
+  box.dataset.forceBottom = "";
   try{
     const r = await fetch("/api/dm/" + uid, { headers: authHeaders() });
     if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
-    const msgs = j.mensajes || [];
+    const msgs = (j.mensajes || []).slice().reverse(); // lo nuevo ABAJO
     box.innerHTML = msgs.map(dmMessageHtml).join("")
       || `<p style="text-align:center;color:var(--cocoa-soft)">${esc(t("dm.empty"))}</p>`;
     box.scrollTop = nearBottom ? box.scrollHeight : prevTop;
@@ -3327,6 +3342,8 @@ async function sendDmWin(uid){
     }
     inp.value = "";
     playDing();
+    const w2 = dmWindows[uid];
+    if(w2 && w2.el) w2.el.querySelector(".dm-win-msgs").dataset.forceBottom = "1";
     await loadDmWinMessages(uid);
     updateDmBadge();
   }catch(e){
