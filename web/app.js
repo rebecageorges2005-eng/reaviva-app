@@ -4022,6 +4022,35 @@ async function refreshDmWindows(){
   updateDmBadge();
 }
 
+/* Actualiza las insignias de no leídos de las ventanitas abiertas
+ * (esta función faltaba: sus llamadas lanzaban "is not defined"). */
+let dmBadgeBusy = false;
+async function updateDmBadge(){
+  if(dmBadgeBusy) return;
+  const ids = Object.keys(dmWindows || {});
+  if(!ids.length) return;
+  dmBadgeBusy = true;
+  try{
+    const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
+    if(r.ok){
+      const j = await r.json();
+      const porUid = {};
+      (j.conversaciones || []).forEach(c => { porUid[Number(c.uid)] = c; });
+      for(const uid of ids){
+        const w = dmWindows[uid];
+        if(!w) continue;
+        const badge = w.el.querySelector(".dm-win-unread");
+        if(!badge) continue;
+        const c = porUid[Number(uid)];
+        const n = c && c.noLeidos ? Number(c.noLeidos) : 0;
+        badge.style.display = n ? "" : "none";
+        badge.textContent = n > 99 ? "99+" : n;
+      }
+    }
+  }catch(e){ /* sin conexión: no hacer nada */ }
+  dmBadgeBusy = false;
+}
+
 function startDmWinPoll(){
   stopDmWinPoll();
   refreshDmWindows();
