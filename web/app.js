@@ -3092,15 +3092,8 @@ async function renderDmList(){
   const chat = $("#dm-chat");
   if(chat) chat.style.display = "none";
   if(list) list.style.display = "";
-  if(planType() === "free"){
-    if(list) list.innerHTML = `
-      <div class="empty-state"><div style="font-size:2.5rem">💎</div>
-      <p><b>${esc(t("dm.title"))}</b></p>
-      <p style="font-size:.85rem;color:var(--cocoa-soft)">${esc(t("dm.only_plan"))}</p>
-      <button class="btn btn-primary" onclick="openPaywall()" style="margin-top:10px">💎</button>
-      </div>`;
-    return;
-  }
+  // Sin plan también ven su lista: pueden RECIBIR mensajes, voz,
+  // fotos, archivos y llamadas (enviar media es lo que pide plan).
   if(list) list.innerHTML = `<p style="text-align:center;color:var(--cocoa-soft)">…</p>`;
   try{
     const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
@@ -3201,8 +3194,7 @@ async function openUserProfile(uid){
 }
 function openDmFromProfile(uid){
   const target = communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
-  if(planType() !== "free") openDmWindow(uid, target);
-  else toast(t("dm.only_plan"));
+  openDmWindow(uid, target);
 }
 
 /* Álbumes dentro del perfil: tocar un álbum lo ABRE con sus fotos
@@ -3303,7 +3295,6 @@ function dmWinBox(){
 /* Abre (o enfoca) la ventana flotante de chat con un usuario. */
 async function openDmWindow(uid, target){
   uid = Number(uid);
-  if(planType() === "free"){ toast(t("dm.only_plan")); return; }
   if(!target){
     try{
       const r = await fetch("/api/dm/conversations", { headers: authHeaders() });
@@ -3333,6 +3324,7 @@ async function openDmWindow(uid, target){
   }
   // Crear la ventana.
   const annual = isAnnual();
+  const sinPlan = planType() === "free";
   const el = document.createElement("div");
   el.className = "dm-win";
   el.dataset.dmUid = uid;
@@ -3363,9 +3355,9 @@ async function openDmWindow(uid, target){
       <div id="dm-emoji-${uid}" class="emoji-panel" data-target="#dm-input-${uid}" style="display:none"></div>
       <div class="dm-win-more">
         <button class="dm-more-opt" data-emoji-toggle onclick="toggleEmojiGrid('dm-emoji-${uid}');toggleDmMore(${uid})">😊 Emojis</button>
-        <button class="dm-more-opt" onclick="toggleDmVoiceWin(${uid});toggleDmMore(${uid})">🎤 Nota de voz</button>
-        <button class="dm-more-opt" onclick="dmWinPhotoClick(${uid});toggleDmMore(${uid})">🖼️ Enviar foto</button>
-        <button class="dm-more-opt" onclick="dmWinFileClick(${uid});toggleDmMore(${uid})">📎 Archivo</button>
+        <button class="dm-more-opt" onclick="${sinPlan ? `openUpgradeModal('Las notas de voz son para miembros con plan 💎')` : `toggleDmVoiceWin(${uid})`};toggleDmMore(${uid})">🎤 Nota de voz${sinPlan ? " 🔒" : ""}</button>
+        <button class="dm-more-opt" onclick="${sinPlan ? `openUpgradeModal('Enviar fotos es para miembros con plan 💎')` : `dmWinPhotoClick(${uid})`};toggleDmMore(${uid})">🖼️ Enviar foto${sinPlan ? " 🔒" : ""}</button>
+        <button class="dm-more-opt" onclick="${sinPlan ? `openUpgradeModal('Los archivos son para miembros con plan 💎')` : `dmWinFileClick(${uid})`};toggleDmMore(${uid})">📎 Archivo${sinPlan ? " 🔒" : ""}</button>
         <button class="dm-more-opt" onclick="startVideoCallWin(${uid});toggleDmMore(${uid})">📹 Videollamada${annual ? "" : " 🔒"}</button>
         <button class="dm-more-opt" onclick="viewUserAlbums(${uid});toggleDmMore(${uid})">📸 Álbumes</button>
         <button class="dm-more-opt" onclick="toggleDmMore(${uid});toggleDmSelect(${uid})">☑️ Seleccionar mensajes</button>
