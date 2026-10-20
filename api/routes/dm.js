@@ -32,8 +32,18 @@ const router = express.Router();
 const DM_MAX_CHARS = 1000;
 /* Límite diario de conversaciones únicas (usuarios diferentes por día, UTC).
  * Anual: 90/día · mensual: 15/día. Se cuentan usuarios, no mensajes. */
-const DM_CONV_PER_DAY = { annual: 90, monthly: 15, free: 3 };
+const DM_CONV_PER_DAY = { annual: 90, monthly: 15, free: 90 };
 const utcDay = () => new Date().toISOString().slice(0, 10);
+
+/* ¿El texto contiene SOLO emojis? (usuarios sin plan solo pueden
+ * enviar emojis dentro de un chat ya empezado por alguien con plan). */
+function soloEmojis(txt){
+  let t = String(txt || "").replace(/\s+/g, "");
+  if (!t) return false;
+  t = t.replace(/[#*0-9]\uFE0F?\u20E3/gu, ""); // keycaps: 1️⃣ #️⃣ *️⃣
+  const sin = t.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]/gu, "");
+  return sin.length === 0;
+}
 
 /* Limpieza de mensajes expirados (48h). Se ejecuta en cada lectura. */
 async function cleanupExpired() {
@@ -107,8 +117,6 @@ function fechaCorta(iso) {
   const plan = getPlanType(req.user);
   const isMonthly = plan === "monthly";
   const isAnnual = plan === "annual"; // el admin cuenta como annual
-  // El TEXTO está abierto a todos (también sin plan, con cupo diario
-  // menor). Enviar voz/fotos/archivos y llamar sigue siendo de plan.
   // Cobro fallido + gracia vencida + sin saldo RV: sin privados.
   const bill = await billingAccess(req.user);
   if (bill.blocked)
@@ -127,6 +135,20 @@ function fechaCorta(iso) {
   }
   const dest = await db.get("SELECT id FROM users WHERE id = ?", toId);
   if (!dest) return res.status(404).json({ error: "Usuario no encontrado" });
+  // Sin plan: NO puede empezar un chat (eso es solo de plan) y dentro
+  // de un chat ya empezado solo puede enviar EMOJIS, nada de texto.
+  if (!isMonthly && !isAnnual && req.user.is_admin !== 1) {
+    const previos = await db.get(
+      `SELECT COUNT(*) AS n FROM direct_messages
+       WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)`,
+      req.user.id, toId, toId, req.user.id);
+    if (!previos || !previos.n) {
+      return res.status(403).json({ code: "NO_INICIAR", error: "Solo los miembros con plan pueden empezar un chat 💎" });
+    }
+    if (!soloEmojis(text)) {
+      return res.status(403).json({ code: "SOLO_EMOJI", error: "Sin plan solo puedes enviar emojis 😊 Con un plan puedes escribir y enviar de todo 💎" });
+    }
+  }
   /* Límite diario de conversaciones únicas (usuarios diferentes por día).
    * Solo el primer mensaje a un usuario nuevo ese día consume cupo. */
   const limite = dmConvLimit(req.user);
