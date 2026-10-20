@@ -1465,6 +1465,11 @@ function renderPrograma(){
 /* ---------- day detail ---------- */
 function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
+  // Si se abre desde "Hoy" (u otra pestaña), ir primero a la pestaña
+  // Programa: el detalle del día vive en ese panel; si no se cambia,
+  // el clic parece no hacer nada.
+  const progPanel = $("#panel-programa");
+  if(progPanel && !progPanel.classList.contains("active")) switchTab("programa");
   // Si había otro día abierto, borrar su borrador.
   try{
     if(typeof openDayNum !== "undefined" && openDayNum && openDayNum !== d) clearDayDraft(openDayNum);
