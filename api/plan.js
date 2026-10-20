@@ -18,8 +18,8 @@
 
 const db = require("./db");
 
-const YEARLY_IDS = [process.env.PAYPAL_PLAN_YEARLY, "P-28J68146PE501741ENLJRIPA"].filter(Boolean);
-const MONTHLY_IDS = [process.env.PAYPAL_PLAN_MONTHLY, "P-6PN06957M8413651NNLJRIOA"].filter(Boolean);
+const YEARLY_IDS = [process.env.PAYPAL_PLAN_YEARLY, "P-0FS469128V6979744NLLRIUQ"].filter(Boolean);
+const MONTHLY_IDS = [process.env.PAYPAL_PLAN_MONTHLY, "P-46G90416NB650781TNLLRHQQ"].filter(Boolean);
 
 function normalizePlan(v) {
   const raw = String(v || "").trim();
