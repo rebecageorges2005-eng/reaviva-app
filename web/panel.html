@@ -259,6 +259,8 @@ async function render(){
       '<div class="card clickable" onclick="showCardDetail(\'chat\')" title="Ver detalles"><b>'+(s.mutedChats||0)+'</b><span>🚩 Chats deshabilitados</span></div>'+
       '<div class="card clickable" onclick="showCardDetail(\'flag\')" title="Ver detalles"><b>'+(s.flaggedUsers||0)+'</b><span>🚩 Con banderas'+(s.redFlags?' ('+s.redFlags+' 🔴)':'')+'</span></div>'+
       '<div class="card clickable" onclick="showCardDetail(\'cancel\')" title="Ver detalles"><b>'+(s.cancelledPlans||0)+'</b><span>❌ Planes cancelados</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'rvcirc\')" title="Ver detalles"><b>'+(s.rvCirculacion||0)+'</b><span>💰 RV en circulación</span></div>'+
+      '<div class="card clickable" onclick="showCardDetail(\'rving\')" title="Ver detalles"><b>$'+(s.ingresosRV||0)+'</b><span>🛒 Ingresos por RV</span></div>'+
       (s.referredUsers?'<div class="card clickable" onclick="showCardDetail(\'referrals\')" title="Ver detalles"><b>'+s.referredUsers+'</b><span>📤 Llegaron por referido</span></div>':'')+
       '</div>'+
       (s.topCountries&&s.topCountries.length?
@@ -409,6 +411,19 @@ function showCardDetail(kind){
       (canc.map(function(u){
         return '<div class="rowline clickable" onclick="closeDetailModal();showUser('+u.id+')"><span>❌ '+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span class="badge">ver</span></div>';
       }).join("")||'<p style="color:var(--cocoa-soft)">Sin cancelaciones. 🎉</p>')+'</div>';
+  }else if(kind==="rvcirc"){
+    title="💰 RV en circulación";
+    body=kv("RV en manos de usuarios", "<b>"+(s.rvCirculacion||0)+" RV</b>")+
+      '<div style="max-height:300px;overflow-y:auto;margin-top:8px">'+
+      (users.slice().sort(function(a,b){return (b.rv||0)-(a.rv||0);}).slice(0,15).map(function(u){
+        return '<div class="rowline clickable" onclick="closeDetailModal();showUser('+u.id+')"><span>'+esc(u.nombre)+' <small style="color:var(--cocoa-soft)">'+esc(u.email)+'</small></span><span><b>'+(u.rv||0)+' RV</b></span></div>';
+      }).join("")||'<p style="color:var(--cocoa-soft)">Sin usuarios.</p>')+'</div>'+
+      '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Los RV circulando son gasto futuro dentro de la app (links y fotos del chat).</p>';
+  }else if(kind==="rving"){
+    title="🛒 Ingresos por RV";
+    body=kv("Ingresos totales por recargas", "<b>$"+(s.ingresosRV||0)+"</b>")+
+      kv("RV vendidos", "<b>"+(s.rvVendidos||0)+" RV</b>")+
+      '<p style="font-size:.8rem;color:var(--cocoa-soft);margin-top:8px">Packs: $12 = 120 RV · $25 = 300 RV · $50 = 700 RV (vía PayPal). No incluye los bonos de planes.</p>';
   }
   showDetailModal(title, body, [{label:"Cerrar", cls:"btn-ghost", onClick:closeDetailModal}]);
 }
@@ -656,15 +671,19 @@ function renderUserModal(){
     (u.chatMuted?'<span class="badge" style="background:#fee2e2;color:#991b1b">🚩 CHAT DESHABILITADO</span>':'')+
     '</div>'+
     '<button class="btn btn-ghost btn-sm" onclick="closeUserModal()">✕ Cerrar</button></div>';
-  var tabs=[["perfil","📋 Perfil"],["progreso","📊 Progreso"],["diario","📝 Diario"],["comunidad","💬 Comunidad"],["chat","⏱️ Chat"],["dms","💬 DMs"],["mensajes","✉️ Mensajes"]];
+  var tabs=[["perfil","📋 Perfil"],["progreso","📊 Progreso"],["diario","📝 Diario"],["albumes","📷 Álbumes"],["comunidad","💬 Comunidad"],["chat","⏱️ Chat"],["dms","💬 DMs"],["mensajes","✉️ Mensajes"]];
   var tabHtml='<div class="modal-tabs">'+tabs.map(function(t){
     return '<button class="modal-tab'+(userModalTab===t[0]?" active":"")+'" onclick="setUserTab(\''+t[0]+'\')">'+t[1]+'</button>';
   }).join("")+'</div>';
   box.innerHTML=head+tabHtml+'<div class="modal-body">'+userTabContent(u)+'</div>';
   if(userModalTab==="dms") loadUserDMs(u.id);
+  if(userModalTab==="albumes") loadUserAlbums(u.id);
   if(userModalTab==="comunidad") wireLiveChatBtn(u.id);
 }
 function userTabContent(u){
+  if(userModalTab==="albumes"){
+    return '<h4>📷 Álbumes de fotos</h4><div id="user-albums"><p style="color:var(--cocoa-soft)">Cargando álbumes…</p></div>';
+  }
   if(userModalTab==="perfil"){
     return '<h4>📋 Perfil</h4>'+
     '<p><b>Nombre completo:</b> '+esc(u.nombre)+'</p>'+
@@ -916,6 +935,38 @@ async function clearFlags(id){
 
 /* ---------- 💬 DMs del usuario (solo lectura para el admin) ---------- */
 var dmCache={};
+/* ---------- álbumes del usuario (ver / eliminar) ---------- */
+async function loadUserAlbums(id){
+  var box=$("#user-albums"); if(!box) return;
+  try{
+    var d=await api("GET","/api/admin/users/"+id+"/albums");
+    var alb=d.albumes||[];
+    if(!alb.length){ box.innerHTML='<p style="color:var(--cocoa-soft)">Este usuario aún no tiene álbumes.</p>'; return; }
+    box.innerHTML=alb.map(function(a){
+      return '<div style="border:1px solid var(--hatch-widget-border,#eee);border-radius:12px;padding:10px;margin-bottom:12px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📁 '+esc(a.titulo)+'</b><span style="font-size:.8rem;color:var(--cocoa-soft)">'+a.fotos.length+' foto(s)</span>'+
+      '<button class="btn btn-danger btn-sm" onclick="delUserAlbum('+a.id+','+id+')">🗑️ Eliminar álbum</button></div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">'+
+      a.fotos.map(function(f){
+        return '<div style="position:relative;width:96px"><img src="'+f.foto+'" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:10px;display:block">'+
+        (f.caption?'<div style="font-size:.68rem;color:var(--cocoa-soft);margin-top:2px;word-break:break-word">'+esc(f.caption)+'</div>':'')+
+        '<button title="Eliminar foto" onclick="delAlbumPhoto('+f.id+','+id+')" style="position:absolute;top:4px;right:4px;background:#c0392b;color:#fff;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:.75rem;line-height:1">✕</button></div>';
+      }).join("")+
+      '</div></div>';
+    }).join("");
+  }catch(e){ box.innerHTML='<p style="color:#c0392b">No se pudieron cargar los álbumes.</p>'; }
+}
+async function delUserAlbum(albumId, userId){
+  if(!confirm("¿Eliminar este álbum COMPLETO con todas sus fotos? No se puede deshacer.")) return;
+  try{ await api("DELETE","/api/admin/albums/"+albumId); loadUserAlbums(userId); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error al eliminar."); }
+}
+async function delAlbumPhoto(photoId, userId){
+  if(!confirm("¿Eliminar esta foto del álbum del usuario? No se puede deshacer.")) return;
+  try{ await api("DELETE","/api/admin/albums/photos/"+photoId); loadUserAlbums(userId); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error al eliminar."); }
+}
+
 async function loadUserDMs(id){
   var box=$("#dm-convs"); if(!box) return;
   try{
