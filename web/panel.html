@@ -270,7 +270,7 @@ async function render(){
       '<h2 class="sec">📩 Sugerencias y contacto</h2>'+
       '<div class="block"><div id="contact-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">🕵️ Mi apodo en el chat grupal</h2>'+
-      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Déjalo vacío para usar tu nombre normal del chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Si lo dejas vacío, te verán como <b>«Guest007»</b>. Tu nombre real nunca se muestra en el chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
@@ -1312,7 +1312,7 @@ async function saveChatAlias(){
   try{
     var d=await api("POST","/api/admin/chat-alias",{alias:inp.value});
     msg.style.color="#2e7d32";
-    msg.textContent=d.alias?("✅ Apodo guardado: en el chat te verán como «"+d.alias+"»"):"✅ Apodo borrado: usarás tu nombre normal del chat.";
+    msg.textContent=d.alias?("✅ Apodo guardado: en el chat te verán como «"+d.alias+"»"):"✅ Sin apodo: en el chat te verán como «Guest007»";
   }catch(e){ if(e.message==="AUTH") authFail(); else { msg.style.color="#a33"; msg.textContent="Error: "+e.message; } }
 }
 </script>
