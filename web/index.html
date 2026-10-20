@@ -373,6 +373,7 @@
         <div id="community-list" class="community-list"></div>
         <div class="community-composer">
           <textarea id="community-text" class="field" rows="3" maxlength="500"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();postCommunity();}"
             data-i18n-ph="chat.ph" placeholder="Comparte algo con la comunidad… (sin correos ni teléfonos)"></textarea>
           <div class="composer-actions">
             <button type="button" id="emoji-btn" class="composer-icon-btn" data-emoji-toggle onclick="toggleEmojiGrid('emoji-panel')" title="Emojis">😊</button>
@@ -499,6 +500,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=44"></script>
+<script src="/app.js?v=45"></script>
 </body>
 </html>
