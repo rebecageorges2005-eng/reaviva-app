@@ -1479,7 +1479,7 @@ function openDay(d){
       <div class="part">${esc(p.part)}</div>
       <h2>Día ${p.day} · ${esc(gtext(p.title))}</h2>
     </div>
-    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}${userGender()==="F"?"-f":""}.mp3" style="width:100%"></audio></div>
+    <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/api/program/audio/${p.day}/${userGender()==="F"?"F":"M"}" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(gtext(p.caso))}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>📝 Su historia</h4><p>${esc(gtext(storyPrompt(p.day)))}</p>
@@ -1742,6 +1742,18 @@ function storyExcerpts(){
   sentences.sort((a,b)=>b.length - a.length);
   return sentences.slice(0, 5);
 }
+/* Preguntas extra del admin para los tests (se cargan una vez). */
+let testExtrasCache = null;
+async function loadTestExtras(){
+  if(testExtrasCache) return testExtrasCache;
+  try{
+    const r = await fetch("/api/program/test-extras", { headers: authHeaders() });
+    const j = await r.json().catch(()=>({}));
+    testExtrasCache = (j.preguntas || []).map(q => ({ t: q.t, scale: !!q.scale, open: !!q.open }));
+  }catch(e){ testExtrasCache = []; }
+  return testExtrasCache;
+}
+
 function buildTestQuestions(){
   const excerpts = storyExcerpts();
   const ex = (i)=> excerpts[i] ? `"<i>${esc(excerpts[i].slice(0,120))}${excerpts[i].length>120?"…":""}</i>"` : "tu historia";
@@ -1773,9 +1785,16 @@ function buildTestQuestions(){
   Q.push({t:`Del 1 al 5, ¿cuánto te quieres a ti mismo/a hoy?`, scale:true});
   Q.push({t:`¿Qué es lo que más te ilusiona de tu vida ahora?`, open:true});
   Q.push({t:`Del 1 al 5, ¿recomendarías este programa a alguien en tu situación?`, scale:true});
+  // Preguntas extra agregadas por el administrador desde su panel.
+  (testExtrasCache || []).forEach(q => Q.push(q));
   return Q;
 }
 function renderProgressTest(d){
+  if(testExtrasCache === null){
+    $("#day-detail").innerHTML = `<p style="text-align:center;color:var(--cocoa-soft);padding:24px">Cargando tu test… 🧠</p>`;
+    loadTestExtras().then(()=>renderProgressTest(d));
+    return;
+  }
   const Q = buildTestQuestions();
   const g = userGender();
   $("#day-detail").innerHTML = `
