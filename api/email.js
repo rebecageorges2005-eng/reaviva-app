@@ -125,6 +125,48 @@ function sendWelcomeEmail({ to, name }) {
   sendEmail({ to, subject: "¡Tu cuenta Reaviva está activa! 🎉", html }).catch(() => {});
 }
 
+/* Correo: el administrador asignó/cambió/quitó el plan manualmente.
+ * El usuario recibe TODOS los beneficios del plan (acceso vía
+ * users.plan_type) + el bono RV (+50 mensual / +200 anual) y este aviso. */
+function sendPlanChangedEmail({ to, name, plan, bonus }) {
+  const safeName = String(name || "amigo/a").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const loginUrl = SITE_URL + "/";
+  let subject, html;
+  if (plan === "monthly" || plan === "annual") {
+    const esAnual = plan === "annual";
+    const beneficios = esAnual
+      ? `<li>⭐ <b>Todo el programa de 30 días</b> sin límites</li>` +
+        `<li>💬 Comunidad y <b>mensajes privados</b> con videollamada 📹 y archivos</li>` +
+        `<li>🔗 Enlaces promocionales a solo 2 RV</li>` +
+        `<li>⏰ Tus mensajes duran 24 horas</li>`
+      : `<li>💳 <b>Todo el programa de 30 días</b> sin límites</li>` +
+        `<li>💬 Comunidad y <b>mensajes privados</b></li>` +
+        `<li>🔗 Enlaces promocionales a solo 2 RV</li>` +
+        `<li>⏰ Tus mensajes duran 5 horas</li>`;
+    subject = esAnual ? "¡Tu plan Anual está activo! ⭐" : "¡Tu plan Mensual está activo! 🎉";
+    html = emailShell(
+      subject,
+      `<p style="color:#4a3728;line-height:1.6;">Hola ${safeName},</p>` +
+      `<p style="color:#4a3728;line-height:1.6;">¡Buenas noticias! Tu cuenta ahora tiene el <b>plan ${esAnual ? "Anual" : "Mensual"}</b> de Reaviva activo, con todos sus beneficios:</p>` +
+      `<ul style="color:#4a3728;line-height:1.8;">${beneficios}</ul>` +
+      (bonus ? `<p style="color:#4a3728;line-height:1.6;">🎁 Además te regalamos <b>${bonus} RV</b>, que ya están en tu cuenta.</p>` : "") +
+      buttonHtml(loginUrl, "Entrar a mi cuenta") +
+      `<p style="font-size:.85rem;color:#7a6252;">Aprovéchalo al máximo. Un día a la vez 💛</p>`
+    );
+  } else {
+    subject = "Tu plan de Reaviva fue actualizado";
+    html = emailShell(
+      `Tu plan fue actualizado`,
+      `<p style="color:#4a3728;line-height:1.6;">Hola ${safeName},</p>` +
+      `<p style="color:#4a3728;line-height:1.6;">Te informamos que tu plan de pago en <b>Reaviva</b> fue retirado y tu cuenta volvió al <b>plan gratuito</b>. Tu saldo de RV se conserva.</p>` +
+      `<p style="color:#4a3728;line-height:1.6;">Cuando quieras, puedes volver a activar un plan desde la app.</p>` +
+      buttonHtml(loginUrl, "Entrar a mi cuenta") +
+      `<p style="font-size:.85rem;color:#7a6252;">Gracias por estar aquí 💛</p>`
+    );
+  }
+  sendEmail({ to, subject, html }).catch(() => {});
+}
+
 module.exports = {
   isEmailConfigured,
   verificationUrl,
@@ -132,6 +174,7 @@ module.exports = {
   sendVerificationEmail,
   sendWelcomeEmail,
   sendLoginAlertEmail,
+  sendPlanChangedEmail,
   SITE_URL,
 };
 
