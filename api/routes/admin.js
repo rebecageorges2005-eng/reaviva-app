@@ -730,6 +730,23 @@ router.delete("/program-questions/:id", requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ---------- Celebraciones automáticas (cumpleaños + semestral) ----------
+ * POST /api/admin/celebrations/run — barrido del día (lo llama el
+ * cron diario; es idempotente por celebration_log). */
+router.post("/celebrations/run", requireAdmin, ah(async (req, res) => {
+  const { runCelebrations } = require("../celebrations");
+  const out = await runCelebrations();
+  res.json(out);
+}));
+
+router.get("/celebrations/log", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
+    `SELECT c.id, c.user_id, u.name AS nombre, u.email, c.kind, c.period_key, c.template_idx, c.sent_at
+     FROM celebration_log c JOIN users u ON u.id = c.user_id
+     ORDER BY c.id DESC LIMIT 50`);
+  res.json({ envios: rows });
+}));
+
 router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
   const alias = String((req.body || {}).alias || "").trim().slice(0, 30);
   await db.run("UPDATE users SET chat_alias = ? WHERE id = ?", alias || null, req.user.id);
