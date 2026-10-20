@@ -134,12 +134,12 @@ async function mutedPayload(userId) {
 /* Flujo completo para un mensaje: mute check + detección + strike.
  * Devuelve null si el mensaje puede publicarse, o { code, message, status }
  * para responder al cliente. */
-function checkMessage(userId, text) {
-  const muted = mutedPayload(userId);
+async function checkMessage(userId, text) {
+  const muted = await mutedPayload(userId);
   if (muted) return { ...muted, status: 403 };
   const violation = detectSpam(text);
   if (!violation) return null;
-  const r = registerStrike(userId, text, violation);
+  const r = await registerStrike(userId, text, violation);
   return { code: r.code, message: r.message, status: r.muted ? 403 : 400 };
 }
 
