@@ -21,7 +21,7 @@ const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { ah } = db;
 const { requireAuth } = require("./auth");
-const { isEmailConfigured, verificationUrl } = require("../email");
+const { isEmailConfigured, verificationUrl, sendPlanChangedEmail } = require("../email");
 const { flagLevel } = require("./flags");
 
 const router = express.Router();
@@ -619,16 +619,27 @@ router.delete("/verified-domains/:id", requireAdmin, ah(async (req, res) => {
 router.post("/users/:id/plan", requireAdmin, ah(async (req, res) => {
   const plan = String((req.body || {}).plan || "");
   const id = req.params.id;
-  const u = await db.get("SELECT id, is_admin FROM users WHERE id = ?", id);
+  const u = await db.get("SELECT id, is_admin, email, name FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  let bonus = 0;
   if (plan === "monthly" || plan === "annual") {
     await db.run("UPDATE users SET subscribed = 1, plan_type = ? WHERE id = ?", plan, id);
+    // TODOS los beneficios: acceso vía plan_type + bono RV del plan
+    // (+50 mensual / +200 anual, igual que pagando) + correo al usuario.
+    bonus = plan === "annual" ? 200 : 50;
+    await db.run("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE id = ?", bonus, id);
+    try {
+      await db.run("INSERT INTO credit_spending (user_id, credits_used, reason) VALUES (?, ?, ?)",
+        id, -bonus, plan === "annual" ? "Bono plan Anual (asignado por el administrador)" : "Bono plan Mensual (asignado por el administrador)");
+    } catch (e) { /* el abono ya se hizo; el registro es secundario */ }
   } else if (plan === "none" || plan === "" || plan === "free") {
     await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE id = ?", id);
   } else {
     return res.status(400).json({ error: "Plan inválido. Usa monthly, annual o none." });
   }
-  res.json({ ok: true });
+  // Correo al usuario avisando del cambio (no bloquea la respuesta).
+  try { sendPlanChangedEmail({ to: u.email, name: u.name, plan: plan === "monthly" || plan === "annual" ? plan : "none", bonus }); } catch (e) { /* correo secundario */ }
+  res.json({ ok: true, plan, bonus });
 }));
 
 router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
