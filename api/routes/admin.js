@@ -115,6 +115,11 @@ router.get("/stats", requireAdmin, ah(async (req, res) => {
     cancelledPlans: (await db.get("SELECT COUNT(*) AS n FROM paypal_subscriptions WHERE status = 'CANCELLED'")).n,
     // Referidos: usuarios que llegaron por un link compartido + top invitadores
     referredUsers: (await db.get("SELECT COUNT(*) AS n FROM users WHERE referred_by IS NOT NULL")).n,
+    // RV en circulación: suma de saldos de los usuarios (sin el admin)
+    rvCirculacion: (await db.get("SELECT COALESCE(SUM(credits), 0) AS n FROM users WHERE is_admin = 0")).n,
+    // Ingresos por venta de RV (compras reales, sin los bonos BONO-*)
+    ingresosRV: Math.round(((await db.get("SELECT COALESCE(SUM(CAST(amount_usd AS REAL)), 0) AS n FROM credit_purchases WHERE status = 'completed' AND paypal_order_id NOT LIKE 'BONO-%'")).n) * 100) / 100,
+    rvVendidos: (await db.get("SELECT COALESCE(SUM(pack_credits), 0) AS n FROM credit_purchases WHERE status = 'completed' AND paypal_order_id NOT LIKE 'BONO-%'")).n,
     topReferrers: await db.all(`
       SELECT u.id, u.name AS nombre, COUNT(r.id) AS referidos
       FROM users u
@@ -640,6 +645,33 @@ router.post("/users/:id/plan", requireAdmin, ah(async (req, res) => {
   // Correo al usuario avisando del cambio (no bloquea la respuesta).
   try { sendPlanChangedEmail({ to: u.email, name: u.name, plan: plan === "monthly" || plan === "annual" ? plan : "none", bonus }); } catch (e) { /* correo secundario */ }
   res.json({ ok: true, plan, bonus });
+}));
+
+/* ---------- Álbumes de un usuario (el admin puede ver y eliminar) ---------- */
+router.get("/users/:id/albums", requireAdmin, ah(async (req, res) => {
+  const albums = await db.all("SELECT id, title, created_at FROM albums WHERE user_id = ? ORDER BY created_at DESC", req.params.id);
+  const out = [];
+  for (const a of albums) {
+    const fotos = await db.all("SELECT id, photo, caption FROM album_photos WHERE album_id = ? ORDER BY created_at ASC", a.id);
+    out.push({
+      id: a.id,
+      titulo: a.title,
+      creado: a.created_at,
+      fotos: fotos.map((f) => ({ id: f.id, foto: f.photo, caption: f.caption || "" })),
+    });
+  }
+  res.json({ albumes: out });
+}));
+
+router.delete("/albums/:albumId", requireAdmin, ah(async (req, res) => {
+  await db.run("DELETE FROM album_photos WHERE album_id = ?", req.params.albumId);
+  await db.run("DELETE FROM albums WHERE id = ?", req.params.albumId);
+  res.json({ ok: true });
+}));
+
+router.delete("/albums/photos/:photoId", requireAdmin, ah(async (req, res) => {
+  await db.run("DELETE FROM album_photos WHERE id = ?", req.params.photoId);
+  res.json({ ok: true });
 }));
 
 router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
