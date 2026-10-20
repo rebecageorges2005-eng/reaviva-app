@@ -76,7 +76,7 @@ if (paypalConfigured()) {
   console.log("[reaviva] PayPal NO configurado — /api/paypal/* devolverá 503 hasta que Georges ponga las credenciales (ver README)");
 }
 
-app.use(express.json({ limit: "3mb" })); // 3mb: permite la foto de perfil en base64
+app.use(express.json({ limit: "10mb" })); // 10mb: foto de perfil y audios del programa en base64
 
 /* --- Detector de ataques: inspecciona query + body en escrituras.
  * SQLi/XSS detectado → IP bloqueada + usuario baneado. Va DESPUÉS de
