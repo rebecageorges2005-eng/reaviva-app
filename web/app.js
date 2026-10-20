@@ -1293,8 +1293,8 @@ function renderHoy(){
   $("#hoy-card").innerHTML = `
     <div class="today-card">
       <div class="kicker">Día ${d} de 30 · ${esc(prog.part)}</div>
-      <h2>${esc(prog.title)}</h2>
-      <p>${esc(prog.reflexion.slice(0,140))}…</p>
+      <h2>${esc(gtext(prog.title))}</h2>
+      <p>${esc(gtext(prog.reflexion).slice(0,140))}…</p>
       <button class="btn btn-primary" onclick="openDay(${d})">Continuar mi día ${d} →</button>
     </div>`;
 }
@@ -1318,7 +1318,7 @@ function renderPrograma(){
     btn.className = "prog-item" + (isDone(p.day)?" done":"") + (!unlocked||gated?" locked":"");
     btn.innerHTML = `
       <div class="check">✓</div>
-      <div class="info"><b>Día ${p.day} · ${esc(p.title)}</b><small>${esc(p.part)}</small></div>
+      <div class="info"><b>Día ${p.day} · ${esc(gtext(p.title))}</b><small>${esc(p.part)}</small></div>
       <div class="lock">${gated ? "🔒" : (!unlocked ? "🔒" : (isDone(p.day)?"":"→"))}</div>`;
     if(unlocked && !gated) btn.onclick = ()=>openDay(p.day);
     else btn.onclick = ()=>openPaywall();
@@ -1350,10 +1350,10 @@ function openDay(d){
   $("#day-detail").innerHTML = `
     <div class="day-hero">
       <div class="part">${esc(p.part)}</div>
-      <h2>Día ${p.day} · ${esc(p.title)}</h2>
+      <h2>Día ${p.day} · ${esc(gtext(p.title))}</h2>
     </div>
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}${userGender()==="F"?"-f":""}.mp3" style="width:100%"></audio></div>
-    <div class="block case"><h4>📖 El caso</h4><p>${esc(p.caso)}</p></div>
+    <div class="block case"><h4>📖 El caso</h4><p>${esc(gtext(p.caso))}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>📝 Su historia</h4><p>Cuéntanos tu historia: ¿cómo empezó todo?</p>
       <textarea id="story-text" class="journal" rows="6" placeholder="Escribe aquí tu historia… (mínimo 500 caracteres)" ${done?"disabled":""}>${esc(savedStory)}</textarea>
