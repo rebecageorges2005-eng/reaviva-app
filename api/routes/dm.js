@@ -144,8 +144,10 @@ function fechaCorta(iso) {
   if (req.user.is_admin !== 1) {
     let textoFiltro = text;
     const v = detectSpam(text);
-    if (v && v.tipo === "link") {
-      textoFiltro = text.replace(/((https?:\/\/)?(www\.)?[a-z0-9][a-z0-9\-]*\.(com|net|org|io|co|mx|es|app|store|shop|online|site|link|bio|ly|me|tv)(\/[^\s]*)?)/gi, " ");
+    if (v && (v.tipo === "link" || v.tipo === "red social")) {
+      textoFiltro = text
+        .replace(/((https?:\/\/)?(www\.)?[a-z0-9][a-z0-9\-]*\.(com|net|org|io|co|mx|es|app|store|shop|online|site|link|bio|ly|me|tv)(\/[^\s]*)?)/gi, " ")
+        .replace(/(tiktok\.com|instagram\.com|youtube\.com|youtu\.be|facebook\.com|fb\.com|twitter\.com|x\.com|whatsapp\.com|telegram\.me|t\.me)(\/[^\s]*)?/gi, " ");
     }
     const spam = checkMessage(req.user.id, textoFiltro);
     if (spam) return res.status(spam.status).json({ error: spam.code, message: spam.message });
@@ -342,6 +344,31 @@ router.post("/:uid/video-call", requireAuth, ah(async (req, res) => {
 }));
 
 /* GET /api/dm/conversations — lista de conversaciones del usuario. */
+/* POST /api/dm/delete  { ids:[...] } — eliminar mensajes seleccionados.
+ * Los PROPIOS se borran para ambos; los RECIBIDOS se ocultan solo
+ * de mi vista (dm_hidden). Máx 100 por vez. */
+router.post("/delete", requireAuth, ah(async (req, res) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [])
+    .map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0).slice(0, 100);
+  if (!ids.length) return res.status(400).json({ error: "Selecciona al menos un mensaje" });
+  let n = 0;
+  for (const id of ids) {
+    const m = await db.get(
+      "SELECT id, from_user_id, to_user_id FROM private_messages WHERE id = ?", id);
+    if (!m) continue;
+    if (m.from_user_id !== req.user.id && m.to_user_id !== req.user.id) continue;
+    if (m.from_user_id === req.user.id) {
+      await db.run("DELETE FROM private_messages WHERE id = ?", id);
+      await db.run("DELETE FROM message_reactions WHERE message_type = 'dm' AND message_id = ?", id);
+      await db.run("DELETE FROM dm_hidden WHERE message_id = ?", id);
+    } else {
+      await db.run("INSERT OR IGNORE INTO dm_hidden (user_id, message_id) VALUES (?, ?)", req.user.id, id);
+    }
+    n++;
+  }
+  res.json({ ok: true, eliminados: n });
+}));
+
 router.get("/conversations", requireAuth, ah(async (req, res) => {
   if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
@@ -351,9 +378,10 @@ router.get("/conversations", requireAuth, ah(async (req, res) => {
               u.id AS uid, u.name, u.photo, u.country_code, u.subscribed, u.is_admin
        FROM private_messages m
        JOIN users u ON u.id = CASE WHEN m.from_user_id = ? THEN m.to_user_id ELSE m.from_user_id END
-       WHERE m.from_user_id = ? OR m.to_user_id = ?
+       WHERE (m.from_user_id = ? OR m.to_user_id = ?)
+         AND m.id NOT IN (SELECT message_id FROM dm_hidden WHERE user_id = ?)
        ORDER BY m.created_at DESC`
-    , me, me, me);
+    , me, me, me, me);
   const map = new Map();
   for (const r of rows) {
     const otherId = r.from_user_id === me ? r.to_user_id : r.from_user_id;
@@ -399,9 +427,10 @@ router.get("/:uid", requireAuth, ah(async (req, res) => {
   const msgs = await db.all(
       `SELECT id, from_user_id, text, msg_type, audio_data, file_data, file_name, file_size, created_at, expires_at
        FROM private_messages
-       WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)
+       WHERE ((from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?))
+         AND id NOT IN (SELECT message_id FROM dm_hidden WHERE user_id = ?)
        ORDER BY created_at ASC`
-    , me, other, other, me);
+    , me, other, other, me, me);
   await db.run(
     "UPDATE private_messages SET read_at = datetime('now') WHERE to_user_id = ? AND from_user_id = ? AND read_at IS NULL"
   , me, other);
