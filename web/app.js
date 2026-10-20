@@ -268,24 +268,24 @@ function closeOnlineModal(){
  * Sin plan: el botón está habilitado para comprar RV (tasa 10 RV = 3 links).
  * Con plan: tasa 10 RV = 5 links. */
 async function loadRVBalance(){
-  const btn = $("#rv-btn");
-  if(!btn) return;
+  // El botón de RV vive en Comunidad Y en el Perfil (recargar desde ambos).
+  const btns = [$("#rv-btn"), $("#rv-btn-perfil")].filter(Boolean);
+  if(!btns.length) return;
   // Todos ven el botón habilitado: los gratuitos también pueden comprar RV.
-  btn.style.display = "";
-  btn.classList.remove("locked-feature");
-  btn.onclick = function(){ openRVModal(); };
-  clearLockedTip(btn);
-  btn.style.display = "";
-  btn.classList.remove("locked-feature");
-  btn.onclick = function(){ openRVModal(); };
-  clearLockedTip(btn);
+  btns.forEach(btn => {
+    btn.style.display = "";
+    btn.classList.remove("locked-feature");
+    btn.onclick = function(){ openRVModal(); };
+    clearLockedTip(btn);
+  });
   try{
     const r = await fetch("/api/rv/balance", { headers: authHeaders() });
     if(!r.ok) return;
     const j = await r.json();
-    const bal = $("#rv-balance");
     // El admin tiene RV ilimitado: muestra ∞.
-    if(bal) bal.textContent = (j.unlimited || isAdmin()) ? "∞" : (Number(j.rv) || 0);
+    const txt = (j.unlimited || isAdmin()) ? "∞" : String(Number(j.rv) || 0);
+    const bal = $("#rv-balance"); if(bal) bal.textContent = txt;
+    const balP = $("#rv-balance-perfil"); if(balP) balP.textContent = txt;
   }catch(e){ /* sin conexión */ }
 }
 
@@ -1061,7 +1061,7 @@ function switchTab(tab, fromHash){
   if(tab==="progreso") renderProgreso();
   if(tab==="comunidad") renderComunidad();
   if(tab==="privados") renderDmList();
-  if(tab==="perfil") renderPerfil();
+  if(tab==="perfil"){ renderPerfil(); loadRVBalance().catch(()=>{}); }
   if(tab==="admin") renderAdmin();
   if(!fromHash) syncHash();
 }
