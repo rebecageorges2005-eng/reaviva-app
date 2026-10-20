@@ -89,9 +89,10 @@ async function onlineUsers() {
     return rows.map((u) => {
       const paid = u.subscribed === 1 || u.is_admin === 1;
       const pais = String(u.country_code || "").toUpperCase();
-      // El admin puede participar con el apodo que quiera (chat_alias).
-      const nombre = (u.is_admin === 1 && u.chat_alias)
-        ? u.chat_alias
+      // El admin participa con su apodo (chat_alias); sin apodo → "Guest007".
+      // NUNCA se muestra el nombre real del admin en el chat.
+      const nombre = u.is_admin === 1
+        ? (u.chat_alias || "Guest007")
         : (paid
           ? (pais ? iniciales(u.name) + " · " + pais : iniciales(u.name))
           : "Guest");
@@ -268,9 +269,10 @@ router.get("/", requireAuth, ah(async (req, res) => {
       // para permitir abrir mensajes privados al hacer clic; no revela identidad.
       const paid = c.subscribed === 1 || c.is_admin === 1;
       const pais = String(c.country_code || "").toUpperCase();
-      // El admin puede participar con el apodo que quiera (chat_alias).
-      const nombre = (c.is_admin === 1 && c.chat_alias)
-        ? c.chat_alias
+      // El admin participa con su apodo (chat_alias); sin apodo → "Guest007".
+      // NUNCA se muestra el nombre real del admin en el chat.
+      const nombre = c.is_admin === 1
+        ? (c.chat_alias || "Guest007")
         : (paid
           ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
           : "Guest");
@@ -583,8 +585,8 @@ router.get("/hidden", requireAuth, ah(async (req, res) => {
     ocultos: rows.map((c) => {
       const paid = c.subscribed === 1 || c.is_admin === 1;
       const pais = String(c.country_code || "").toUpperCase();
-      const nombre = (c.is_admin === 1 && c.chat_alias)
-        ? c.chat_alias
+      const nombre = c.is_admin === 1
+        ? (c.chat_alias || "Guest007")
         : (paid
           ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
           : "Guest");
