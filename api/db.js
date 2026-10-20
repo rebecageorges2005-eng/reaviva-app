@@ -949,7 +949,7 @@ async function migrate() {
       user_name TEXT,
       is_read INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
-    `);
+    )`);
     console.log("[db] migración: tabla admin_reports lista");
     // Tabla de ajustes clave-valor (ej. el JWT_SECRET persistente).
     await db.exec(`CREATE TABLE IF NOT EXISTS settings (
