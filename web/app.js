@@ -1910,6 +1910,7 @@ function renderPerfil(){
     <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0 8px;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
     <button id="affiliate-btn" class="btn btn-ghost btn-block" onclick="openAffiliateModal()" style="margin:0 0 14px;font-size:1rem;padding:12px">🤝 Afiliado · Gana 5 RV por referido<span id="affiliate-count"></span></button>
     <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
+    <div id="profile-links"></div>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h3 style="margin:0;font-size:1.05rem">${t("alb.title")}</h3>
@@ -1930,6 +1931,55 @@ function renderPerfil(){
   renderPerfilAlbums();
   renderPerfilBioMeta();
   loadAffiliateCount();
+  loadProfileLinks();
+}
+
+/* ---------- Link Pub: links del admin en mi perfil ----------
+ * Solo aparece si el admin publicó links que aplican a MI cuenta
+ * (segmentación por usuario, país y sexo). Sin links → invisible. */
+function linkPlatform(url){
+  let host = "";
+  try{ host = new URL(url).hostname.replace(/^www\./, "").toLowerCase(); }catch(e){}
+  const map = [
+    [["youtube.com", "youtu.be"], "youtube", "YouTube"],
+    [["facebook.com", "fb.com", "fb.watch"], "facebook", "Facebook"],
+    [["instagram.com"], "instagram", "Instagram"],
+    [["tiktok.com"], "tiktok", "TikTok"],
+    [["x.com", "twitter.com"], "x", "X"],
+    [["whatsapp.com", "wa.me"], "whatsapp", "WhatsApp"],
+    [["t.me", "telegram.org"], "telegram", "Telegram"],
+    [["open.spotify.com", "spotify.com"], "spotify", "Spotify"],
+    [["twitch.tv"], "twitch", "Twitch"],
+    [["pinterest.com"], "pinterest", "Pinterest"],
+    [["linkedin.com"], "linkedin", "LinkedIn"],
+  ];
+  for(const [hosts, slug, name] of map)
+    if(hosts.some(h => host === h || host.endsWith("." + h))) return { slug, name, host };
+  return { slug: null, name: host || "Enlace", host };
+}
+
+async function loadProfileLinks(){
+  const box = $("#profile-links");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/links/mine", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    const links = j.links || [];
+    if(!links.length){ box.innerHTML = ""; return; } // sin links: invisible
+    box.innerHTML = `
+    <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
+      <h3 style="margin:0 0 10px;font-size:1.05rem">🔗 Recomendado para ti</h3>
+      <div class="pub-links">
+      ${links.map(l => {
+        const p = linkPlatform(l.url);
+        const titulo = l.title || p.name;
+        const ico = `<span class="pub-link-icowrap"><span class="pub-link-emoji">🔗</span>${p.slug ? `<img class="pub-link-ico" src="https://cdn.simpleicons.org/${p.slug}" alt="${esc(p.name)}" loading="lazy" onerror="this.remove()">` : ""}</span>`;
+        return `<a class="pub-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${ico}<span class="pub-link-txt"><b>${esc(titulo)}</b><small>${esc(p.host)}</small></span><span class="pub-link-arrow">↗</span></a>`;
+      }).join("")}
+      </div>
+    </div>`;
+  }catch(e){ /* sin conexión: la sección queda invisible */ }
 }
 
 /* Muestra la descripción, el sexo y el país en el perfil. */

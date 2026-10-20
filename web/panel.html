@@ -265,6 +265,8 @@ async function render(){
       '<textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>'+
       '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
       '<h2 class="sec">📨 Mensajes enviados</h2><div id="sent-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
+      '<h2 class="sec">🔗 Link Pub</h2>'+
+      '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Publica un link en el <b>perfil</b> de los usuarios (tu canal de YouTube, tu blog…). Aparece con el logo de la plataforma y solo lo ven los usuarios que elijas. Si no hay links para un usuario, la sección no se muestra.</p><div id="linkpub"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
       '<h2 class="sec">🔑 Cambiar contraseña</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Actualiza tu contraseña de administrador. Como verificación se pide tu contraseña actual o tu código de acceso admin.</p>'+
@@ -283,7 +285,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -1131,6 +1133,135 @@ function toggleCommentDetail(i,hide){
       closeDetailModal();
       api("POST","/api/admin/community/"+c.id+(hide?"/hide":"/unhide")).then(loadCommunity).catch(function(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); });
     }}]);
+}
+
+/* ---------- Link Pub ---------- */
+var lpData={links:[],countries:[]};
+var lpSelectedUsers={}; // id -> {nombre,email}
+
+function lpPlatform(url){
+  var host=""; try{ host=new URL(url).hostname.replace(/^www\./,"").toLowerCase(); }catch(e){}
+  var map=[
+    [["youtube.com","youtu.be"],"youtube","YouTube"],
+    [["facebook.com","fb.com","fb.watch"],"facebook","Facebook"],
+    [["instagram.com"],"instagram","Instagram"],
+    [["tiktok.com"],"tiktok","TikTok"],
+    [["x.com","twitter.com"],"x","X"],
+    [["whatsapp.com","wa.me"],"whatsapp","WhatsApp"],
+    [["t.me","telegram.org"],"telegram","Telegram"],
+    [["open.spotify.com","spotify.com"],"spotify","Spotify"],
+    [["twitch.tv"],"twitch","Twitch"],
+    [["pinterest.com"],"pinterest","Pinterest"],
+    [["linkedin.com"],"linkedin","LinkedIn"]
+  ];
+  for(var i=0;i<map.length;i++){
+    var m=map[i];
+    for(var j=0;j<m[0].length;j++){ var h=m[0][j]; if(host===h||host.slice(-(h.length+1))==="."+h) return {slug:m[1],name:m[2],host:host}; }
+  }
+  return {slug:null,name:host||"Enlace",host:host};
+}
+function lpTargetSummary(l){
+  var parts=[];
+  parts.push(l.target_users&&l.target_users.length?("👤 "+l.target_users.length+" usuario(s)"):"🌍 Todos los usuarios");
+  if(l.target_countries&&l.target_countries.length) parts.push("🏳️ "+l.target_countries.join(", "));
+  if(l.target_gender==="M") parts.push("👨 Solo hombres");
+  if(l.target_gender==="F") parts.push("👩 Solo mujeres");
+  return parts.join(" · ");
+}
+
+async function loadLinkPub(){
+  var box=$("#linkpub"); if(!box) return;
+  try{
+    lpData=await api("GET","/api/admin/links");
+    var countries=(lpData.countries||[]).map(function(c){
+      return '<label style="display:inline-flex;align-items:center;gap:4px;margin:0 10px 6px 0;font-size:.88rem"><input type="checkbox" class="lp-country" value="'+esc(c)+'"> '+esc(c)+'</label>';
+    }).join("");
+    box.innerHTML=
+      '<input id="lp-url" class="field" placeholder="Link (https://youtube.com/@tucanal, tu blog…)" style="margin-bottom:8px">'+
+      '<input id="lp-title" class="field" placeholder="Título (opcional: si lo dejas vacío se usa el nombre de la plataforma)" style="margin-bottom:10px">'+
+      '<div style="margin-bottom:8px;font-size:.9rem"><b>¿Para quién?</b><br>'+
+      '<label style="margin-right:16px"><input type="radio" name="lp-aud" value="all" checked onchange="lpAudToggle()"> 🌍 Todos los usuarios</label>'+
+      '<label><input type="radio" name="lp-aud" value="users" onchange="lpAudToggle()"> 👤 Usuarios específicos</label></div>'+
+      '<div id="lp-users-box" style="display:none;margin-bottom:10px">'+
+        '<input id="lp-user-search" class="field" placeholder="🔎 Buscar usuario por nombre o correo…" oninput="lpRenderUserResults()">'+
+        '<div id="lp-user-results" style="max-height:180px;overflow-y:auto;margin-top:6px"></div>'+
+        '<div id="lp-user-selected" style="margin-top:6px"></div>'+
+      '</div>'+
+      '<div style="margin-bottom:8px;font-size:.9rem"><b>Países</b> <span style="color:var(--cocoa-soft)">(solo países con usuarios registrados)</span><br>'+
+      '<label style="margin-right:12px"><input type="checkbox" id="lp-all-countries" checked onchange="lpCountriesToggle()"> Todos los países</label>'+
+      '<span id="lp-countries-box" style="display:none">'+(countries||'<span style="color:var(--cocoa-soft)">Sin países registrados aún.</span>')+'</span></div>'+
+      '<div style="margin-bottom:12px;font-size:.9rem"><b>Sexo</b><br>'+
+      '<select id="lp-gender" class="field" style="max-width:240px"><option value="">👥 Todos</option><option value="M">👨 Solo hombres (M)</option><option value="F">👩 Solo mujeres (F)</option></select></div>'+
+      '<button class="btn" onclick="publishLinkPub()">📤 Publicar link</button> <span id="lp-msg" style="font-size:.88rem"></span>'+
+      '<div id="lp-list" style="margin-top:16px"></div>';
+    lpRenderList();
+  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">Error cargando Link Pub: '+esc(e.message)+'</div>'; }
+}
+function lpAudToggle(){
+  var v=document.querySelector('input[name="lp-aud"]:checked').value;
+  $("#lp-users-box").style.display = v==="users" ? "" : "none";
+  if(v==="users") lpRenderUserResults();
+}
+function lpCountriesToggle(){
+  $("#lp-countries-box").style.display = $("#lp-all-countries").checked ? "none" : "";
+}
+function lpRenderUserResults(){
+  var q=($("#lp-user-search").value||"").toLowerCase();
+  var res=(usersCache||[]).filter(function(u){
+    return !q || (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0;
+  }).slice(0,30);
+  $("#lp-user-results").innerHTML=res.map(function(u){
+    var on=!!lpSelectedUsers[u.id];
+    return '<div class="rowline"><span>'+esc(u.nombre||"—")+' <small style="color:var(--cocoa-soft)">'+esc(u.email||"")+'</small></span>'+
+      '<button class="btn btn-sm" onclick="lpToggleUser('+u.id+')">'+(on?"✓ Quitar":"+ Agregar")+'</button></div>';
+  }).join("")||'<p style="color:var(--cocoa-soft);font-size:.85rem">Sin resultados.</p>';
+  lpRenderSelectedUsers();
+}
+function lpRenderSelectedUsers(){
+  var ids=Object.keys(lpSelectedUsers);
+  $("#lp-user-selected").innerHTML=ids.length
+    ? '<div style="font-size:.85rem"><b>Seleccionados ('+ids.length+'):</b> '+ids.map(function(id){ return esc(lpSelectedUsers[id].nombre); }).join(", ")+'</div>'
+    : '<div style="font-size:.85rem;color:var(--cocoa-soft)">Ningún usuario seleccionado todavía.</div>';
+}
+function lpToggleUser(id){
+  if(lpSelectedUsers[id]) delete lpSelectedUsers[id];
+  else{ var u=(usersCache||[]).find(function(x){ return x.id===id; }); if(u) lpSelectedUsers[id]={nombre:u.nombre||u.email||("Usuario "+id), email:u.email||""}; }
+  lpRenderUserResults();
+}
+async function publishLinkPub(){
+  var url=($("#lp-url").value||"").trim();
+  var msg=$("#lp-msg");
+  if(!/^https?:\/\//i.test(url)){ msg.style.color="#a33"; msg.textContent="⚠️ El link debe empezar con http:// o https://"; return; }
+  var aud=document.querySelector('input[name="lp-aud"]:checked').value;
+  var userIds = aud==="users" ? Object.keys(lpSelectedUsers).map(Number) : [];
+  if(aud==="users" && !userIds.length){ msg.style.color="#a33"; msg.textContent="⚠️ Elige al menos un usuario."; return; }
+  var countries=[];
+  if(!$("#lp-all-countries").checked){
+    countries=Array.prototype.map.call(document.querySelectorAll(".lp-country:checked"), function(c){ return c.value; });
+  }
+  var body={ url:url, title:($("#lp-title").value||"").trim(), userIds:userIds, countries:countries, gender:$("#lp-gender").value };
+  try{
+    await api("POST","/api/admin/links",body);
+    msg.style.color="#2e7d32"; msg.textContent="✅ ¡Link publicado!";
+    lpSelectedUsers={};
+    loadLinkPub();
+  }catch(e){ if(e.message==="AUTH") authFail(); else { msg.style.color="#a33"; msg.textContent="Error: "+e.message; } }
+}
+function lpRenderList(){
+  var list=$("#lp-list"); if(!list) return;
+  var links=lpData.links||[];
+  if(!links.length){ list.innerHTML='<p style="color:var(--cocoa-soft);font-size:.9rem">No hay links publicados todavía.</p>'; return; }
+  list.innerHTML='<div style="font-size:.9rem;margin-bottom:6px"><b>Publicados ('+links.length+')</b></div>'+links.map(function(l){
+    var p=lpPlatform(l.url);
+    var ico=p.slug?'<img src="https://cdn.simpleicons.org/'+p.slug+'" alt="" style="width:22px;height:22px;vertical-align:-5px" onerror="this.remove()"> ':"🔗 ";
+    return '<div class="rowline"><span>'+ico+'<b>'+esc(l.title||p.name)+'</b> <small style="color:var(--cocoa-soft)">'+esc(l.url)+'</small><br><small style="color:var(--cocoa-soft)">'+esc(lpTargetSummary(l))+'</small></span>'+
+      '<button class="btn btn-sm" onclick="deleteLinkPub('+l.id+')">🗑️ Quitar</button></div>';
+  }).join("");
+}
+async function deleteLinkPub(id){
+  if(!confirm("¿Quitar este link de los perfiles?")) return;
+  try{ await api("DELETE","/api/admin/links/"+id); loadLinkPub(); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
 </script>
 </body>
