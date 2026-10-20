@@ -1806,7 +1806,7 @@ function editBio(){
         placeholder="Cuéntanos algo sobre ti… (10 a 100 caracteres)"
         style="width:100%;margin-bottom:6px">${esc(actual)}</textarea>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleEmojiGrid('bio-emoji-panel')">😊</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-emoji-toggle onclick="toggleEmojiGrid('bio-emoji-panel')">😊</button>
         <div id="bio-count" style="font-size:.8rem;color:var(--cocoa-soft)">${actual.length}/100</div>
       </div>
       <div id="bio-emoji-panel" class="emoji-panel" data-target="#bio-input" style="display:none;margin-bottom:10px"></div>
@@ -2569,17 +2569,15 @@ async function createTopic(){
    ============================================================ */
 const EMOJIS = ["😊","😂","❤️","💛","🙏","😢","😮","😡","👏","🎉","💪","🌟","⭐","🔥","💫","🌈","☀️","🌙","🦋","🌻","🌷","🍀","🤗","😌","🥺","💔","❤️‍🩹","🧠","💭","✨","🕊️","🤍"];
 
+/* Cierra todos los paneles de emojis al hacer clic fuera de ellos. */
+document.addEventListener("click", (e)=>{
+  if(e.target.closest(".emoji-panel")) return; // clic dentro del panel
+  if(e.target.closest("[data-emoji-toggle]")) return; // clic en el botón 😊
+  document.querySelectorAll(".emoji-panel").forEach(p=>{ p.style.display = "none"; });
+});
+
 function toggleEmojiPanel(){
-  const panel = $("#emoji-panel");
-  if(!panel) return;
-  if(panel.style.display === "none"){
-    panel.innerHTML = EMOJIS.map(e =>
-      `<button type="button" class="emoji-btn" onclick="insertEmoji('${e}')">${e}</button>`
-    ).join("");
-    panel.style.display = "grid";
-  }else{
-    panel.style.display = "none";
-  }
+  toggleEmojiGrid("emoji-panel");
 }
 
 function insertEmojiInto(sel, e){
@@ -2924,7 +2922,7 @@ async function openDmWindow(uid, target){
       <div class="dm-win-composer">
         <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
           onchange="sendDmFileWin(${uid}, this)">
-        <button class="dm-icon-btn" title="Emojis" aria-label="Emojis"
+        <button class="dm-icon-btn" title="Emojis" aria-label="Emojis" data-emoji-toggle
           onclick="toggleEmojiGrid('dm-emoji-${uid}')">😊</button>
         <button class="dm-icon-btn" title="${esc(t("dm.voice_msg"))}" aria-label="Voz"
           onclick="toggleDmVoiceWin(${uid})">🎤</button>

@@ -375,11 +375,11 @@
           <textarea id="community-text" class="field" rows="3" maxlength="500"
             data-i18n-ph="chat.ph" placeholder="Comparte algo con la comunidad… (sin correos ni teléfonos)"></textarea>
           <div class="composer-actions">
-            <button type="button" id="emoji-btn" class="composer-icon-btn" onclick="toggleEmojiPanel()" title="Emojis">😊</button>
+            <button type="button" id="emoji-btn" class="composer-icon-btn" data-emoji-toggle onclick="toggleEmojiGrid('emoji-panel')" title="Emojis">😊</button>
             <button type="button" id="photo-btn" class="composer-icon-btn" data-i18n-title="chat.photo" title="Enviar foto temporal (30s)" style="display:none">📷</button>
             <input type="file" id="chat-photo-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" onchange="sendChatPhoto(this)">
           </div>
-          <div id="emoji-panel" class="emoji-panel" style="display:none"></div>
+          <div id="emoji-panel" class="emoji-panel" data-target="#community-text" style="display:none"></div>
           <button class="btn btn-primary btn-block" onclick="postCommunity()" data-i18n="chat.publish">Publicar 💛</button>
           <small class="community-note" data-i18n="chat.safety_note">Por tu seguridad, no compartas correos ni números de teléfono.</small>
         </div>
@@ -499,6 +499,6 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=41"></script>
+<script src="/app.js?v=42"></script>
 </body>
 </html>
