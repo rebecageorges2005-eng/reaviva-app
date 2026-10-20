@@ -1043,15 +1043,18 @@ function enterApp(initialTab){
   try{ checkUserMessages(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
   try{ startDmWinPoll(); }catch(e){}
+  // Sondeo del chat grupal SIEMPRE activo con la sesión iniciada: alimenta el
+  // contador rojo de mensajes sin leer aunque estés en otra pestaña.
+  try{ loadGroupUnread(); updateGroupBadge(); startChatPoll(); }catch(e){}
 }
 function switchTab(tab, fromHash){
   // Al cambiar de pestaña, borrar el borrador del día si había uno abierto.
   try{ if(typeof openDayNum !== "undefined" && openDayNum) clearDayDraft(openDayNum); }catch(e){}
   $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id==="panel-"+tab));
-  // El sondeo de mensajes nuevos corre con el chat abierto: pestaña de comunidad
-  // O ventanita flotante del chat grupal (persiste al cambiar de pestaña).
-  if(tab === "comunidad" || (typeof groupWinOpen === "function" && groupWinOpen())) startChatPoll(); else stopChatPoll();
+  // El sondeo de mensajes corre siempre con la sesión iniciada (contador de
+  // no leídos); al ENTRAR a la comunidad, los mensajes quedan leídos (contador a 0).
+  if(tab === "comunidad") markGroupRead();
   if(tab==="hoy") renderHoy();
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
@@ -2902,6 +2905,30 @@ const seenMsgIds = new Set();
 const myMsgIds = new Set();
 let chatPollTimer = null;
 
+/* Contador de mensajes del chat grupal SIN LEER: globito rojo con el número
+ * que se va SUMANDO cada vez que alguien escribe y no lo has leído; solo
+ * vuelve a 0 cuando abres el chat. Se guarda por usuario en el dispositivo. */
+let groupUnread = 0;
+function groupUnreadKey(){ const u = currentUser(); return "reaviva_group_unread_" + (u ? u.id : "0"); }
+function loadGroupUnread(){ try{ groupUnread = parseInt(localStorage.getItem(groupUnreadKey()) || "0", 10) || 0; }catch(e){ groupUnread = 0; } }
+function saveGroupUnread(){ try{ localStorage.setItem(groupUnreadKey(), String(groupUnread)); }catch(e){} }
+function updateGroupBadge(){
+  const txt = groupUnread > 99 ? "99+" : String(groupUnread);
+  const b = $("#group-badge");
+  if(b){ b.style.display = groupUnread > 0 ? "" : "none"; b.textContent = txt; }
+  if(typeof groupWinOpen === "function" && groupWinOpen()){
+    const wb = groupWin.el.querySelector(".group-win-unread");
+    if(wb){ wb.style.display = groupUnread > 0 ? "" : "none"; wb.textContent = txt; }
+  }
+}
+function markGroupRead(){ groupUnread = 0; saveGroupUnread(); updateGroupBadge(); }
+function groupChatVisible(){
+  if(document.hidden) return false;
+  const active = document.querySelector(".tab.active");
+  if(active && active.dataset.tab === "comunidad") return true;
+  return (typeof groupWinOpen === "function") && groupWinOpen() && !groupWin.minimized;
+}
+
 function startChatPoll(){
   stopChatPoll();
   updateSoundIcon();
@@ -2926,7 +2953,13 @@ function startChatPoll(){
       if(nuevos.length){
         nuevos.forEach(c => seenMsgIds.add(c.id));
         // Suena solo por mensajes de OTROS usuarios.
-        if(nuevos.some(c => !myMsgIds.has(c.id))) playDing();
+        const deOtros = nuevos.filter(c => !myMsgIds.has(c.id));
+        if(deOtros.length){
+          playDing();
+          // Si NO está mirando el chat, el contador rojo SUMA los no leídos.
+          if(!groupChatVisible()){ groupUnread += deOtros.length; saveGroupUnread(); }
+        }
+        updateGroupBadge();
         // Refrescar la ventanita flotante si está abierta; si no, la vista completa.
         if(typeof groupWinOpen === "function" && groupWinOpen()) paintGroupWinMessages(j);
         else renderComunidad();
@@ -3189,6 +3222,7 @@ function openGroupChat(){
 }
 
 function openGroupChatWindow(){
+  markGroupRead(); // al abrir el chat, los mensajes quedan leídos
   if(groupWinOpen()){
     if(groupWin.minimized) restoreGroupChatWindow();
     else focusGroupChatWindow();
@@ -3201,6 +3235,7 @@ function openGroupChatWindow(){
     <div class="dm-win-head" onclick="toggleMinGroupChatWindow()">
       <div class="comment-avatar">💬</div>
       <div class="dm-win-title"><b>${esc(t("chat.group_win"))}</b><br><small class="group-win-online">🟢 …</small></div>
+      <span class="dm-win-unread group-win-unread" style="display:none"></span>
       <button class="dm-win-headbtn" title="⛶" aria-label="Vista completa"
         onclick="event.stopPropagation();expandGroupChatWindow()">⛶</button>
       <button class="dm-win-headbtn" title="${esc(t("dm.win_min"))}" aria-label="${esc(t("dm.win_min"))}"
@@ -3247,6 +3282,7 @@ function restoreGroupChatWindow(){
   if(!groupWin || !groupWin.minimized) return;
   groupWin.minimized = false;
   groupWin.el.classList.remove("minimized");
+  markGroupRead(); // al restaurar la ventanita, queda leído
   focusGroupChatWindow();
   loadGroupWinMessages();
 }
@@ -3254,9 +3290,7 @@ function restoreGroupChatWindow(){
 function closeGroupChatWindow(){
   if(groupWin && groupWin.el) groupWin.el.remove();
   groupWin = null;
-  // Si no estamos en la pestaña de comunidad, detener el sondeo.
-  const active = document.querySelector(".tab.active");
-  if(!active || active.dataset.tab !== "comunidad") stopChatPoll();
+  // El sondeo SIGUE activo (sesión iniciada): el contador de no leídos continúa.
 }
 
 /* ⛶: abre la vista completa (con fotos, temas y RV) y cierra la ventanita. */
