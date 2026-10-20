@@ -1493,7 +1493,47 @@ const STORY_PROMPTS = [
   "Tu historia continúa. Escribe el capítulo que empieza hoy: ¿cómo quieres que siga tu vida desde aquí?",
 ];
 function storyPrompt(d){
-  return STORY_PROMPTS[(Number(d) || 1) - 1] || STORY_PROMPTS[0];
+  const day = Number(d) || 1;
+  if(day <= 1) return STORY_PROMPTS[0];
+  /* Desde el día 2, las preguntas son DISTINTAS para cada usuario: se arman
+     con fragmentos reales de lo que escribió el DÍA 1 (su propia historia). */
+  const day1 = (getStoryText(1) || "").trim();
+  const sents = day1.split(/[.!?]+/).map(s=>s.trim()).filter(s=>s.length > 25);
+  if(!sents.length) return STORY_PROMPTS[day - 1];
+  sents.sort((a,b)=>b.length - a.length);
+  const frag = (sents[(day - 2) % sents.length]).slice(0, 140);
+  const T = {
+    2:  `El día 1 escribiste: «${frag}…». A partir de eso: ¿cuándo sentiste por primera vez que algo había cambiado entre ustedes?`,
+    3:  `En tu historia contaste: «${frag}…». Hoy profundiza: describe el momento exacto en que supiste que la relación ya no era la misma.`,
+    4:  `Relee lo que escribiste el día 1: «${frag}…». ¿Qué parte de todo eso es lo que más te duele hoy?`,
+    5:  `Pensando en tu historia («${frag}…»), si pudieras hablar con esa persona hoy, sin miedo, ¿qué le dirías?`,
+    6:  `El día 1 dijiste: «${frag}…». ¿Qué crees que cambió en tu relación en los últimos días juntos, comparado con eso?`,
+    7:  `Según lo que contaste («${frag}…»), ¿en qué momentos te sentías más {solo/sola} aun estando {acompañado/acompañada}?`,
+    8:  `En tu historia aparece esto: «${frag}…». ¿Qué señales viste y decidiste ignorar? ¿Por qué las ignoraste?`,
+    9:  `A raíz de lo que viviste («${frag}…»), ¿qué parte de ti dejaste de lado para mantener esa relación?`,
+    10: `Escribe una carta que nunca enviarás. Empieza retomando esto que contaste el día 1: «${frag}…». Di todo lo que guardaste.`,
+    11: `Piensa en tu historia («${frag}…»): ¿hubo bromas o comentarios que te herían disfrazados de algo normal? Cuéntalos.`,
+    12: `Contaste que «${frag}…». ¿Te hicieron sentir que exagerabas cuando algo te dolía? ¿Cómo fue?`,
+    13: `El día 1 escribiste «${frag}…». ¿Qué frases de esa persona se te quedaron grabadas desde entonces?`,
+    14: `Con base en tu historia («${frag}…»): ¿de qué formas te controlaban o te hacían dudar de ti? Ejemplos concretos.`,
+    15: `Hoy, mirando todo lo que contaste desde el día 1 («${frag}…»), escribe todo lo que reconoces como tóxico en esa relación.`,
+    16: `Antes de esta historia («${frag}…»), ¿cuándo fue la última vez que hiciste algo solo por ti? ¿Qué se sintió?`,
+    17: `Por cosas como esta que viviste («${frag}…»): ¿qué límites no pusiste y hoy quisieras haber puesto?`,
+    18: `Después de vivir esto («${frag}…»): ¿qué te mereces en una relación? Escríbelo sin modestia.`,
+    19: `Si tu {mejor amigo/mejor amiga} viviera tu historia («${frag}…»), ¿qué le aconsejarías? Ahora aplícalo a ti.`,
+    20: `Tu historia empezó así: «${frag}…». Ahora escribe cómo sería un día normal de tu vida si esto ya no doliera.`,
+    21: `Mirando tu historia completa («${frag}…»): ¿qué patrón se repite en tus relaciones? ¿De dónde viene?`,
+    22: `Contaste el día 1 que «${frag}…». ¿Qué creencias sobre el amor aprendiste de {niño/niña} que hoy te hacen daño?`,
+    23: `Sobre todo lo que pasó («${frag}…»): ¿a quién necesitas perdonar: a esa persona, a ti, o a ambos? ¿Por qué?`,
+    24: `Escribe la despedida que nunca pudiste dar. Retoma el final de lo que contaste: «${frag}…» y cierra esa conversación.`,
+    25: `Si alguien volviera a tratarte como en esta historia («${frag}…»), ¿qué harás diferente? Escribe tus nuevas reglas.`,
+    26: `El día 1 escribiste «${frag}…». Hoy, ¿qué aprendiste de ti en este proceso que no sabías entonces?`,
+    27: `Compárate con la persona de esta frase: «${frag}…». ¿En quién te estás convirtiendo? ¿Qué ya no aceptas?`,
+    28: `Por esta relación («${frag}…») dejaste sueños en pausa. Haz la lista y marca cuál retomas primero.`,
+    29: `Ya no eres la persona que escribió «${frag}…». Escribe tu plan para los próximos 30 días, paso a paso.`,
+    30: `Tu historia empezó con «${frag}…». Hoy escribe el capítulo que empieza ahora: ¿cómo sigue tu vida desde aquí?`,
+  };
+  return T[day] || STORY_PROMPTS[day - 1];
 }
 
 function getStoryText(d){
