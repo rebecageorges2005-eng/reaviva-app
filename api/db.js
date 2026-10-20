@@ -498,6 +498,7 @@ async function migrate() {
     await add("chat_mutes", "INTEGER NOT NULL DEFAULT 0");
     await add("rv_bonus_for", "TEXT");
     await add("chat_alias", "TEXT");
+    await add("city", "TEXT");
   } catch (e) {
     console.error("[db] migración chat_strikes:", e.message);
   }
