@@ -1368,7 +1368,7 @@ function openDay(d){
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/audio/dia-${p.day}${userGender()==="F"?"-f":""}.mp3" style="width:100%"></audio></div>
     <div class="block case"><h4>📖 El caso</h4><p>${esc(gtext(p.caso))}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
-    <div class="block"><h4>📝 Su historia</h4><p>Cuéntanos tu historia: ¿cómo empezó todo?</p>
+    <div class="block"><h4>📝 Su historia</h4><p>${esc(gtext(storyPrompt(p.day)))}</p>
       <textarea id="story-text" class="journal" rows="6" placeholder="Escribe aquí tu historia… (mínimo 500 caracteres)" ${done?"disabled":""}>${esc(savedStory)}</textarea>
       <div id="story-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-top:4px"></div>
     </div>
@@ -1458,6 +1458,44 @@ function saveExerciseText(d, text){
   store.set("reaviva_exercises", all);
 }
 /* Historia personal del usuario por día (cómo empezó todo). */
+/* Preguntas de "Su historia": una distinta por día, cada una sigue lo que
+   contó en los días anteriores (cadena progresiva de reflexión). */
+const STORY_PROMPTS = [
+  "Cuéntanos tu historia: ¿cómo empezó todo? ¿Cómo se conocieron y cómo era al principio?",
+  "Ayer contaste cómo empezó. Hoy: ¿cuándo sentiste por primera vez que algo había cambiado entre ustedes?",
+  "Describe el momento exacto en que supiste que la relación ya no era la misma. ¿Qué pasó ese día?",
+  "De todo lo que has contado, ¿qué es lo que más te duele hoy? Escríbelo sin filtros.",
+  "Si pudieras hablar con esa persona hoy, sin miedo y sin que te interrumpa, ¿qué le dirías?",
+  "¿Qué crees que cambió en tu relación en los últimos días juntos? ¿Qué fue distinto al principio?",
+  "¿En qué momentos te sentías más {solo/sola} aun estando {acompañado/acompañada}? Cuéntalos.",
+  "¿Qué señales viste y decidiste ignorar? ¿Por qué crees que las ignoraste?",
+  "¿Qué parte de ti dejaste de lado para mantener esa relación? ¿Qué dejaste de hacer, de soñar, de ser?",
+  "Escribe una carta que nunca enviarás: todo lo que guardaste y nunca dijiste.",
+  "¿Hubo bromas, comentarios o actitudes que te herían disfrazados de algo normal? Cuéntalos con ejemplos.",
+  "¿Alguna vez te hicieron sentir que exagerabas cuando algo te dolía? ¿Cómo fue y qué sentiste?",
+  "¿Qué frases de esa persona se te quedaron grabadas? Escríbelas tal como las recuerdas y lo que te hacen sentir hoy.",
+  "¿De qué formas te controlaban o te hacían dudar de ti? Pon ejemplos concretos, sin suavizarlos.",
+  "Hoy escribe todo lo que reconoces como tóxico en esa relación. Todo. Sin excusas para nadie.",
+  "¿Cuándo fue la última vez que hiciste algo solo por ti y para ti? ¿Qué se sintió? ¿Por qué dejaste de hacerlo?",
+  "¿Qué límites no pusiste y hoy quisieras haber puesto? Escríbelos como reglas para tu vida desde hoy.",
+  "¿Qué te mereces en una relación? Escríbelo sin modestia y sin pedir permiso.",
+  "Si tu {mejor amigo/mejor amiga} viviera exactamente tu historia, ¿qué le aconsejarías? Ahora aplícalo a ti.",
+  "Escribe cómo sería un día normal de tu vida si esto ya no doliera. En detalle: mañana, tarde y noche.",
+  "Mirando hacia atrás: ¿qué patrón ves que se repite en tus relaciones? ¿De dónde crees que viene?",
+  "¿Qué creencias sobre el amor aprendiste de {niño/niña} que hoy te hacen daño? Escríbelas y cuestiónalas.",
+  "¿A quién necesitas perdonar para seguir: a esa persona, a ti, o a ambos? Escribe por qué y cómo empezaría ese perdón.",
+  "Escribe la despedida que nunca pudiste dar. Di todo lo que quedó pendiente y cierra esa conversación.",
+  "¿Qué harás diferente la próxima vez que alguien te trate como te trataron? Escribe tus nuevas reglas.",
+  "Ya avanzaste mucho. ¿Qué aprendiste de ti en estos días? ¿Qué descubriste que no sabías de ti?",
+  "Describe a la persona en la que te estás convirtiendo. ¿Cómo piensa, cómo actúa, qué ya no acepta?",
+  "¿Qué sueños dejaste en pausa por esa relación? Haz la lista y marca cuál retomas primero y cuándo.",
+  "Escribe tu plan para los próximos 30 días: ¿qué vas a construir, paso a paso?",
+  "Tu historia continúa. Escribe el capítulo que empieza hoy: ¿cómo quieres que siga tu vida desde aquí?",
+];
+function storyPrompt(d){
+  return STORY_PROMPTS[(Number(d) || 1) - 1] || STORY_PROMPTS[0];
+}
+
 function getStoryText(d){
   const all = store.get("reaviva_stories", {});
   return all[d] || "";
