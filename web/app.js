@@ -1803,7 +1803,11 @@ function editBio(){
       <textarea id="bio-input" class="journal" rows="3" maxlength="100"
         placeholder="Cuéntanos algo sobre ti… (10 a 100 caracteres)"
         style="width:100%;margin-bottom:6px">${esc(actual)}</textarea>
-      <div id="bio-count" style="text-align:right;font-size:.8rem;color:var(--cocoa-soft);margin-bottom:10px">${actual.length}/100</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleEmojiGrid('bio-emoji-panel')">😊</button>
+        <div id="bio-count" style="font-size:.8rem;color:var(--cocoa-soft)">${actual.length}/100</div>
+      </div>
+      <div id="bio-emoji-panel" class="emoji-panel" data-target="#bio-input" style="display:none;margin-bottom:10px"></div>
       <div style="display:flex;gap:10px;justify-content:center">
         <button class="btn btn-ghost" onclick="closeDynModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="saveBio()">Guardar</button>
@@ -2576,14 +2580,35 @@ function toggleEmojiPanel(){
   }
 }
 
-function insertEmoji(e){
-  const box = $("#community-text");
+function insertEmojiInto(sel, e){
+  const box = typeof sel === "string" ? document.querySelector(sel) : sel;
   if(!box) return;
-  const start = box.selectionStart || box.value.length;
-  const end = box.selectionEnd || box.value.length;
+  const start = (box.selectionStart != null) ? box.selectionStart : box.value.length;
+  const end = (box.selectionEnd != null) ? box.selectionEnd : box.value.length;
   box.value = box.value.slice(0, start) + e + box.value.slice(end);
   box.focus();
   box.selectionStart = box.selectionEnd = start + e.length;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+function insertEmoji(e){
+  insertEmojiInto("#community-text", e);
+}
+/* Panel de emojis genérico: lo llena y lo muestra/oculta. */
+function toggleEmojiGrid(panelId){
+  const panel = document.getElementById(panelId);
+  if(!panel) return;
+  if(panel.style.display === "none" || !panel.innerHTML){
+    const target = panel.dataset.target;
+    panel.innerHTML = EMOJIS.map(e =>
+      `<button type="button" class="emoji-btn" data-emoji="${e}">${e}</button>`
+    ).join("");
+    panel.querySelectorAll(".emoji-btn").forEach(b=>{
+      b.onclick = ()=>insertEmojiInto(target, b.dataset.emoji);
+    });
+    panel.style.display = "grid";
+  }else{
+    panel.style.display = "none";
+  }
 }
 
 /* Fotos temporales: solo usuarios con plan. */
@@ -2893,14 +2918,17 @@ async function openDmWindow(uid, target){
       <div class="dm-win-msgs"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
       <div class="dm-win-rec" style="display:none">🔴 <span class="dm-win-rec-time">0:00</span>
         <button class="btn btn-sm" onclick="detenerDmVoiceWin()">⏹</button></div>
+      <div id="dm-emoji-${uid}" class="emoji-panel" data-target="#dm-input-${uid}" style="display:none"></div>
       <div class="dm-win-composer">
         <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
           onchange="sendDmFileWin(${uid}, this)">
+        <button class="dm-icon-btn" title="Emojis" aria-label="Emojis"
+          onclick="toggleEmojiGrid('dm-emoji-${uid}')">😊</button>
         <button class="dm-icon-btn" title="${esc(t("dm.voice_msg"))}" aria-label="Voz"
           onclick="toggleDmVoiceWin(${uid})">🎤</button>
         <button class="dm-icon-btn ${annual ? "" : "locked-feature"}" title="${annual ? "📎" : esc(t("dm.file_only_annual"))}"
           aria-label="Archivo" onclick="dmWinFileClick(${uid})">${annual ? "📎" : "📎🔒"}</button>
-        <input class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
+        <input id="dm-input-${uid}" class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
           onkeydown="if(event.key==='Enter')sendDmWin(${uid})">
         <button class="dm-win-send" onclick="sendDmWin(${uid})" aria-label="Enviar">➤</button>
       </div>
@@ -3626,7 +3654,21 @@ document.addEventListener("DOMContentLoaded", ()=>{
   }
   // deep-link con nombre: #registro, #entrar, #comunidad, etc.
   if(applyHashRoute()){
-    restoreSession().then(()=>{});
+    // Al terminar de restaurar la sesión: si hay sesión válida pero la vista
+    // quedó en el landing o en auth (ej. al recargar), entrar a la app en la
+    // pestaña del hash (o en Hoy) — sin sacar al usuario de donde estaba.
+    restoreSession().then(ok => {
+      if(ok && currentUser()){
+        const lv = $("#view-landing"), av = $("#view-auth");
+        const onLanding = lv && lv.style.display !== "none";
+        const onAuth = av && av.style.display !== "none";
+        if(onLanding || onAuth){
+          const h = (location.hash || "").replace(/^#/, "").toLowerCase();
+          const tabByHash = Object.keys(TAB_HASHES).find(t => TAB_HASHES[t] === h);
+          enterApp(tabByHash || undefined);
+        }
+      }
+    });
   }
   // deep-link legado: #app — valida la sesión contra el backend
   else if(location.hash === "#app"){
