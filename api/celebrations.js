@@ -293,4 +293,55 @@ async function claimLog(userId, kind, period, idx){
   return true;
 }
 
-module.exports = { runCelebrations, CUMPLEANOS, SEMESTRE };
+/* Próximas celebraciones en los siguientes N días (para el admin):
+ * cumpleaños y aniversarios semestrales, ordenados por cercanía. */
+async function upcomingCelebrations(days = 30){
+  const hoy = hoyLaPaz();
+  const base = Date.UTC(hoy.y, hoy.m - 1, hoy.d);
+  const users = await db.all(
+    `SELECT id, name, email, birthdate, created_at FROM users
+     WHERE email_verified = 1 AND is_admin = 0
+       AND email NOT LIKE '%@test.com' AND email NOT LIKE '%@reavivaapp.com'`);
+  const out = [];
+  for (const u of users) {
+    if (u.birthdate) {
+      const bm = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(u.birthdate));
+      if (bm) {
+        const bM = Number(bm[2]);
+        let bD = Number(bm[3]);
+        for (const y of [hoy.y, hoy.y + 1]) {
+          const dd = (bM === 2 && bD === 29 && !isLeap(y)) ? 28 : bD;
+          const t = Date.UTC(y, bM - 1, Math.min(dd, daysInMonth(y, bM)));
+          const falta = Math.round((t - base) / 86400000);
+          if (falta >= 0 && falta <= days) {
+            out.push({ tipo: "cumpleanos", nombre: u.name, email: u.email, enDias: falta,
+              fecha: new Date(t).toISOString().slice(0, 10), cumple: y - Number(bm[1]) });
+          }
+          if (falta >= 0) break;
+        }
+      }
+    }
+    if (u.created_at) {
+      const cm = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(u.created_at));
+      if (cm) {
+        const cY = Number(cm[1]), cM = Number(cm[2]), cD = Number(cm[3]);
+        for (let meses = 6; meses <= 60; meses += 6) {
+          const idx = (cM - 1) + meses;
+          const y = cY + Math.floor(idx / 12), m = (idx % 12) + 1;
+          const d = Math.min(cD, daysInMonth(y, m));
+          const t = Date.UTC(y, m - 1, d);
+          const falta = Math.round((t - base) / 86400000);
+          if (falta >= 0 && falta <= days) {
+            out.push({ tipo: "semestre", nombre: u.name, email: u.email, enDias: falta,
+              fecha: new Date(t).toISOString().slice(0, 10), meses });
+          }
+          if (falta >= 0) break;
+        }
+      }
+    }
+  }
+  out.sort((a, b) => a.enDias - b.enDias);
+  return { hoy: `${hoy.y}-${String(hoy.m).padStart(2, "0")}-${String(hoy.d).padStart(2, "0")}`, proximas: out };
+}
+
+module.exports = { runCelebrations, upcomingCelebrations, CUMPLEANOS, SEMESTRE };
