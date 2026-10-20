@@ -1860,11 +1860,82 @@ async function uploadProfilePhoto(input){
 }
 
 /* Subir foto de portada (redimensionada a 1200x400). */
+/* Paso 1: al elegir la foto, abrir el editor para centrarla antes de publicar. */
 async function uploadCoverPhoto(input){
   const f = input.files && input.files[0];
   if(!f) return;
   try{
-    const dataUrl = await resizeImage(f, 1200, 400);
+    const dataUrl = await loadImageDataUrl(f);
+    window._coverDraft = dataUrl;
+    window._coverPos = 50; // posición vertical en % (50 = centrada)
+    openCoverEditor();
+  }catch(e){
+    toast("Error: " + e.message);
+  }
+  input.value = "";
+}
+/* Carga una imagen como dataURL (con respaldo FileReader). */
+function loadImageDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const fr = new FileReader();
+    fr.onload = ()=>resolve(fr.result);
+    fr.onerror = ()=>reject(new Error("No se pudo leer el archivo"));
+    fr.readAsDataURL(file);
+  });
+}
+/* Paso 2: editor de portada — arrastrar o usar los botones para centrar. */
+function openCoverEditor(){
+  if(!window._coverDraft) return;
+  openDynModal(`
+    <div style="text-align:center">
+      <h3 style="margin:0 0 6px">🖼️ Ajusta tu portada</h3>
+      <p style="color:var(--cocoa-soft);font-size:.85rem;margin:0 0 10px">Arrastra la imagen o usa los botones para centrarla</p>
+      <div id="cover-edit-preview"
+        style="width:100%;height:150px;border-radius:12px;background-image:url('${window._coverDraft}');background-size:cover;background-position:center ${window._coverPos}%;cursor:grab;touch-action:none;user-select:none"></div>
+      <div style="display:flex;gap:10px;justify-content:center;margin:12px 0">
+        <button class="btn btn-ghost btn-sm" onclick="nudgeCover(-10)">⬆️ Subir</button>
+        <button class="btn btn-ghost btn-sm" onclick="nudgeCover(10)">⬇️ Bajar</button>
+        <button class="btn btn-ghost btn-sm" onclick="window._coverPos=50;applyCoverPos()">🎯 Centrar</button>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-ghost" onclick="closeDynModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="publishCover()">✅ Publicar</button>
+      </div>
+    </div>`);
+  // Arrastre con mouse o dedo para ajustar la posición vertical.
+  const pv = document.getElementById("cover-edit-preview");
+  if(pv){
+    let dragging = false, startY = 0, startPos = 50;
+    const start = (y)=>{ dragging = true; startY = y; startPos = window._coverPos; pv.style.cursor = "grabbing"; };
+    const move = (y)=>{
+      if(!dragging) return;
+      const dh = pv.clientHeight || 150;
+      const delta = ((y - startY) / dh) * 100;
+      window._coverPos = Math.max(0, Math.min(100, startPos - delta));
+      applyCoverPos();
+    };
+    const end = ()=>{ dragging = false; pv.style.cursor = "grab"; };
+    pv.addEventListener("mousedown", e=>start(e.clientY));
+    window.addEventListener("mousemove", e=>move(e.clientY));
+    window.addEventListener("mouseup", end);
+    pv.addEventListener("touchstart", e=>start(e.touches[0].clientY), { passive:true });
+    pv.addEventListener("touchmove", e=>move(e.touches[0].clientY), { passive:true });
+    pv.addEventListener("touchend", end);
+  }
+}
+function applyCoverPos(){
+  const pv = document.getElementById("cover-edit-preview");
+  if(pv) pv.style.backgroundPosition = `center ${window._coverPos}%`;
+}
+function nudgeCover(d){
+  window._coverPos = Math.max(0, Math.min(100, window._coverPos + d));
+  applyCoverPos();
+}
+/* Paso 3: publicar la portada ya centrada (recorta según la posición elegida). */
+async function publishCover(){
+  if(!window._coverDraft) return;
+  try{
+    const dataUrl = await cropCoverImage(window._coverDraft, window._coverPos);
     const r = await fetch("/api/auth/profile/cover", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1876,12 +1947,32 @@ async function uploadCoverPhoto(input){
     if(u) u.coverPhoto = dataUrl;
     const su = store.get("reaviva_user", null);
     if(su){ su.coverPhoto = dataUrl; store.set("reaviva_user", su); }
-    toast("Portada actualizada 📷");
+    window._coverDraft = null;
+    closeDynModal();
+    toast("Portada publicada 📷");
     renderPerfil();
   }catch(e){
     toast("Error: " + e.message);
   }
-  input.value = "";
+}
+/* Recorta la imagen a 1200x400 respetando la posición vertical elegida (0-100%). */
+function cropCoverImage(dataUrl, posPct){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const TW = 1200, TH = 400;
+      const scale = Math.max(TW / img.width, TH / img.height);
+      const sw = TW / scale, sh = TH / scale; // ventana de recorte en la imagen original
+      const sx = (img.width - sw) / 2;
+      const sy = (img.height - sh) * (posPct / 100);
+      const cv = document.createElement("canvas");
+      cv.width = TW; cv.height = TH;
+      cv.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, TW, TH);
+      resolve(cv.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = ()=>reject(new Error("No se pudo procesar la imagen"));
+    img.src = dataUrl;
+  });
 }
 
 /* Redimensiona una imagen a maxW x maxH manteniendo proporción.
