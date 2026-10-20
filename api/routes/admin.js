@@ -747,6 +747,12 @@ router.get("/celebrations/log", requireAdmin, ah(async (req, res) => {
   res.json({ envios: rows });
 }));
 
+router.get("/celebrations/upcoming", requireAdmin, ah(async (req, res) => {
+  const { upcomingCelebrations } = require("../celebrations");
+  const days = Math.min(120, Math.max(1, Number(req.query.days) || 30));
+  res.json(await upcomingCelebrations(days));
+}));
+
 router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
   const alias = String((req.body || {}).alias || "").trim().slice(0, 30);
   await db.run("UPDATE users SET chat_alias = ? WHERE id = ?", alias || null, req.user.id);
