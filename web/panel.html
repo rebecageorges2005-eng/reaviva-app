@@ -46,8 +46,17 @@ tr.clickable:hover{background:var(--sand)}
 .msg b{font-size:.95rem}
 .msg small{color:var(--cocoa-soft)}
 .msg p{font-size:.9rem;white-space:pre-wrap}
-.cmt{border-left:4px solid var(--rose);margin-bottom:12px}
+.cmt{border-left:4px solid var(--rose);margin-bottom:12px;animation:cmtIn .3s ease both}
 .cmt.hidden-c{opacity:.55;border-left-color:#ccc}
+@keyframes cmtIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* Lista de comunidad con scroll propio (no empuja toda la página) */
+.community-scroll{max-height:480px;overflow-y:auto;overscroll-behavior:contain;padding:4px 6px 4px 2px;border:1px solid var(--hatch-widget-border,#eee);border-radius:12px;background:rgba(255,255,255,.35)}
+.community-scroll::-webkit-scrollbar{width:8px}
+.community-scroll::-webkit-scrollbar-thumb{background:#d8c9b8;border-radius:4px}
+.community-scroll::-webkit-scrollbar-track{background:transparent}
+@media (max-width:640px){.community-scroll{max-height:60vh}}
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px;animation:livePulse 1.6s infinite}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.35}}
 .cmt .who{font-size:.8rem;color:var(--cocoa-soft);margin-bottom:4px}
 .cmt .actions{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
 .chart{display:flex;align-items:flex-end;gap:3px;height:120px;background:#fff;border-radius:14px;padding:14px 12px 8px;box-shadow:0 2px 10px rgba(74,55,40,.07);margin-bottom:12px;overflow-x:auto}
@@ -1056,10 +1065,16 @@ function showSentDetail(i){
 
 /* ---------- comunidad ---------- */
 async function loadCommunity(){
+  // Conservar la posición del scroll al auto-actualizar.
+  var scEl=$("#community-scroll");
+  var savedTop=scEl?scEl.scrollTop:0;
   try{
     var d=await api("GET","/api/admin/community");
     communityCache=d.comentarios||[];
-    $("#community-list").innerHTML=communityCache.map(function(c,i){
+    $("#community-list").innerHTML=
+    '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:8px"><span class="live-dot"></span>En vivo · '+communityCache.length+' mensaje(s) · se actualiza solo</p>'+
+    '<div class="community-scroll" id="community-scroll">'+
+    (communityCache.map(function(c,i){
       return '<div class="block cmt'+(c.oculto?' hidden-c':'')+'"><div class="who">👤 '+esc(c.nombre)+' · '+esc(c.email)+' · '+esc(c.fecha)+(c.oculto?' · <b>OCULTO</b>':'')+'</div>'+
       '<p>'+esc(c.texto)+'</p><div class="actions">'+
       '<button class="btn btn-sm" onclick="messageUser('+c.usuarioId+')">✉️ Mensaje</button>'+
@@ -1067,7 +1082,8 @@ async function loadCommunity(){
         ? '<button class="btn btn-ghost btn-sm" onclick="toggleCommentDetail('+i+',false)">👁️ Ver detalle / Mostrar</button>'
         : '<button class="btn btn-danger btn-sm" onclick="toggleCommentDetail('+i+',true)">🚫 Ver detalle / Ocultar</button>')+
       '</div></div>';
-    }).join("")||'<p style="color:var(--cocoa-soft)">Sin comentarios aún.</p>';
+    }).join("")||'<p style="color:var(--cocoa-soft)">Sin comentarios aún.</p>')+
+    '</div>';
     /* Infracciones del anti-spam (intentos bloqueados). */
     try{
       var v=await api("GET","/api/admin/chat-violations");
@@ -1097,6 +1113,17 @@ async function loadCommunity(){
         }).join("")+'</div>';
       $("#community-list").innerHTML+=vdh;
     }catch(e3){ /* sin dominios visibles */ }
+    // Restaurar el scroll y activar la auto-actualización en vivo (15s).
+    var sc2=$("#community-scroll");
+    if(sc2) sc2.scrollTop=savedTop;
+    if(!window.__cmtTimer){
+      window.__cmtTimer=setInterval(function(){
+        if(document.hidden) return;
+        if(!$("#community-list")) return;
+        if($("#user-modal")) return; // no interrumpir con un modal abierto
+        loadCommunity();
+      },15000);
+    }
   }catch(e){ if(e.message==="AUTH") authFail(); }
 }
 async function addDomain(){
