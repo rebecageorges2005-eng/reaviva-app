@@ -1831,7 +1831,7 @@ function renderPerfil(){
       <div id="perfil-meta-line" style="margin:4px 0;font-size:.85rem;color:var(--cocoa-soft)"></div>
     </div>
     <button class="btn btn-primary btn-block" onclick="openShareModal()" style="margin:14px 0 8px;font-size:1rem;padding:14px">📤 Compartir Reaviva</button>
-    <button class="btn btn-ghost btn-block" onclick="openAffiliateModal()" style="margin:0 0 14px;font-size:1rem;padding:12px">🤝 Afiliado · Gana 5 RV por referido</button>
+    <button id="affiliate-btn" class="btn btn-ghost btn-block" onclick="openAffiliateModal()" style="margin:0 0 14px;font-size:1rem;padding:12px">🤝 Afiliado · Gana 5 RV por referido<span id="affiliate-count"></span></button>
     <p style="text-align:center;font-size:.85rem;color:var(--cocoa-soft)">¿Reaviva te está ayudando? Compártelo con alguien que lo necesite 💛</p>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1852,6 +1852,7 @@ function renderPerfil(){
     </div>`;
   renderPerfilAlbums();
   renderPerfilBioMeta();
+  loadAffiliateCount();
 }
 
 /* Muestra la descripción, el sexo y el país en el perfil. */
@@ -4332,6 +4333,19 @@ function initCountrySelect(){
 }
 
 /* ---------- 🤝 Afiliados: gana 5 RV por cada referido ---------- */
+/* Muestra el conteo de referidos en el botón del perfil. */
+async function loadAffiliateCount(){
+  const el = $("affiliate-count");
+  if(!el) return;
+  try{
+    const r = await fetch("/api/rv/affiliate", { headers: authHeaders() });
+    const j = await r.json();
+    if(!r.ok) return;
+    const n = Number(j.referidos) || 0;
+    el.textContent = n > 0 ? ` · 👥 ${n} referido${n === 1 ? "" : "s"}` : "";
+  }catch(e){ /* silencioso: el botón sigue funcionando sin el conteo */ }
+}
+
 async function openAffiliateModal(){
   openDynModal(`<div style="text-align:center;padding:10px"><p style="color:var(--cocoa-soft)">Cargando…</p></div>`);
   try{
