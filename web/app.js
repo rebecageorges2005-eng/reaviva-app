@@ -3367,15 +3367,18 @@ async function openDmWindow(uid, target){
       <div class="dm-win-rec" style="display:none">🔴 <span class="dm-win-rec-time">0:00</span>
         <button class="btn btn-sm" onclick="detenerDmVoiceWin()">⏹</button></div>
       <div id="dm-emoji-${uid}" class="emoji-panel" data-target="#dm-input-${uid}" style="display:none"></div>
+      <div class="dm-win-more">
+        <button class="dm-more-opt" data-emoji-toggle onclick="toggleEmojiGrid('dm-emoji-${uid}');toggleDmMore(${uid})">😊 Emojis</button>
+        <button class="dm-more-opt" onclick="toggleDmVoiceWin(${uid});toggleDmMore(${uid})">🎤 Nota de voz</button>
+        <button class="dm-more-opt ${annual ? "" : "locked-feature"}" onclick="dmWinFileClick(${uid});toggleDmMore(${uid})">${annual ? "📎" : "📎🔒"} Archivo</button>
+        <button class="dm-more-opt" onclick="startVideoCallWin(${uid});toggleDmMore(${uid})">📹 Videollamada${annual ? "" : " 🔒"}</button>
+        <button class="dm-more-opt" onclick="viewUserAlbums(${uid});toggleDmMore(${uid})">📸 Álbumes</button>
+      </div>
       <div class="dm-win-composer">
         <input type="file" class="dm-win-file" accept=".pdf,.doc,.docx,.txt" style="display:none"
           onchange="sendDmFileWin(${uid}, this)">
-        <button class="dm-icon-btn" title="Emojis" aria-label="Emojis" data-emoji-toggle
-          onclick="toggleEmojiGrid('dm-emoji-${uid}')">😊</button>
-        <button class="dm-icon-btn" title="${esc(t("dm.voice_msg"))}" aria-label="Voz"
-          onclick="toggleDmVoiceWin(${uid})">🎤</button>
-        <button class="dm-icon-btn ${annual ? "" : "locked-feature"}" title="${annual ? "📎" : esc(t("dm.file_only_annual"))}"
-          aria-label="Archivo" onclick="dmWinFileClick(${uid})">${annual ? "📎" : "📎🔒"}</button>
+        <button class="dm-plus-btn" title="Más opciones" aria-label="Más opciones"
+          onclick="toggleDmMore(${uid})">＋</button>
         <input id="dm-input-${uid}" class="field dm-win-input" maxlength="1000" placeholder="${esc(t("dm.win_ph"))}"
           onkeydown="if(event.key==='Enter')sendDmWin(${uid})">
         <button class="dm-win-send" onclick="sendDmWin(${uid})" aria-label="Enviar">➤</button>
@@ -3387,6 +3390,18 @@ async function openDmWindow(uid, target){
   dmWinOrder.push(uid);
   await loadDmWinMessages(uid);
   updateDmBadge();
+}
+
+/* Botón (＋) de la ventanita privada: despliega las opciones
+ * (emojis, voz, archivo, videollamada, álbumes) y deja el cuadro
+ * de texto GRANDE. */
+function toggleDmMore(uid){
+  const w = dmWindows[uid];
+  if(!w) return;
+  const panel = w.el.querySelector(".dm-win-more");
+  const btn = w.el.querySelector(".dm-plus-btn");
+  if(panel) panel.classList.toggle("open");
+  if(btn) btn.classList.toggle("open");
 }
 
 /* Botón 📎: solo anual puede adjuntar. */
