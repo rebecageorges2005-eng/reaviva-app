@@ -139,7 +139,7 @@ function fechaCorta(iso) {
   // de un chat ya empezado solo puede enviar EMOJIS, nada de texto.
   if (!isMonthly && !isAnnual && req.user.is_admin !== 1) {
     const previos = await db.get(
-      `SELECT COUNT(*) AS n FROM direct_messages
+      `SELECT COUNT(*) AS n FROM private_messages
        WHERE (from_user_id = ? AND to_user_id = ?) OR (from_user_id = ? AND to_user_id = ?)`,
       req.user.id, toId, toId, req.user.id);
     if (!previos || !previos.n) {
