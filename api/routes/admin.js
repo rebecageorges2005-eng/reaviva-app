@@ -211,7 +211,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes, u.credits,
-              u.gender, u.birthdate,
+              u.gender, u.birthdate, u.plan_type,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -226,7 +226,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       nombre: u.name,
       conPlan: u.subscribed === 1,
       plan: planLabel(u.sub_status ? { status: u.sub_status } : null),
-      planDetalle: u.plan || null,
+      planDetalle: u.plan || u.plan_type || null,
       estadoSuscripcion: u.sub_status || null,
       proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
       esAdmin: u.is_admin === 1,
@@ -286,7 +286,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
               u.chat_disabled, u.gender, u.birthdate,
               u.credits, u.img_block_remaining,
-              u.banned, u.ban_reason,
+              u.banned, u.ban_reason, u.plan_type,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -346,7 +346,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
     gender: u.gender || null,
     conPlan: u.subscribed === 1,
     plan: planLabel(u.sub_status ? { status: u.sub_status } : null),
-    planDetalle: u.plan || null,
+    planDetalle: u.plan || u.plan_type || null,
     estadoSuscripcion: u.sub_status || null,
     proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
     subscriptionId: u.subscription_id || null,
@@ -583,6 +583,35 @@ router.delete("/verified-domains/:id", requireAdmin, ah(async (req, res) => {
   if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
   res.json({ ok: true });
 }));
+/* ---------- Planes manuales y apodo del admin en el chat ----------
+ * El admin puede: dar plan mensual/anual a cualquier cuenta, quitarlo,
+ * y participar en el chat grupal con el apodo que quiera (chat_alias). */
+router.post("/users/:id/plan", requireAdmin, ah(async (req, res) => {
+  const plan = String((req.body || {}).plan || "");
+  const id = req.params.id;
+  const u = await db.get("SELECT id, is_admin FROM users WHERE id = ?", id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (plan === "monthly" || plan === "annual") {
+    await db.run("UPDATE users SET subscribed = 1, plan_type = ? WHERE id = ?", plan, id);
+  } else if (plan === "none" || plan === "" || plan === "free") {
+    await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE id = ?", id);
+  } else {
+    return res.status(400).json({ error: "Plan inválido. Usa monthly, annual o none." });
+  }
+  res.json({ ok: true });
+}));
+
+router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
+  const alias = String((req.body || {}).alias || "").trim().slice(0, 30);
+  await db.run("UPDATE users SET chat_alias = ? WHERE id = ?", alias || null, req.user.id);
+  res.json({ ok: true, alias });
+}));
+
+router.get("/chat-alias", requireAdmin, ah(async (req, res) => {
+  const u = await db.get("SELECT chat_alias FROM users WHERE id = ?", req.user.id);
+  res.json({ alias: (u && u.chat_alias) || "" });
+}));
+
 /* ---------- Link Pub: links publicados en el perfil de los usuarios ----------
  * El admin promociona un link (su canal, blog…) segmentando por usuarios
  * específicos, países (solo los de usuarios registrados) y sexo (M/F). */

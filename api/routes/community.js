@@ -82,16 +82,19 @@ async function onlineUsers() {
     pruneOnline();
     const corte = Math.floor(Date.now() / 1000) - ONLINE_WINDOW;
     const rows = await db.all(
-      `SELECT u.id, u.name, u.photo, u.subscribed, u.is_admin, u.country_code
+      `SELECT u.id, u.name, u.photo, u.subscribed, u.is_admin, u.country_code, u.chat_alias
        FROM online_users o JOIN users u ON u.id = o.user_id
        WHERE o.last_seen > ? ORDER BY o.last_seen DESC LIMIT 100`
     , corte);
     return rows.map((u) => {
       const paid = u.subscribed === 1 || u.is_admin === 1;
       const pais = String(u.country_code || "").toUpperCase();
-      const nombre = paid
-        ? (pais ? iniciales(u.name) + " · " + pais : iniciales(u.name))
-        : "Guest";
+      // El admin puede participar con el apodo que quiera (chat_alias).
+      const nombre = (u.is_admin === 1 && u.chat_alias)
+        ? u.chat_alias
+        : (paid
+          ? (pais ? iniciales(u.name) + " · " + pais : iniciales(u.name))
+          : "Guest");
       return {
         nombre,
         foto: (u.photo && String(u.photo).startsWith("data:image/")) ? u.photo : null,
@@ -217,7 +220,7 @@ router.get("/", requireAuth, ah(async (req, res) => {
       `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data, c.is_promo, c.is_repost,
               CASE WHEN c.msg_type = 'photo' THEN NULL
                    ELSE CAST((julianday(c.expires_at) - julianday('now')) * 24 AS INTEGER) END AS horas_restantes,
-              u.name, u.photo, u.subscribed, u.is_admin, u.country_code
+              u.name, u.photo, u.subscribed, u.is_admin, u.country_code, u.chat_alias
        FROM community_comments c
        JOIN users u ON u.id = c.user_id
        WHERE c.hidden = 0
@@ -265,9 +268,12 @@ router.get("/", requireAuth, ah(async (req, res) => {
       // para permitir abrir mensajes privados al hacer clic; no revela identidad.
       const paid = c.subscribed === 1 || c.is_admin === 1;
       const pais = String(c.country_code || "").toUpperCase();
-      const nombre = paid
-        ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
-        : "Guest";
+      // El admin puede participar con el apodo que quiera (chat_alias).
+      const nombre = (c.is_admin === 1 && c.chat_alias)
+        ? c.chat_alias
+        : (paid
+          ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
+          : "Guest");
       // Foto temporal: a los 30 segundos se "elimina".
       let texto = c.text;
       let fotoMsg = null;
@@ -565,7 +571,7 @@ router.get("/hidden", requireAuth, ah(async (req, res) => {
   if (!isPaid) return res.status(403).json({ error: "Esta función es para miembros con plan 💎" });
   const rows = await db.all(
       `SELECT c.id, c.user_id, c.text, c.created_at, c.msg_type, c.photo_data,
-              u.name, u.photo, u.subscribed, u.is_admin, u.country_code
+              u.name, u.photo, u.subscribed, u.is_admin, u.country_code, u.chat_alias
        FROM hidden_messages h
        JOIN community_comments c ON c.id = h.message_id
        JOIN users u ON u.id = c.user_id
@@ -577,9 +583,11 @@ router.get("/hidden", requireAuth, ah(async (req, res) => {
     ocultos: rows.map((c) => {
       const paid = c.subscribed === 1 || c.is_admin === 1;
       const pais = String(c.country_code || "").toUpperCase();
-      const nombre = paid
-        ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
-        : "Guest";
+      const nombre = (c.is_admin === 1 && c.chat_alias)
+        ? c.chat_alias
+        : (paid
+          ? (pais ? iniciales(c.name) + " · " + pais : iniciales(c.name))
+          : "Guest");
       return {
         id: c.id,
         texto: c.msg_type === "photo" ? "📷 Foto" : c.text,
