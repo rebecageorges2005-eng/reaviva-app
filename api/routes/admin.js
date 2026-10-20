@@ -674,6 +674,62 @@ router.delete("/albums/photos/:photoId", requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ---------- Contenido del programa: audios por día/sexo ---------- */
+router.get("/program-audios", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all("SELECT day, gender, updated_at, LENGTH(audio) AS len FROM program_audios ORDER BY day ASC, gender ASC");
+  res.json({
+    audios: rows.map((r) => ({
+      day: r.day,
+      gender: r.gender,
+      kb: Math.max(1, Math.round((Number(r.len) || 0) * 0.75 / 1024)),
+      actualizado: r.updated_at,
+    })),
+  });
+}));
+
+router.post("/program-audios", requireAdmin, ah(async (req, res) => {
+  const day = parseInt((req.body || {}).day, 10);
+  const gender = String((req.body || {}).gender || "");
+  const audio = String((req.body || {}).audio || "");
+  if (!(day >= 1 && day <= 30)) return res.status(400).json({ error: "Elige un día del 1 al 30." });
+  if (gender !== "M" && gender !== "F") return res.status(400).json({ error: "Elige la voz (hombre o mujer)." });
+  if (!/^data:audio\/(mpeg|mp3|x-mpeg);base64,[A-Za-z0-9+/=\s]+$/.test(audio)) {
+    return res.status(400).json({ error: "El archivo debe ser un MP3 válido." });
+  }
+  if (audio.length > 9 * 1024 * 1024) return res.status(400).json({ error: "El MP3 es demasiado grande (máx ~6 MB)." });
+  await db.run(
+    `INSERT INTO program_audios (day, gender, audio, updated_at) VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(day, gender) DO UPDATE SET audio = excluded.audio, updated_at = datetime('now')`
+  , day, gender, audio);
+  res.json({ ok: true, day, gender });
+}));
+
+router.delete("/program-audios/:day/:gender", requireAdmin, ah(async (req, res) => {
+  await db.run("DELETE FROM program_audios WHERE day = ? AND gender = ?", parseInt(req.params.day, 10), req.params.gender === "F" ? "F" : "M");
+  res.json({ ok: true });
+}));
+
+/* ---------- Contenido del programa: preguntas extra de los tests ---------- */
+router.get("/program-questions", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all("SELECT id, question, kind, created_at FROM program_test_questions ORDER BY id ASC");
+  res.json({ preguntas: rows });
+}));
+
+router.post("/program-questions", requireAdmin, ah(async (req, res) => {
+  const question = String((req.body || {}).question || "").trim().slice(0, 300);
+  const kind = (req.body || {}).kind === "open" ? "open" : "scale";
+  if (question.length < 8) return res.status(400).json({ error: "La pregunta es muy corta." });
+  const n = (await db.get("SELECT COUNT(*) AS n FROM program_test_questions")).n;
+  if (n >= 10) return res.status(400).json({ error: "Ya hay 10 preguntas extra (el máximo). Quita alguna primero." });
+  await db.run("INSERT INTO program_test_questions (question, kind) VALUES (?, ?)", question, kind);
+  res.json({ ok: true });
+}));
+
+router.delete("/program-questions/:id", requireAdmin, ah(async (req, res) => {
+  await db.run("DELETE FROM program_test_questions WHERE id = ?", req.params.id);
+  res.json({ ok: true });
+}));
+
 router.post("/chat-alias", requireAdmin, ah(async (req, res) => {
   const alias = String((req.body || {}).alias || "").trim().slice(0, 30);
   await db.run("UPDATE users SET chat_alias = ? WHERE id = ?", alias || null, req.user.id);
