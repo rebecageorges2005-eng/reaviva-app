@@ -3156,6 +3156,8 @@ function onCommunityUserClick(uid){
    ============================================================ */
 async function openUserProfile(uid){
   uid = Number(uid);
+  uprofData = null;
+  uprofMainCache = "";
   openDynModal(`<div id="uprof"><p style="text-align:center;color:var(--cocoa-soft)">Cargando perfil…</p></div>`);
   try{
     const r = await fetch(`/api/albums/user/${uid}/profile`, { headers: authHeaders() });
@@ -3179,12 +3181,20 @@ async function openUserProfile(uid){
     const avatar = j.foto
       ? `<img src="${esc(j.foto)}" alt="" style="width:100%;height:100%;object-fit:cover">`
       : `<span style="font-size:2.2rem">💛</span>`;
-    const albumsHtml = (j.albumes || []).length ? (j.albumes.map(a => `
-      <div style="margin-top:14px"><b>📁 ${esc(a.titulo)}</b> <small style="color:var(--cocoa-soft)">${a.fotos.length} foto(s)</small>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
-        ${a.fotos.map(f => `<img src="${esc(f.foto)}" alt="" title="${esc(f.caption || "")}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px">`).join("")}
-        </div></div>`).join(""))
+    const albumsHtml = (j.albumes || []).length ? `
+      <h4 style="margin:16px 0 8px">📷 Álbumes</h4>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      ${(j.albumes || []).map(a => {
+        const cover = a.fotos.length ? `<img src="${esc(a.fotos[0].foto)}" alt="" style="width:100%;height:100%;object-fit:cover">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:var(--bg-soft)">📸</div>`;
+        return `<div onclick="openUprofAlbum(${a.id})" style="cursor:pointer" title="Abrir álbum">
+          <div style="aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px solid var(--hatch-widget-border)">${cover}</div>
+          <div style="font-size:.82rem;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📁 ${esc(a.titulo)}</div>
+          <div style="font-size:.75rem;color:var(--cocoa-soft)">${a.fotos.length} foto(s) · tocar para abrir</div>
+        </div>`;
+      }).join("")}
+      </div>`
       : `<p style="color:var(--cocoa-soft);margin-top:14px">Este usuario aún no tiene álbumes.</p>`;
+    uprofData = j;
     box.innerHTML = `
       <div style="position:relative;height:130px;border-radius:14px;overflow:hidden">${cover}</div>
       <div style="display:flex;align-items:flex-end;gap:12px;margin-top:-34px;padding:0 10px;position:relative">
@@ -3195,6 +3205,7 @@ async function openUserProfile(uid){
       ${j.descripcion ? `<p style="margin:12px 2px 0;line-height:1.5">${esc(j.descripcion)}</p>` : ""}
       <button class="btn" style="margin-top:14px" onclick="closeDynModal();openDmFromProfile(${uid})">💬 Mensaje privado</button>
       ${albumsHtml}`;
+    uprofMainCache = box.innerHTML;
   }catch(e){
     const box = document.getElementById("uprof");
     if(box) box.innerHTML = `<p style="text-align:center;color:#a33">No se pudo cargar el perfil.</p>`;
@@ -3204,6 +3215,77 @@ function openDmFromProfile(uid){
   const target = communityUsers[uid] || { nombre: t("dm.win_user"), foto: null, avatar: "💛" };
   if(planType() !== "free") openDmWindow(uid, target);
   else toast(t("dm.only_plan"));
+}
+
+/* Álbumes dentro del perfil: tocar un álbum lo ABRE con sus fotos
+ * desplegadas, y tocar una foto la muestra en visor grande tipo
+ * Facebook (flechas ‹ ›, ✕ y teclado). */
+let uprofData = null;
+let uprofMainCache = "";
+let upLb = { album: null, idx: 0 };
+function openUprofAlbum(albumId){
+  const box = document.getElementById("uprof");
+  if(!box || !uprofData) return;
+  const a = (uprofData.albumes || []).find(x => Number(x.id) === Number(albumId));
+  if(!a) return;
+  if(!uprofMainCache) uprofMainCache = box.innerHTML;
+  box.innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="backToUprof()">← Volver al perfil</button>
+    <h3 style="margin:10px 0 2px">📁 ${esc(a.titulo)}</h3>
+    <p style="color:var(--cocoa-soft);font-size:.85rem;margin:0 0 10px">${esc(uprofData.nombre)} · ${a.fotos.length} foto(s) — toca una foto para verla en grande</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+      ${a.fotos.map((f, i) => `<img src="${esc(f.foto)}" alt="" onclick="openUprofLightbox(${a.id}, ${i})" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;cursor:pointer">`).join("") || `<p style="color:var(--cocoa-soft)">Álbum vacío.</p>`}
+    </div>`;
+  box.scrollTop = 0;
+}
+function backToUprof(){
+  const box = document.getElementById("uprof");
+  if(box && uprofMainCache) box.innerHTML = uprofMainCache;
+}
+function openUprofLightbox(albumId, idx){
+  const a = (uprofData.albumes || []).find(x => Number(x.id) === Number(albumId));
+  if(!a || !a.fotos.length) return;
+  upLb = { album: a, idx: idx };
+  closeUprofLightbox();
+  const lb = document.createElement("div");
+  lb.id = "up-lightbox";
+  lb.style.cssText = "position:fixed;inset:0;background:rgba(20,12,8,.94);z-index:3000;display:flex;align-items:center;justify-content:center;flex-direction:column";
+  lb.innerHTML = `
+    <button onclick="closeUprofLightbox()" style="position:absolute;top:14px;right:16px;background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:50%;width:38px;height:38px;font-size:1.05rem;cursor:pointer">✕</button>
+    <button onclick="upLbNav(-1)" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:50%;width:42px;height:42px;font-size:1.3rem;cursor:pointer">‹</button>
+    <img id="up-lb-img" src="" alt="" style="max-width:92vw;max-height:80vh;object-fit:contain;border-radius:10px">
+    <button onclick="upLbNav(1)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:50%;width:42px;height:42px;font-size:1.3rem;cursor:pointer">›</button>
+    <p id="up-lb-cap" style="color:#f3e7dc;margin:12px 20px 2px;text-align:center"></p>
+    <p id="up-lb-count" style="color:#cbb59f;font-size:.8rem;margin:0"></p>`;
+  lb.addEventListener("click", (e) => { if(e.target === lb) closeUprofLightbox(); });
+  document.body.appendChild(lb);
+  document.addEventListener("keydown", upLbKeys);
+  paintUprofLightbox();
+}
+function paintUprofLightbox(){
+  const a = upLb.album; if(!a) return;
+  const f = a.fotos[upLb.idx]; if(!f) return;
+  const img = document.getElementById("up-lb-img");
+  const cap = document.getElementById("up-lb-cap");
+  const cnt = document.getElementById("up-lb-count");
+  if(img) img.src = f.foto;
+  if(cap) cap.textContent = f.caption || "";
+  if(cnt) cnt.textContent = (upLb.idx + 1) + " / " + a.fotos.length;
+}
+function upLbNav(dir){
+  const a = upLb.album; if(!a || !a.fotos.length) return;
+  upLb.idx = (upLb.idx + dir + a.fotos.length) % a.fotos.length;
+  paintUprofLightbox();
+}
+function upLbKeys(e){
+  if(e.key === "Escape") closeUprofLightbox();
+  else if(e.key === "ArrowLeft") upLbNav(-1);
+  else if(e.key === "ArrowRight") upLbNav(1);
+}
+function closeUprofLightbox(){
+  const lb = document.getElementById("up-lightbox");
+  if(lb) lb.remove();
+  document.removeEventListener("keydown", upLbKeys);
 }
 
 /* ============================================================
@@ -4245,6 +4327,7 @@ function openDynModal(html){
   return bg;
 }
 function closeDynModal(){
+  if(typeof closeUprofLightbox === "function") closeUprofLightbox();
   const bg = document.getElementById("dyn-modal");
   if(bg) bg.remove();
 }
