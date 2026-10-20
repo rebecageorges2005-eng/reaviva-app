@@ -3388,6 +3388,7 @@ async function openDmWindow(uid, target){
   dmWinOrder.push(uid);
   await loadDmWinMessages(uid);
   updateDmBadge();
+  layoutDmDock();
 }
 
 /* Botón (＋) de la ventanita privada: despliega las opciones
@@ -3521,6 +3522,7 @@ function minimizeDmWindow(uid){
   if(!w || w.minimized) return;
   w.minimized = true;
   w.el.classList.add("minimized");
+  layoutDmDock();
 }
 
 function restoreDmWindow(uid){
@@ -3535,6 +3537,7 @@ function restoreDmWindow(uid){
   if(badge) badge.style.display = "none";
   focusDmWindow(uid);
   loadDmWinMessages(uid);
+  layoutDmDock();
 }
 
 function closeDmWindow(uid){
@@ -3545,6 +3548,95 @@ function closeDmWindow(uid){
     delete dmWindows[uid];
   }
   dmWinOrder = dmWinOrder.filter(id => id !== uid);
+  layoutDmDock();
+}
+
+/* ---------- Agrupación de chats minimizados (más de 5) ----------
+ * Con más de 5 ventanitas minimizadas, las más antiguas se agrupan
+ * tras un botón (＋): al tocarlo se despliegan burbujas con SOLO la
+ * foto de perfil y la notificación de no leídos de cada chat, para
+ * elegir cuál abrir. */
+const DM_DOCK_VISIBLE = 5;
+function dmDockBtn(){
+  let btn = document.getElementById("dm-dock-group");
+  if(!btn){
+    btn = document.createElement("button");
+    btn.id = "dm-dock-group";
+    btn.className = "dm-dock-group";
+    btn.title = "Más chats";
+    btn.innerHTML = `＋<span class="dm-dock-badge" style="display:none"></span>`;
+    btn.onclick = (e) => { e.stopPropagation(); toggleDmDockPop(); };
+    dmWinBox().appendChild(btn);
+  }
+  return btn;
+}
+function dmDockHiddenIds(){
+  const mins = dmWinOrder.filter(id => dmWindows[id] && dmWindows[id].minimized);
+  if(mins.length <= DM_DOCK_VISIBLE) return [];
+  return mins.slice(0, mins.length - DM_DOCK_VISIBLE);
+}
+function layoutDmDock(){
+  const hidden = dmDockHiddenIds();
+  const hiddenSet = new Set(hidden);
+  for(const key of Object.keys(dmWindows)){
+    const w = dmWindows[key];
+    if(w) w.el.classList.toggle("dock-hidden", hiddenSet.has(Number(key)));
+  }
+  const btn = dmDockBtn();
+  if(!hidden.length){
+    btn.style.display = "none";
+    closeDmDockPop();
+    return;
+  }
+  btn.style.display = "";
+  dmWinBox().appendChild(btn); // siempre al final (la esquina)
+  let total = 0;
+  for(const id of hidden){
+    const w = dmWindows[id];
+    const b = w && w.el.querySelector(".dm-win-unread");
+    if(b && b.style.display !== "none") total += parseInt(b.textContent, 10) || 0;
+  }
+  const badge = btn.querySelector(".dm-dock-badge");
+  if(badge){
+    badge.style.display = total ? "" : "none";
+    badge.textContent = total > 99 ? "99+" : total;
+  }
+  paintDmDockPop();
+}
+function toggleDmDockPop(){
+  const pop = document.getElementById("dm-dock-pop");
+  if(pop){ pop.remove(); return; }
+  const el = document.createElement("div");
+  el.id = "dm-dock-pop";
+  el.className = "dm-dock-pop";
+  dmWinBox().appendChild(el);
+  paintDmDockPop();
+}
+function closeDmDockPop(){
+  const pop = document.getElementById("dm-dock-pop");
+  if(pop) pop.remove();
+}
+function paintDmDockPop(){
+  const pop = document.getElementById("dm-dock-pop");
+  if(!pop) return;
+  const hidden = dmDockHiddenIds();
+  if(!hidden.length){ pop.remove(); return; }
+  pop.innerHTML = hidden.map(id => {
+    const w = dmWindows[id];
+    const t = (w && w.target) || {};
+    const b = w && w.el.querySelector(".dm-win-unread");
+    const n = (b && b.style.display !== "none") ? (parseInt(b.textContent, 10) || 0) : 0;
+    return `<button class="dm-dock-bubble" title="${esc(t.nombre || "Chat")}" onclick="pickDmDock(${id})">
+      <span class="dm-dock-ava">${dmAvatarHtml(t)}</span>
+      ${n ? `<span class="dm-dock-badge">${n > 99 ? "99+" : n}</span>` : ""}
+    </button>`;
+  }).join("");
+}
+function pickDmDock(uid){
+  closeDmDockPop();
+  restoreDmWindow(uid);
+  focusDmWindow(uid);
+  layoutDmDock();
 }
 
 /* ============================================================
@@ -4049,6 +4141,7 @@ async function updateDmBadge(){
     }
   }catch(e){ /* sin conexión: no hacer nada */ }
   dmBadgeBusy = false;
+  layoutDmDock();
 }
 
 function startDmWinPoll(){
