@@ -20,7 +20,7 @@ router.get("/audio/:day/:gender", ah(async (req, res) => {
   const gender = req.params.gender === "F" ? "F" : "M";
   const row = await db.get("SELECT audio FROM program_audios WHERE day = ? AND gender = ?", day, gender);
   if (row && row.audio) {
-    const m = String(row.audio).match(/^data:audio\/[a-z0-9.+-]+;base64,(.+)$/is);
+    const m = String(row.audio).match(/^data:audio\/[a-z0-9.+-]+(?:;codecs=["']?[a-z0-9.+-]+["']?)?;base64,(.+)$/is);
     if (m) {
       const buf = Buffer.from(m[1], "base64");
       res.setHeader("Content-Type", "audio/mpeg");

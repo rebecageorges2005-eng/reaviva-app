@@ -168,7 +168,8 @@ router.post("/voice", requireAuth, ah(async (req, res) => {
   if (!toId || toId === req.user.id) {
     return res.status(400).json({ error: "Destinatario inválido" });
   }
-  if (!/^data:audio\/[a-z0-9.+-]+;base64,/i.test(audio)) {
+  // Acepta también el parámetro ;codecs=... (Chrome graba webm;codecs=opus).
+  if (!/^data:audio\/[a-z0-9.+-]+(;codecs=["']?[a-z0-9.+-]+["']?)?;base64,/i.test(audio)) {
     return res.status(400).json({ error: "Formato de audio inválido" });
   }
   if (audio.length > VOICE_MAX_BYTES * 1.4) {
