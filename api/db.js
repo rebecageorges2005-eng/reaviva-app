@@ -951,6 +951,11 @@ async function migrate() {
       created_at TEXT DEFAULT (datetime('now'))
     `);
     console.log("[db] migración: tabla admin_reports lista");
+    // Tabla de ajustes clave-valor (ej. el JWT_SECRET persistente).
+    await db.exec(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )`);
     // Agregar columnas user_id/user_name si la tabla ya existía sin ellas.
     try {
       const cols = await tableCols("admin_reports");

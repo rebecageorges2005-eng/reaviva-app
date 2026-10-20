@@ -30,13 +30,12 @@ const PORT = Number(process.env.PORT || 3000);
 
 if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
 
-/* --- Seguridad: el JWT_SECRET NUNCA puede quedar con el valor de desarrollo
- * en producción. Si falta, se genera uno temporal (los tokens se invalidan
- * al reiniciar) y se advierte. Georges debe configurar JWT_SECRET en Render
- * para un secreto persistente. */
+/* --- Seguridad: el JWT_SECRET se resuelve antes de aceptar peticiones
+ * (ver el bloque db.ready al final): si hay variable de entorno se usa esa;
+ * si no, se usa el secreto PERSISTENTE guardado en Turso (tabla settings),
+ * que se genera una sola vez. Así las sesiones no se invalidan al reiniciar. */
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-  console.warn("[seguridad] ADVERTENCIA: JWT_SECRET no configurado. Usando clave temporal.");
-  process.env.JWT_SECRET = require("crypto").randomBytes(32).toString("hex");
+  console.warn("[seguridad] JWT_SECRET sin variable de entorno: se usará el persistente de la base de datos.");
 }
 
 const {
@@ -277,7 +276,26 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-db.ready.then(() => {
+/* JWT_SECRET persistente: si no hay variable de entorno, se usa el secreto
+ * guardado en la tabla settings de Turso (se genera una sola vez). Así las
+ * sesiones YA NO se invalidan al reiniciar/redesplegar el servidor. */
+db.ready.then(async () => {
+  try {
+    if (!process.env.JWT_SECRET) {
+      const row = await db.get("SELECT value FROM settings WHERE key = 'jwt_secret'");
+      if (row && row.value) {
+        process.env.JWT_SECRET = row.value;
+        console.log("[seguridad] JWT_SECRET cargado desde la base de datos (persistente).");
+      } else {
+        const secret = require("crypto").randomBytes(48).toString("hex");
+        await db.run("INSERT INTO settings (key, value) VALUES ('jwt_secret', ?)", secret);
+        process.env.JWT_SECRET = secret;
+        console.log("[seguridad] JWT_SECRET generado y guardado en la base de datos (persistente).");
+      }
+    }
+  } catch (e) {
+    console.error("[seguridad] no se pudo resolver el JWT_SECRET persistente:", e.message);
+  }
   app.listen(PORT, () => {
     console.log(`[reaviva] API corriendo en http://localhost:${PORT}`);
     console.log(`[reaviva] Frontend servido desde ${FRONTEND_DIR}`);
