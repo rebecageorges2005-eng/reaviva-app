@@ -32,7 +32,7 @@ const router = express.Router();
 const DM_MAX_CHARS = 1000;
 /* Límite diario de conversaciones únicas (usuarios diferentes por día, UTC).
  * Anual: 90/día · mensual: 15/día. Se cuentan usuarios, no mensajes. */
-const DM_CONV_PER_DAY = { annual: 90, monthly: 15 };
+const DM_CONV_PER_DAY = { annual: 90, monthly: 15, free: 3 };
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
 /* Limpieza de mensajes expirados (48h). Se ejecuta en cada lectura. */
@@ -107,9 +107,8 @@ function fechaCorta(iso) {
   const plan = getPlanType(req.user);
   const isMonthly = plan === "monthly";
   const isAnnual = plan === "annual"; // el admin cuenta como annual
-  if (!isMonthly && !isAnnual) {
-    return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
-  }
+  // El TEXTO está abierto a todos (también sin plan, con cupo diario
+  // menor). Enviar voz/fotos/archivos y llamar sigue siendo de plan.
   // Cobro fallido + gracia vencida + sin saldo RV: sin privados.
   const bill = await billingAccess(req.user);
   if (bill.blocked)
@@ -370,7 +369,7 @@ router.post("/delete", requireAuth, ah(async (req, res) => {
 }));
 
 router.get("/conversations", requireAuth, ah(async (req, res) => {
-  if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
+  // Lectura abierta a todos: quien no tiene plan puede RECIBIR y leer.
   cleanupExpired();
   const me = req.user.id;
   const rows = await db.all(
@@ -417,9 +416,9 @@ router.get("/unread-count", requireAuth, ah(async (req, res) => {
   res.json({ count: (r && r.n) || 0 });
 }));
 
-/* GET /api/dm/:uid — mensajes con un usuario (los marca como leídos). */
+/* GET /api/dm/:uid — mensajes con un usuario (los marca como leídos).
+ * Lectura abierta a todos (recibir es gratis; enviar media es de plan). */
 router.get("/:uid", requireAuth, ah(async (req, res) => {
-  if (!canDm(req.user)) return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   cleanupExpired();
   const me = req.user.id;
   const other = Number(req.params.uid);
