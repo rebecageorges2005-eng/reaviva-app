@@ -449,6 +449,11 @@ async function migrate() {
       );
       CREATE INDEX IF NOT EXISTS idx_dm_pair ON private_messages(from_user_id, to_user_id);
       CREATE INDEX IF NOT EXISTS idx_dm_to ON private_messages(to_user_id, read_at);
+      CREATE TABLE IF NOT EXISTS dm_hidden (
+        user_id    INTEGER NOT NULL,
+        message_id INTEGER NOT NULL,
+        PRIMARY KEY (user_id, message_id)
+      );
     `);
     console.log("[db] migración: tabla private_messages lista");
   } catch (e) {
