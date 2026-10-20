@@ -4126,10 +4126,27 @@ async function refreshDmWindows(){
   updateDmBadge();
 }
 
-/* Actualiza las insignias de no leídos de las ventanitas abiertas
- * (esta función faltaba: sus llamadas lanzaban "is not defined"). */
+/* Actualiza las insignias de no leídos:
+ * 1) la pestaña "Privados" del menú inferior (número rojo, siempre,
+ *    haya o no ventanitas abiertas);
+ * 2) las ventanitas abiertas.
+ * (Esta función faltaba: sus llamadas lanzaban "is not defined".) */
 let dmBadgeBusy = false;
 async function updateDmBadge(){
+  // (1) Pestaña Privados: total de mensajes privados sin leer.
+  try{
+    const rb = await fetch("/api/dm/unread-count", { headers: authHeaders() });
+    if(rb.ok){
+      const jb = await rb.json();
+      const nb = document.getElementById("dm-badge");
+      if(nb){
+        const n = Number(jb.count) || 0;
+        nb.style.display = n ? "" : "none";
+        nb.textContent = n > 99 ? "99+" : n;
+      }
+    }
+  }catch(e){ /* sin conexión: no hacer nada */ }
+  // (2) Ventanitas abiertas.
   if(dmBadgeBusy) return;
   const ids = Object.keys(dmWindows || {});
   if(!ids.length) return;
@@ -4176,6 +4193,14 @@ function openDmChat(uid, target){
 
 function stopDmPoll(){
   if(dmPollTimer){ clearInterval(dmPollTimer); dmPollTimer = null; }
+}
+
+/* Sondeo ligero de no leídos: mantiene al día la insignia roja de la
+ * pestaña "Privados" aunque no haya ninguna ventanita abierta. */
+function startDmPoll(){
+  stopDmPoll();
+  updateDmBadge();
+  dmPollTimer = setInterval(updateDmBadge, 15000);
 }
 
 /* ---------- modal de actualización mensual → anual ----------
