@@ -279,10 +279,12 @@ async function render(){
       '<div id="growth-chart" class="chart"></div>'+
       '<div class="scroll-box small"><table><thead><tr id="growth-head"><th>Período</th><th>Nuevos usuarios</th><th>Nuevos con plan</th></tr></thead><tbody id="growth-body"><tr><td colspan="3">Cargando…</td></tr></tbody></table></div>'+
       '<h2 class="sec">👥 Usuarios</h2>'+
-      '<div class="toolbar"><input id="user-search" class="field" placeholder="🔍 Buscar por nombre o correo…" oninput="filterUsers()" style="max-width:320px"></div>'+
+      '<div class="toolbar"><input id="user-search" class="field" placeholder="🔍 Buscar por nombre, correo o IP…" oninput="filterUsers()" style="max-width:320px"></div>'+
       '<div class="scroll-box tall"><table><thead><tr><th>Nombre</th><th>Email</th><th>Verif.</th><th>Plan</th><th>País</th><th>💰 RV</th><th>Última conexión</th></tr></thead><tbody id="users-body"><tr><td colspan="7">Cargando…</td></tr></tbody></table></div>'+
       '<h2 class="sec">✉️ Enviar mensaje</h2>'+
-      '<div class="block"><select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
+      '<div class="block"><input id="msg-search" class="field" placeholder="🔍 Buscar usuario por nombre, correo o IP…" oninput="filterMsgUsers()">'+
+      '<select id="msg-user" class="field"><option value="all">📢 Todos los usuarios</option></select>'+
+      '<small id="msg-search-info" style="display:block;color:var(--cocoa-soft);margin:4px 0 8px"></small>'+
       '<input id="msg-title" class="field" placeholder="Título del mensaje" maxlength="120">'+
       '<textarea id="msg-body" class="field" rows="3" placeholder="Escribe tu mensaje…" style="resize:vertical"></textarea>'+
       '<button class="btn" onclick="sendMessage()">Enviar mensaje</button><div id="msg-result"></div></div>'+
@@ -629,11 +631,29 @@ async function loadUsers(){
     var d=await api("GET","/api/admin/users");
     usersCache=d.users||[];
     renderUsersTable();
-    var sel=$("#msg-user");
-    sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(function(u){
-      return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+')</option>';
-    }).join("");
+    filterMsgUsers();
   }catch(e){ if(e.message==="AUTH") authFail(); }
+}
+function msgUserOption(u){
+  return '<option value="'+u.id+'">'+esc(u.nombre)+' ('+esc(u.email)+(u.ip?' · IP '+esc(u.ip):'')+')</option>';
+}
+/* Buscador del destinatario: filtra por nombre, correo o IP.
+ * Con búsqueda activa NO aparece "Todos" (para no enviar a todos
+ * por accidente): el mensaje va solo al usuario elegido. */
+function filterMsgUsers(){
+  var inp=$("#msg-search"); var q=(inp?inp.value:"").toLowerCase().trim();
+  var sel=$("#msg-user"); if(!sel) return;
+  var info=$("#msg-search-info");
+  if(!q){
+    sel.innerHTML='<option value="all">📢 Todos los usuarios</option>'+usersCache.map(msgUserOption).join("");
+    if(info) info.textContent="";
+    return;
+  }
+  var m=usersCache.filter(function(u){
+    return (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0 || (u.ip||"").toLowerCase().indexOf(q)>=0;
+  });
+  sel.innerHTML=m.length?m.map(msgUserOption).join(""):'<option value="">Sin resultados</option>';
+  if(info) info.textContent=m.length?(m.length+" usuario(s) encontrado(s): el mensaje irá SOLO al elegido de la lista"):"Ningún usuario coincide: revisa el nombre, el correo o la IP";
 }
 /* Filtra la tabla de usuarios por el texto del buscador. */
 function filterUsers(){ renderUsersTable(); }
@@ -641,7 +661,7 @@ function renderUsersTable(){
   var q=(($("#user-search")||{}).value||"").toLowerCase().trim();
   var list=usersCache.filter(function(u){
     if(!q) return true;
-    return (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0;
+    return (u.nombre||"").toLowerCase().indexOf(q)>=0 || (u.email||"").toLowerCase().indexOf(q)>=0 || (u.ip||"").toLowerCase().indexOf(q)>=0;
   });
   $("#users-body").innerHTML=list.map(function(u){
       var gBadge = u.gender==="M" ? ' <span title="Hombre">👨</span>' : (u.gender==="F" ? ' <span title="Mujer">👩</span>' : '');
@@ -845,6 +865,8 @@ async function sendPrivateMessage(id){
   }catch(e){ if(e.message==="AUTH") authFail(); else res.innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
 }
 function messageUser(id){
+  var s=$("#msg-search"); if(s){ s.value=""; }
+  filterMsgUsers();
   var sel=$("#msg-user"); if(sel) sel.value=String(id);
   var t=$("#msg-title"); if(t) t.focus();
   window.scrollTo(0,document.querySelector("#msg-user").offsetTop-80);
@@ -1113,6 +1135,7 @@ async function adjustRV(id){
 async function sendMessage(){
   var uid=$("#msg-user").value, title=$("#msg-title").value.trim(), body=$("#msg-body").value.trim();
   var res=$("#msg-result");
+  if(!uid){ res.innerHTML='<div class="err">Elige un usuario de la lista (usa el buscador de arriba).</div>'; return; }
   if(!title||!body){ res.innerHTML='<div class="err">Escribe título y mensaje.</div>'; return; }
   var paraNombre="📢 Todos los usuarios";
   if(uid!=="all"){
