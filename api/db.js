@@ -825,6 +825,29 @@ async function migrate() {
     console.error("[db] migración álbumes:", e.message);
   }
 
+  /* Contenido del programa editable por el admin: audios por día/sexo
+   * que REEMPLAZAN al audio original, y preguntas extra para los tests. */
+  try {
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS program_audios (
+        day        INTEGER NOT NULL,
+        gender     TEXT NOT NULL,
+        audio      TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (day, gender)
+      );
+      CREATE TABLE IF NOT EXISTS program_test_questions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        question   TEXT NOT NULL,
+        kind       TEXT NOT NULL DEFAULT 'scale',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    console.log("[db] migración: tablas program_audios y program_test_questions listas");
+  } catch (e) {
+    console.error("[db] migración contenido del programa:", e.message);
+  }
+
   /* Sistema de banderas */
   try {
     await db.exec(`

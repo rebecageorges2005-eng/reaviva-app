@@ -25,6 +25,7 @@ const { router: reactionsRouter } = require("./routes/reactions");
 const { router: albumsRouter } = require("./routes/albums");
 const { router: linksRouter } = require("./routes/links");
 const { router: flagsRouter } = require("./routes/flags");
+const { router: programRouter } = require("./routes/program");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -132,6 +133,7 @@ app.use("/api/dm", dmRouter); // /api/dm/* (mensajes privados, plan anual)
 app.use("/api/rv", rvRouter); // /api/rv/* (moneda RV para promociones)
 app.use("/api/reactions", reactionsRouter); // /api/reactions/* (likes/dislikes)
 app.use("/api/albums", albumsRouter); // /api/albums/* (álbumes de fotos del perfil)
+app.use("/api/program", programRouter); // /api/program/* (audios y tests editables por el admin)
 app.use("/api/links", linksRouter); // /api/links/* (Link Pub del admin en perfiles)
 app.use("/api/flags", flagsRouter); // /api/flags/* (banderas de advertencia)
 
