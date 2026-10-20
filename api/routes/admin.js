@@ -204,6 +204,36 @@ router.get("/growth", requireAdmin, ah(async (req, res) => {
   res.json({ days, porSemana: byWeek, periods, totalSignups, totalSubs });
 }));
 
+/* ---------- GET /api/admin/growth-geo?days=N ----------
+ * Crecimiento por PAÍS y por CIUDAD (registros del período).
+ * La ciudad sale de la IP del último ingreso (se guarda en users.city
+ * desde el login; los usuarios antiguos la obtienen al volver a entrar). */
+router.get("/growth-geo", requireAdmin, ah(async (req, res) => {
+  const ALLOWED = [8, 15, 30, 60, 90, 180, 365];
+  let days = parseInt(req.query.days, 10);
+  if (!ALLOWED.includes(days)) days = 30;
+  const paises = await db.all(
+      `SELECT country AS pais, country_code AS codigo, COUNT(*) AS signups, SUM(subscribed) AS new_subs
+       FROM users
+       WHERE created_at >= date('now', '-' || ? || ' days') AND country IS NOT NULL AND country != ''
+       GROUP BY country, country_code
+       ORDER BY signups DESC`
+    , days);
+  const ciudades = await db.all(
+      `SELECT city AS ciudad, country AS pais, COUNT(*) AS signups, SUM(subscribed) AS new_subs
+       FROM users
+       WHERE created_at >= date('now', '-' || ? || ' days') AND city IS NOT NULL AND city != ''
+       GROUP BY city, country
+       ORDER BY signups DESC
+       LIMIT 50`
+    , days);
+  res.json({
+    days,
+    paises: paises.map((r) => ({ pais: r.pais, codigo: r.codigo || "", nuevosUsuarios: r.signups, nuevosConPlan: r.new_subs || 0 })),
+    ciudades: ciudades.map((r) => ({ ciudad: r.ciudad, pais: r.pais || "", nuevosUsuarios: r.signups, nuevosConPlan: r.new_subs || 0 })),
+  });
+}));
+
 /* ---------- GET /api/admin/users ---------- */
 router.get("/users", requireAdmin, ah(async (req, res) => {
   const emailOk = isEmailConfigured();

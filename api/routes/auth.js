@@ -129,11 +129,11 @@ function newVerificationToken() {
 function trackGeoAsync(userId, ip) {
   if (!userId || !ip || isPrivateIp(ip)) return;
   setTimeout(() => {
-    fetch("http://ip-api.com/json/" + encodeURIComponent(ip) + "?fields=country,countryCode,status", { signal: AbortSignal.timeout(8000) })
+    fetch("http://ip-api.com/json/" + encodeURIComponent(ip) + "?fields=country,countryCode,city,status", { signal: AbortSignal.timeout(8000) })
       .then((r) => r.json())
       .then(async (j) => {
         if (j && j.status === "success" && j.country) {
-          await db.run("UPDATE users SET country = ?, country_code = ? WHERE id = ?", j.country, j.countryCode || null, userId);
+          await db.run("UPDATE users SET country = ?, country_code = ?, city = ? WHERE id = ?", j.country, j.countryCode || null, j.city || null, userId);
         }
       })
       .catch(() => { /* falla silenciosamente: el país queda null */ });
