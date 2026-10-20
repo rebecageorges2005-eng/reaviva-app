@@ -36,14 +36,16 @@ const _signupLimiter = rateLimit({
   message: "Demasiados registros desde esta conexión. Espera una hora.",
   keyFn: () => "signup",
 });
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+// La clave se lee EN VIVO del entorno: server.js la resuelve (env var o la
+// persistida en Turso) antes de aceptar peticiones.
+function JWT_SECRET() { return process.env.JWT_SECRET || "dev-secret-change-me"; }
 const TOKEN_TTL = "30d";
 
 function signToken(user, extra) {
   const payload = { uid: user.id, email: user.email, admin: user.is_admin === 1 };
   // Modo "solo cambiar contraseña": el token solo sirve para eso.
   if (extra && extra.mustChangePassword) payload.must_change_password = true;
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  return jwt.sign(payload, JWT_SECRET(), { expiresIn: TOKEN_TTL });
 }
 
 function publicUser(row) {
@@ -87,7 +89,7 @@ const STRONG_PW_MSG = "La contraseña debe tener mínimo 8 caracteres, 1 mayúsc
  * headers, así que el token llega como ?token=). */
 async function verifyToken(token) {
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET());
     const row = await db.get("SELECT id, subscribed, is_admin, banned FROM users WHERE id = ?", payload.uid);
     if (!row || row.banned === 1) return null; // baneado: token invalidado
     return row;
@@ -208,7 +210,7 @@ async function requireAuth(req, res, next) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Token requerido" });
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET());
     const row = await db.get("SELECT * FROM users WHERE id = ?", payload.uid);
     if (!row) return res.status(401).json({ error: "Usuario no encontrado" });
     if (row.banned === 1)
