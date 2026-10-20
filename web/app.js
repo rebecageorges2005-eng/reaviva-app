@@ -3638,6 +3638,11 @@ function pickDmDock(uid){
   focusDmWindow(uid);
   layoutDmDock();
 }
+/* Tocar fuera del selector de chats agrupados lo cierra. */
+document.addEventListener("click", (e) => {
+  const pop = document.getElementById("dm-dock-pop");
+  if(pop && !pop.contains(e.target)) pop.remove();
+});
 
 /* ============================================================
    VENTANA FLOTANTE DEL CHAT GRUPAL (estilo Facebook) 💬
