@@ -471,7 +471,16 @@ textarea.journal:focus{outline:none;border-color:var(--terra)}
 .dm-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#e11d48;color:#fff;font-size:.7rem;font-weight:700;margin-left:4px}
 .tab{position:relative}
 .dm-notif{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fef3c7;border:1px solid #f59e0b;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.88rem;color:#92400e}
-.dm-list{display:flex;flex-direction:column;gap:8px}
+.dm-list{display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:calc(100dvh - 305px);min-height:180px;padding:8px;border:1px solid var(--border,#eee);border-radius:14px;background:rgba(255,255,255,.35);scrollbar-width:thin}
+.dm-list::-webkit-scrollbar{width:8px}
+.dm-list::-webkit-scrollbar-thumb{background:var(--terra,#c2703d);border-radius:8px}
+.dm-list::-webkit-scrollbar-track{background:rgba(0,0,0,.05);border-radius:8px}
+@media (max-width:640px){
+  .dm-list{max-height:calc(100dvh - 282px)}
+}
+@media (min-width:1600px){
+  .dm-list{max-height:calc(100dvh - 345px)}
+}
 .dm-conv{display:flex;align-items:center;gap:12px;background:var(--card,#fff);border:1px solid var(--border,#eee);border-radius:14px;padding:12px;cursor:pointer}
 .dm-conv:active{transform:scale(.99)}
 .dm-conv-body{flex:1;min-width:0}
