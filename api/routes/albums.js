@@ -17,6 +17,7 @@ const express = require("express");
 const db = require("../db");
 const { ah } = db;
 const { requireAuth } = require("./auth");
+const { getPlanType, displayProfile } = require("../plan");
 
 const router = express.Router();
 
@@ -60,12 +61,58 @@ router.get("/", requireAuth, ah(async (req, res) => {
   res.json({ albums: await albumsDe(req.user.id) });
 }));
 
-/* GET /api/albums/user/:userId → álbumes de otro usuario (solo lectura). */
+/* ¿Puede el solicitante VER perfiles/álbumes ajenos?
+ * Solo con plan (mensual/anual), el admin, o el propio dueño. */
+function puedeVerPerfiles(req, duenoId) {
+  if (req.user.is_admin === 1) return true;
+  if (Number(duenoId) === Number(req.user.id)) return true;
+  return getPlanType(req.user) !== "free";
+}
+const MSG_SOLO_PLAN_PERFIL = "💎 Ver perfiles y álbumes es para miembros con plan. Activa tu plan para verlos.";
+
+/* GET /api/albums/user/:userId/profile → perfil público para miembros
+ * con plan: portada, foto, descripción y álbumes (con sus fotos).
+ * El nombre visible respeta el anonimato del chat (Guest / iniciales ·
+ * país; el admin se ve por su apodo o «Guest007»). */
+router.get("/user/:userId/profile", requireAuth, ah(async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!userId) return res.status(400).json({ error: "Usuario inválido" });
+  const t = await db.get("SELECT id, name, photo, cover_photo, bio, country, country_code, subscribed, is_admin, chat_alias FROM users WHERE id = ?", userId);
+  if (!t) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (!puedeVerPerfiles(req, t.id)) {
+    return res.status(403).json({ error: "SOLO_PLAN", message: MSG_SOLO_PLAN_PERFIL });
+  }
+  const nombre = t.is_admin === 1
+    ? (t.chat_alias && t.chat_alias.trim() ? t.chat_alias.trim() : "Guest007")
+    : displayProfile(t).nombre;
+  const albums = await db.all("SELECT id, title, created_at FROM albums WHERE user_id = ? ORDER BY created_at DESC", t.id);
+  const albumes = [];
+  for (const a of albums) {
+    const fotos = await db.all("SELECT id, photo, caption FROM album_photos WHERE album_id = ? ORDER BY id ASC", a.id);
+    albumes.push({ id: a.id, titulo: a.title, fotos: fotos.map((f) => ({ id: f.id, foto: f.photo, caption: f.caption || "" })) });
+  }
+  res.json({
+    uid: t.id,
+    nombre,
+    foto: t.photo || null,
+    portada: t.cover_photo || null,
+    descripcion: t.bio || "",
+    pais: t.country || null,
+    codigoPais: t.country_code || null,
+    conPlan: t.subscribed === 1 || t.is_admin === 1,
+    albumes,
+  });
+}));
+
+/* GET /api/albums/user/:userId → álbumes de otro usuario (solo lectura, con plan). */
 router.get("/user/:userId", requireAuth, ah(async (req, res) => {
   const userId = Number(req.params.userId);
   if (!userId) return res.status(400).json({ error: "Usuario inválido" });
   const existe = await db.get("SELECT id FROM users WHERE id = ?", userId);
   if (!existe) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (!puedeVerPerfiles(req, userId)) {
+    return res.status(403).json({ error: "SOLO_PLAN", message: MSG_SOLO_PLAN_PERFIL });
+  }
   res.json({ albums: await albumsDe(userId) });
 }));
 
@@ -98,12 +145,15 @@ router.delete("/:id", requireAuth, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/* GET /api/albums/:id/photos → fotos del álbum (dueño o cualquier autenticado). */
+/* GET /api/albums/:id/photos → fotos del álbum (dueño; otros solo con plan). */
 router.get("/:id/photos", requireAuth, ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Álbum inválido" });
   const album = await db.get("SELECT id, user_id, title FROM albums WHERE id = ?", id);
   if (!album) return res.status(404).json({ error: "Álbum no encontrado" });
+  if (!puedeVerPerfiles(req, album.user_id)) {
+    return res.status(403).json({ error: "SOLO_PLAN", message: MSG_SOLO_PLAN_PERFIL });
+  }
   const fotos = await db.all("SELECT id, photo, caption, created_at FROM album_photos WHERE album_id = ? ORDER BY id ASC", id);
   res.json({ album, dueno: album.user_id === req.user.id, fotos });
 }));
