@@ -181,11 +181,13 @@ app.post("/api/contact", async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 120);
   const message = String(req.body?.message || "").trim().slice(0, 2000);
+  const type = ["sugerencia", "problema", "otro"].includes(String(req.body?.type || ""))
+    ? String(req.body.type) : "otro";
   if (!name) return res.status(400).json({ error: "Escribe tu nombre." });
   if (!email || !email.includes("@")) return res.status(400).json({ error: "Correo inválido." });
   if (!message) return res.status(400).json({ error: "Escribe tu mensaje." });
   try {
-    await db.run("INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)", name, email, message);
+    await db.run("INSERT INTO contact_messages (name, email, message, type) VALUES (?, ?, ?, ?)", name, email, message, type);
   } catch (e) { /* la tabla se crea en la migración; si falla, igual se registra */ }
   console.log(`[contacto] ${name} <${email}>: ${message.slice(0, 120)}`);
   res.json({ ok: true });

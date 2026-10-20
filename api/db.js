@@ -867,6 +867,11 @@ async function migrate() {
       message TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     )`);
+    // Columna type: 'sugerencia' | 'problema' | 'otro' (contacto dentro de la app).
+    try {
+      const cCols = await tableCols("contact_messages");
+      if (!cCols.includes("type")) await db.exec("ALTER TABLE contact_messages ADD COLUMN type TEXT");
+    } catch (e) { /* la tabla puede no existir aún en esta pasada */ }
     console.log("[db] migración: tabla contact_messages lista");
   } catch (e) {
     console.error("[db] migración contact_messages:", e.message);
