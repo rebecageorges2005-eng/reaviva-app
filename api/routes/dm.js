@@ -25,7 +25,7 @@ const express = require("express");
 const db = require("../db");
 const { ah } = db;
 const { requireAuth } = require("./auth");
-const { getPlanType, displayProfile } = require("../plan");
+const { getPlanType, displayProfile, billingAccess } = require("../plan");
 const { checkMessage } = require("../spam");
 
 const router = express.Router();
@@ -110,6 +110,13 @@ function fechaCorta(iso) {
   if (!isMonthly && !isAnnual) {
     return res.status(403).json({ error: "Los mensajes privados son para miembros con plan 💎" });
   }
+  // Cobro fallido + gracia vencida + sin saldo RV: sin privados.
+  const bill = await billingAccess(req.user);
+  if (bill.blocked)
+    return res.status(403).json({
+      error: "BILLING_BLOCKED",
+      message: "💳 Tu pago no pudo procesarse y la gracia terminó. Actualiza tu método de pago para seguir chateando 💎",
+    });
   const toId = Number(req.body?.to_user_id);
   const text = String(req.body?.text || "").trim();
   if (!toId || toId === req.user.id) {

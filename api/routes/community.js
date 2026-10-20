@@ -16,7 +16,7 @@ const db = require("../db");
 const { ah } = db;
 const { requireAuth } = require("./auth");
 const { temaActivoPorId } = require("./topics");
-const { getPlanType } = require("../plan");
+const { getPlanType, trialEnded, billingAccess } = require("../plan");
 const {
   mutedPayload,
   detectSpam,
@@ -253,6 +253,8 @@ router.get("/", requireAuth, ah(async (req, res) => {
   }
   res.json({
     chatTimeLeft: acc.left,
+    trialEnded: trialEnded(req.user),
+    billingBlocked: (await billingAccess(req.user)).blocked,
     muted: (await mutedPayload(req.user.id)) !== null,
     rv: req.user.is_admin === 1 ? -1 : await getRV(req.user.id),
     onlineCount: await onlineCount(),
@@ -329,6 +331,19 @@ router.post("/", requireAuth, ah(async (req, res) => {
   // Bandera roja: cuenta deshabilitada para chatear/publicar.
   if (req.user.chat_disabled === 1)
     return res.status(403).json({ error: "Tu cuenta está deshabilitada para chatear por múltiples advertencias. 🚩" });
+  // Prueba gratuita culminada (7 días): solo lectura hasta pagar un plan.
+  if (trialEnded(req.user))
+    return res.status(403).json({
+      error: "TRIAL_ENDED",
+      message: "⏰ Tu prueba gratuita terminó. Actualiza a un plan pago para seguir publicando 💎",
+    });
+  // Cobro fallido + gracia vencida + sin saldo RV: solo lectura.
+  const bill = await billingAccess(req.user);
+  if (bill.blocked)
+    return res.status(403).json({
+      error: "BILLING_BLOCKED",
+      message: "💳 Tu pago no pudo procesarse y la gracia terminó. Actualiza tu método de pago para seguir participando 💎",
+    });
   const acc = await chatAccess(req.user);
   if (!acc.allowed) return res.status(403).json(chatBlockedPayload());
   // Presencia: el usuario está activo en el chat.

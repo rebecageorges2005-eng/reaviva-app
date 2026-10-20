@@ -308,10 +308,52 @@ async function webhookHandler(req, res) {
       const targetEmail = email || row?.email;
       if (targetEmail) {
         const status = type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ? "PAST_DUE" : "CANCELLED";
-        await db.run("UPDATE paypal_subscriptions SET status = ?, updated_at = datetime('now') WHERE email = ?", status, targetEmail);
+        // Pago fallido → 48 HORAS DE GRACIA con acceso total (grace_until).
+        const grace = type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED"
+          ? ", grace_until = datetime('now', '+48 hours')" : "";
+        await db.run(`UPDATE paypal_subscriptions SET status = ?, updated_at = datetime('now')${grace} WHERE email = ?`, status, targetEmail);
         if (status === "CANCELLED")
           await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE email = ?", targetEmail);
-        console.log(`[paypal] ${targetEmail} → ${type}`);
+        console.log(`[paypal] ${targetEmail} → ${type}${grace ? " (gracia 48h)" : ""}`);
+      }
+    }
+
+    /* Cobro recurrente exitoso (cada pago mensual/anual) 💰:
+     * - Si estaba en PAST_DUE, el pago lo recupera: vuelve a ACTIVE.
+     * - REGALÍA RV por cada pago: mensual +50 RV · anual +200 RV.
+     *   Idempotente: una sola vez por transacción (BONO-<sale_id>). */
+    if (type === "PAYMENT.SALE.COMPLETED") {
+      const saleId = String(resource.id || "");
+      const agreementId = String(resource.billing_agreement_id || "");
+      let targetEmail = email || null;
+      let planRow = null;
+      if (!targetEmail && agreementId) {
+        planRow = await db.get("SELECT email, plan FROM paypal_subscriptions WHERE subscription_id = ?", agreementId);
+        if (planRow) targetEmail = planRow.email;
+      } else if (targetEmail) {
+        planRow = await db.get("SELECT plan FROM paypal_subscriptions WHERE email = ?", targetEmail);
+      }
+      if (targetEmail && saleId) {
+        // Recuperación: si estaba vencido, vuelve a ACTIVE y se limpia la gracia.
+        await db.run(
+          "UPDATE paypal_subscriptions SET status = 'ACTIVE', grace_until = NULL, updated_at = datetime('now') WHERE email = ?",
+          targetEmail);
+        const marker = "BONO-" + saleId;
+        const dup = await db.get("SELECT id FROM credit_purchases WHERE paypal_order_id = ? LIMIT 1", marker);
+        if (!dup) {
+          const yearly = (planRow && planRow.plan === PAYPAL_PLAN_YEARLY) ||
+            await db.get("SELECT id FROM users WHERE email = ? AND plan_type IN ('yearly','annual','anual')", targetEmail);
+          const bonus = yearly ? 200 : 50;
+          const u = await db.get("SELECT id FROM users WHERE email = ?", targetEmail);
+          if (u) {
+            await db.run("UPDATE users SET credits = COALESCE(credits, 0) + ? WHERE id = ?", bonus, u.id);
+            await db.run(
+              `INSERT INTO credit_purchases (user_id, pack_credits, amount_usd, paypal_order_id, status, created_at)
+               VALUES (?, ?, 0, ?, 'monthly_bonus', datetime('now'))`
+            , u.id, bonus, marker);
+            console.log(`[paypal] regalía por pago: +${bonus} RV para ${targetEmail} (${marker})`);
+          }
+        }
       }
     }
   } catch (e) {

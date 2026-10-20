@@ -307,15 +307,22 @@ router.post("/signup", signupLimiter, ah(async (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   const token = newVerificationToken();
   // Referido: ?ref=USERID o ?ref=nombre en el link compartido (opcional).
+  // Tope: un usuario SIN plan puede tener máximo 3 referidos; con plan, sin límite.
   let referredBy = null;
+  let refUser = null;
   const refRaw = String(req.body?.referred_by || "").trim();
   if (/^\d+$/.test(refRaw)) {
-    const refId = Number(refRaw);
-    const refUser = await db.get("SELECT id FROM users WHERE id = ?", refId);
-    if (refUser) referredBy = refId;
+    refUser = await db.get("SELECT id, subscribed, is_admin FROM users WHERE id = ?", Number(refRaw));
   } else if (refRaw.length >= 2 && refRaw.length <= 60) {
     // Buscar por nombre de usuario (insensible a mayúsculas).
-    const refUser = await db.get("SELECT id FROM users WHERE LOWER(name) = LOWER(?) LIMIT 1", refRaw);
+    refUser = await db.get("SELECT id, subscribed, is_admin FROM users WHERE LOWER(name) = LOWER(?) LIMIT 1", refRaw);
+  }
+  if (refUser) {
+    const esGratis = refUser.subscribed !== 1 && refUser.is_admin !== 1;
+    if (esGratis) {
+      const cnt = await db.get("SELECT COUNT(*) AS c FROM users WHERE referred_by = ?", refUser.id);
+      if (cnt && cnt.c >= 3) refUser = null; // tope de 3 referidos alcanzado
+    }
     if (refUser) referredBy = refUser.id;
   }
   const info = await db.run("INSERT INTO users (email, name, password_hash, email_verified, verification_token, referred_by, birthdate, gender, country) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)", email, name, hash, token, referredBy, birthdate, gender, country);
