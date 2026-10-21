@@ -735,6 +735,8 @@ function userTabContent(u){
     (u.conPlan?'<button class="btn btn-sm btn-ghost" onclick="setUserPlan('+u.id+',\'none\')">❌ Quitar plan</button>':'')+
     '</div>'+
     '<p><b>📧 Correo:</b> '+(u.emailVerificado?'✅ verificado':'⚠️ sin confirmar')+'</p>'+
+    '<p><b>🔐 Estado de la cuenta:</b> '+(u.cuentaBloqueada?'⛔ <b style="color:#b91c1c">Desactivada</b>'+(u.lockedUntil?' · 🔑 por intentos de contraseña hasta el '+esc(u.lockedUntil):'')+(u.disabledUntil?' · deshabilitada hasta el '+esc(u.disabledUntil):''):'✅ Activa')+'</p>'+
+    (u.cuentaBloqueada?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="reactivateUser('+u.id+')">♻️ Reactivar cuenta ahora</button></div>':'')+
     (!u.emailVerificado&&u.verificationLink?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="copyVerifyLink(\''+u.verificationLink+'\')">📋 Copiar link de verificación</button> <span id="copy-msg" style="font-size:.8rem;color:#2e7d32"></span></div>':'')+
     (!u.emailVerificado&&!u.esAdmin?'<div style="margin:10px 0"><button class="btn btn-sm btn-ghost" onclick="verifyUser('+u.id+')">✅ Marcar como verificado</button></div>':'')+
     '<div style="margin-top:14px"><button class="btn btn-sm" onclick="messageUser('+u.id+');closeUserModal()">✉️ Enviar mensaje (sección de mensajes)</button></div>'+
@@ -1443,6 +1445,17 @@ async function setUserPlan(id, plan){
   try{
     var r=await api("POST","/api/admin/users/"+id+"/plan",{plan:plan});
     alert(plan==="none" ? "✅ Plan retirado. Se avisó al usuario por correo." : "✅ Plan activado con todos sus beneficios: +"+(r.bonus||0)+" RV de bono y correo enviado al usuario.");
+    var u=await api("GET","/api/admin/users/"+id);
+    userModalData=u; renderUserModal();
+    loadUsers();
+  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+/* ---------- reactivar cuenta desactivada (48h por contraseña) ---------- */
+async function reactivateUser(id){
+  if(!confirm("¿Reactivar esta cuenta ahora? Se levanta la desactivación por intentos de contraseña y la cuenta podrá entrar de inmediato.")) return;
+  try{
+    await api("POST","/api/admin/users/"+id+"/reactivate",{});
+    alert("♻️ Cuenta reactivada. Ya puede iniciar sesión.");
     var u=await api("GET","/api/admin/users/"+id);
     userModalData=u; renderUserModal();
     loadUsers();
