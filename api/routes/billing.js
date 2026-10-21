@@ -20,6 +20,7 @@
 const express = require("express");
 const db = require("../db");
 const { ah } = db;
+const { sendPaymentFailedEmail } = require("../email");
 
 const router = express.Router();
 
@@ -308,6 +309,9 @@ async function webhookHandler(req, res) {
       const targetEmail = email || row?.email;
       if (targetEmail) {
         const status = type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" ? "PAST_DUE" : "CANCELLED";
+        // Estado previo: el aviso (correo + mensaje en la app) se envía
+        // UNA sola vez, al pasar a PAST_DUE (PayPal reintenta el evento).
+        const prev = await db.get("SELECT status FROM paypal_subscriptions WHERE email = ?", targetEmail);
         // Pago fallido → 48 HORAS DE GRACIA con acceso total (grace_until).
         const grace = type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED"
           ? ", grace_until = datetime('now', '+48 hours')" : "";
@@ -315,6 +319,21 @@ async function webhookHandler(req, res) {
         if (status === "CANCELLED")
           await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE email = ?", targetEmail);
         console.log(`[paypal] ${targetEmail} → ${type}${grace ? " (gracia 48h)" : ""}`);
+        if (type === "BILLING.SUBSCRIPTION.PAYMENT.FAILED" && (!prev || prev.status !== "PAST_DUE")) {
+          try {
+            const u = await db.get("SELECT id, name FROM users WHERE email = ?", targetEmail);
+            const sub2 = await db.get("SELECT grace_until FROM paypal_subscriptions WHERE email = ?", targetEmail);
+            sendPaymentFailedEmail({ to: targetEmail, name: u?.name, graceUntil: sub2?.grace_until });
+            if (u) {
+              await db.run(
+                "INSERT INTO admin_messages (user_id, email, title, body) VALUES (?, ?, ?, ?)",
+                u.id, targetEmail,
+                "⚠️ Tu pago de renovación no pudo procesarse",
+                "Intentamos renovar tu plan, pero el pago falló. Tienes 48 horas de gracia con acceso total para actualizar tu método de pago en PayPal o renovar tu plan desde la app. Si no se completa el pago, tu acceso se pausará (tu progreso y tu saldo RV se conservan). 💛");
+            }
+            console.log(`[paypal] aviso de pago fallido enviado a ${targetEmail}`);
+          } catch (e) { console.error("[paypal] aviso pago fallido:", e.message); }
+        }
       }
     }
 

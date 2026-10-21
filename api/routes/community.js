@@ -255,10 +255,13 @@ router.get("/", requireAuth, ah(async (req, res) => {
       e.mi_reaccion = r.reaction;
     }
   }
+  const bill = await billingAccess(req.user);
   res.json({
     chatTimeLeft: acc.left,
     trialEnded: trialEnded(req.user),
-    billingBlocked: (await billingAccess(req.user)).blocked,
+    billingBlocked: bill.blocked,
+    billingGrace: bill.reason === "grace",
+    graceUntil: bill.graceUntil || null,
     muted: (await mutedPayload(req.user.id)) !== null,
     rv: req.user.is_admin === 1 ? -1 : await getRV(req.user.id),
     onlineCount: await onlineCount(),

@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const db = require("../db");
 const { ah } = db;
 const { sendVerificationEmail, sendWelcomeEmail, sendLoginAlertEmail } = require("../email");
-const { getPlanType } = require("../plan");
+const { getPlanType, billingAccess } = require("../plan");
 const {
   getClientIp,
   isPrivateIp,
@@ -715,9 +715,13 @@ router.post("/admin-login", loginLimiter, ah(async (req, res) => {
 }));
 
 /* GET /api/auth/me → devuelve el usuario actual (valida la sesión) */
-router.get("/me", requireAuth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
-});
+router.get("/me", requireAuth, ah(async (req, res) => {
+  const bill = await billingAccess(req.user);
+  res.json({
+    user: publicUser(req.user),
+    billing: { blocked: bill.blocked, grace: bill.reason === "grace", graceUntil: bill.graceUntil || null },
+  });
+}));
 
 /* POST /api/profile/photo  { photo: "data:image/jpeg;base64,..." }
  * Foto de perfil del usuario (máx 2MB). El frontend la redimensiona
