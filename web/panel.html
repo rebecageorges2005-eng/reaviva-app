@@ -747,6 +747,11 @@ function userTabContent(u){
     '<input id="rv-adjust" type="number" placeholder="+/- RV" style="width:110px;padding:8px;border:1px solid var(--border,#ddd);border-radius:8px">'+
     '<button class="btn btn-sm" onclick="adjustRV('+u.id+')">Ajustar RV</button>'+
     '<span id="rv-adjust-msg" style="font-size:.8rem"></span></div>'+
+    (u.rv!==-1&&(u.rv||0)>0?'<div style="display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">'+
+    '<input id="rv-remove" type="number" min="1" placeholder="Cantidad" style="width:110px;padding:8px;border:1px solid #fca5a5;border-radius:8px">'+
+    '<button class="btn btn-sm btn-danger" onclick="removeRV('+u.id+',false)">➖ Quitar RV</button>'+
+    '<button class="btn btn-sm btn-danger" onclick="removeRV('+u.id+',true)">🧹 Quitar todo</button>'+
+    '<span id="rv-remove-msg" style="font-size:.8rem"></span></div>':'')+
     '<p style="font-size:.8rem;color:var(--cocoa-soft)">10 RV = 5 links · 10 RV = 8 imágenes promocionales</p>'+
     '</div>'+
     '<div style="margin-top:16px;border-top:1px solid var(--border,#eee);padding-top:12px">'+
@@ -1125,6 +1130,33 @@ async function adjustRV(id){
       closeDetailModal();
       try{
         var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:amount});
+        if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
+        await loadUsers();
+        closeUserModal();
+        showUser(id);
+      }catch(e){ if(msg){msg.textContent="Error: "+e.message;msg.style.color="#a33";} }
+    }}]);
+}
+
+/* ---------- quitar RV (saldo) ---------- */
+async function removeRV(id, todo){
+  var msg=$("#rv-remove-msg");
+  var u=userModalData;
+  var saldo=(u&&u.rv>0)?u.rv:0;
+  if(!saldo){ if(msg)msg.textContent="Este usuario no tiene RV."; return; }
+  var amount=todo?saldo:Math.trunc(Number(($("#rv-remove")||{}).value));
+  if(!todo&&(!Number.isFinite(amount)||amount<=0)){ if(msg)msg.textContent="Escribe la cantidad a quitar."; return; }
+  if(amount>saldo) amount=saldo;
+  var nuevoSaldo=saldo-amount;
+  showDetailModal("➖ Quitar RV",
+    kv("Usuario", esc((u&&u.nombre)||"—"))+
+    kv("Saldo actual", "<b>"+saldo+" RV</b>")+
+    kv("Se quita", "<b style=\"color:#b91c1c\">−"+amount+" RV</b>")+
+    kv("Nuevo saldo", "<b>"+nuevoSaldo+" RV</b>"),
+    [cancelBtn(), {label:"➖ Quitar RV", cls:"btn-danger", onClick:async function(){
+      closeDetailModal();
+      try{
+        var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:-amount});
         if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
         await loadUsers();
         closeUserModal();
