@@ -215,6 +215,20 @@ async function requireAuth(req, res, next) {
     if (!row) return res.status(401).json({ error: "Usuario no encontrado" });
     if (row.banned === 1)
       return res.status(401).json({ error: "Cuenta suspendida permanentemente." });
+    // Vencimiento de planes con fecha (manuales): si plan_expires_at ya
+    // pasó y NO hay suscripción de PayPal ACTIVA, el plan termina aquí.
+    if (row.subscribed === 1 && row.plan_expires_at) {
+      const exp = new Date(String(row.plan_expires_at).replace(" ", "T") + "Z").getTime();
+      if (!isNaN(exp) && Date.now() > exp) {
+        try {
+          const sub = await db.get("SELECT status FROM paypal_subscriptions WHERE email = ?", String(row.email || "").toLowerCase());
+          if (!sub || sub.status !== "ACTIVE") {
+            await db.run("UPDATE users SET subscribed = 0, plan_type = NULL, plan_expires_at = NULL WHERE id = ?", row.id);
+            row.subscribed = 0; row.plan_type = null; row.plan_expires_at = null;
+          }
+        } catch (e) { /* no bloquea la petición */ }
+      }
+    }
     req.user = row;
     // Modo "solo cambiar contraseña": el token temporal solo permite
     // cambiar la contraseña. Todo lo demás queda bloqueado.

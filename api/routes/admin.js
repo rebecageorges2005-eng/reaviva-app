@@ -246,7 +246,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       `SELECT u.id, u.email, u.name, u.subscribed, u.is_admin, u.created_at, u.last_seen,
               u.ip, u.country, u.country_code, u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes, u.credits,
-              u.gender, u.birthdate, u.plan_type,
+              u.gender, u.birthdate, u.plan_type, u.plan_expires_at,
               s.plan, s.status AS sub_status, s.next_billing_date
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -264,6 +264,9 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       planDetalle: u.plan || u.plan_type || null,
       estadoSuscripcion: u.sub_status || null,
       proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
+    planVence: u.plan_expires_at ? fmtDateTime(u.plan_expires_at) : null,
+    planDiasRestantes: u.plan_expires_at ? Math.max(0, Math.ceil((new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() - Date.now()) / 86400000)) : null,
+    planEsPaypal: u.sub_status === "ACTIVE",
       esAdmin: u.is_admin === 1,
       registrado: fmtDateTime(u.created_at),
       registradoRaw: u.created_at,
@@ -322,7 +325,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
               u.chat_disabled, u.gender, u.birthdate,
               u.locked_until, u.disabled_until, u.failed_logins,
               u.credits, u.img_block_remaining,
-              u.banned, u.ban_reason, u.plan_type,
+              u.banned, u.ban_reason, u.plan_type, u.plan_expires_at,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
        FROM users u
        LEFT JOIN paypal_subscriptions s ON s.email = u.email
@@ -385,6 +388,9 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
     planDetalle: u.plan || u.plan_type || null,
     estadoSuscripcion: u.sub_status || null,
     proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
+    planVence: u.plan_expires_at ? fmtDateTime(u.plan_expires_at) : null,
+    planDiasRestantes: u.plan_expires_at ? Math.max(0, Math.ceil((new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() - Date.now()) / 86400000)) : null,
+    planEsPaypal: u.sub_status === "ACTIVE",
     subscriptionId: u.subscription_id || null,
     esAdmin: u.is_admin === 1,
     registrado: fmtDateTime(u.created_at),
@@ -628,11 +634,17 @@ router.delete("/verified-domains/:id", requireAdmin, ah(async (req, res) => {
 router.post("/users/:id/plan", requireAdmin, ah(async (req, res) => {
   const plan = String((req.body || {}).plan || "");
   const id = req.params.id;
-  const u = await db.get("SELECT id, is_admin, email, name FROM users WHERE id = ?", id);
+  const u = await db.get("SELECT id, is_admin, email, name, plan_expires_at, subscribed FROM users WHERE id = ?", id);
   if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
   let bonus = 0;
   if (plan === "monthly" || plan === "annual") {
-    await db.run("UPDATE users SET subscribed = 1, plan_type = ? WHERE id = ?", plan, id);
+    // El plan manual queda con fecha de vencimiento: si ya tenía tiempo
+    // vigente, el período se SUMA sobre ese vencimiento; si no, desde hoy.
+    const periodMs = (plan === "annual" ? 365 : 30) * 86400000;
+    const curExp = u.plan_expires_at ? new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() : 0;
+    const base = Math.max(Date.now(), isNaN(curExp) ? 0 : curExp);
+    const expiry = new Date(base + periodMs).toISOString().slice(0, 19).replace("T", " ");
+    await db.run("UPDATE users SET subscribed = 1, plan_type = ?, plan_expires_at = ? WHERE id = ?", plan, expiry, id);
     // TODOS los beneficios: acceso vía plan_type + bono RV del plan
     // (+50 mensual / +200 anual, igual que pagando) + correo al usuario.
     bonus = plan === "annual" ? 200 : 50;
@@ -642,13 +654,43 @@ router.post("/users/:id/plan", requireAdmin, ah(async (req, res) => {
         id, -bonus, plan === "annual" ? "Bono plan Anual (asignado por el administrador)" : "Bono plan Mensual (asignado por el administrador)");
     } catch (e) { /* el abono ya se hizo; el registro es secundario */ }
   } else if (plan === "none" || plan === "" || plan === "free") {
-    await db.run("UPDATE users SET subscribed = 0, plan_type = NULL WHERE id = ?", id);
+    await db.run("UPDATE users SET subscribed = 0, plan_type = NULL, plan_expires_at = NULL WHERE id = ?", id);
   } else {
     return res.status(400).json({ error: "Plan inválido. Usa monthly, annual o none." });
   }
   // Correo al usuario avisando del cambio (no bloquea la respuesta).
   try { sendPlanChangedEmail({ to: u.email, name: u.name, plan: plan === "monthly" || plan === "annual" ? plan : "none", bonus }); } catch (e) { /* correo secundario */ }
   res.json({ ok: true, plan, bonus });
+}));
+
+/* ---------- POST /api/admin/users/:id/plan-time ----------
+ * Suma o resta días al vencimiento del plan de un usuario.
+ * Body: { days } — positivo agrega, negativo quita. Si el usuario
+ * tiene plan manual sin fecha, el conteo empieza desde hoy. Si el
+ * resultado queda en el pasado, el plan termina de inmediato.
+ * Los planes de PayPal ACTIVOS no se tocan (PayPal controla su tiempo). */
+router.post("/users/:id/plan-time", requireAdmin, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const days = Math.trunc(Number((req.body || {}).days));
+  if (!Number.isFinite(days) || days === 0 || Math.abs(days) > 3650)
+    return res.status(400).json({ error: "Cantidad de días inválida" });
+  const u = await db.get("SELECT id, email, subscribed, plan_expires_at FROM users WHERE id = ?", id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  if (u.subscribed !== 1) return res.status(400).json({ error: "El usuario no tiene un plan activo" });
+  const sub = await db.get("SELECT status FROM paypal_subscriptions WHERE email = ?", String(u.email || "").toLowerCase());
+  if (sub && sub.status === "ACTIVE")
+    return res.status(400).json({ error: "Es un plan de PayPal: su tiempo lo controla PayPal" });
+  const curExp = u.plan_expires_at ? new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() : 0;
+  const base = Math.max(Date.now(), isNaN(curExp) ? 0 : curExp);
+  const nuevo = base + days * 86400000;
+  if (nuevo <= Date.now()) {
+    await db.run("UPDATE users SET subscribed = 0, plan_type = NULL, plan_expires_at = NULL WHERE id = ?", id);
+    return res.json({ ok: true, terminado: true, planVence: null, planDiasRestantes: 0 });
+  }
+  const expiry = new Date(nuevo).toISOString().slice(0, 19).replace("T", " ");
+  await db.run("UPDATE users SET plan_expires_at = ? WHERE id = ?", expiry, id);
+  res.json({ ok: true, planVence: fmtDateTime(expiry), planDiasRestantes: Math.ceil((nuevo - Date.now()) / 86400000) });
 }));
 
 /* ---------- Álbumes de un usuario (el admin puede ver y eliminar) ---------- */
