@@ -734,6 +734,10 @@ function userTabContent(u){
     '<button class="btn btn-sm" onclick="setUserPlan('+u.id+',\'annual\')">⭐ Dar plan Anual</button>'+
     (u.conPlan?'<button class="btn btn-sm btn-ghost" onclick="setUserPlan('+u.id+',\'none\')">❌ Quitar plan</button>':'')+
     '</div>'+
+    (u.conPlan?'<div style="margin:10px 0;padding:10px;border:1px dashed var(--border,#ddd);border-radius:10px">'+
+    '<p style="margin:0 0 6px"><b>⏳ Tiempo del plan:</b> '+(u.planEsPaypal?'💳 Plan de PayPal — se renueva solo; el tiempo lo controla PayPal.':(u.planVence?'vence el <b>'+esc(u.planVence)+'</b> · le quedan <b>'+u.planDiasRestantes+' días</b>':'sin vencimiento (plan manual sin fecha)'))+'</p>'+
+    (u.planEsPaypal?'':'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="plan-days" type="number" min="1" placeholder="Días" style="width:100px;padding:8px;border:1px solid var(--border,#ddd);border-radius:8px"><button class="btn btn-sm" onclick="adjustPlanTime('+u.id+',1)">➕ Agregar días</button><button class="btn btn-sm btn-danger" onclick="adjustPlanTime('+u.id+',-1)">➖ Quitar días</button><span id="plan-time-msg" style="font-size:.8rem"></span></div>')+
+    '</div>':'')+
     '<p><b>📧 Correo:</b> '+(u.emailVerificado?'✅ verificado':'⚠️ sin confirmar')+'</p>'+
     '<p><b>🔐 Estado de la cuenta:</b> '+(u.cuentaBloqueada?'⛔ <b style="color:#b91c1c">Desactivada</b>'+(u.lockedUntil?' · 🔑 por intentos de contraseña hasta el '+esc(u.lockedUntil):'')+(u.disabledUntil?' · deshabilitada hasta el '+esc(u.disabledUntil):''):'✅ Activa')+'</p>'+
     (u.cuentaBloqueada?'<div style="margin:10px 0"><button class="btn btn-sm" onclick="reactivateUser('+u.id+')">♻️ Reactivar cuenta ahora</button></div>':'')+
@@ -1158,6 +1162,36 @@ async function removeRV(id, todo){
       try{
         var r=await api("POST","/api/admin/users/"+id+"/credits",{amount:-amount});
         if(msg){msg.textContent="✅ Nuevo saldo: "+r.rv+" RV";msg.style.color="#2e7d32";}
+        await loadUsers();
+        closeUserModal();
+        showUser(id);
+      }catch(e){ if(msg){msg.textContent="Error: "+e.message;msg.style.color="#a33";} }
+    }}]);
+}
+
+/* ---------- tiempo del plan (agregar / quitar días) ---------- */
+async function adjustPlanTime(id, sign){
+  var msg=$("#plan-time-msg");
+  var input=$("#plan-days");
+  var amount=Math.trunc(Number(input&&input.value));
+  if(!Number.isFinite(amount)||amount<=0){ if(msg)msg.textContent="Escribe la cantidad de días."; return; }
+  var u=userModalData;
+  var signed=sign*amount;
+  var quedan=(u&&u.planDiasRestantes!=null)?u.planDiasRestantes:null;
+  var nuevoTxt;
+  if(quedan==null) nuevoTxt="empezará a contar desde hoy y quedará con <b>"+amount+" días</b>";
+  else if(quedan+signed<=0) nuevoTxt="<b style=\"color:#b91c1c\">el plan TERMINA hoy</b> (se queda sin plan)";
+  else nuevoTxt="quedará con <b>"+(quedan+signed)+" días</b>";
+  showDetailModal(sign>0?"➕ Agregar días al plan":"➖ Quitar días al plan",
+    kv("Usuario", esc((u&&u.nombre)||"—"))+
+    kv("Vence ahora", (u&&u.planVence)?esc(u.planVence):"sin vencimiento")+
+    kv(sign>0?"Se agregan":"Se quitan", "<b>"+amount+" días</b>")+
+    kv("Resultado", nuevoTxt),
+    [cancelBtn(), {label:sign>0?"➕ Agregar días":"➖ Quitar días", cls:sign>0?"":"btn-danger", onClick:async function(){
+      closeDetailModal();
+      try{
+        var r=await api("POST","/api/admin/users/"+id+"/plan-time",{days:signed});
+        if(msg){msg.textContent=r.terminado?"✅ Plan terminado":"✅ Nuevo vencimiento: "+r.planVence+" ("+r.planDiasRestantes+" días)";msg.style.color="#2e7d32";}
         await loadUsers();
         closeUserModal();
         showUser(id);
