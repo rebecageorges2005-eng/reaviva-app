@@ -504,6 +504,7 @@ async function migrate() {
     await add("rv_bonus_for", "TEXT");
     await add("chat_alias", "TEXT");
     await add("city", "TEXT");
+    await add("plan_expires_at", "TEXT");
   } catch (e) {
     console.error("[db] migración chat_strikes:", e.message);
   }
