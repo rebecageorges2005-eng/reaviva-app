@@ -167,6 +167,31 @@ function sendPlanChangedEmail({ to, name, plan, bonus }) {
   sendEmail({ to, subject, html }).catch(() => {});
 }
 
+/* Correo: el pago de renovación falló (PayPal no pudo cobrar).
+ * Avisa de las 48 horas de gracia con acceso total y de qué pasa si
+ * no se completa el pago: todo se pausa, pero el progreso y los RV
+ * se conservan. Fire-and-forget como los demás. */
+function sendPaymentFailedEmail({ to, name, graceUntil }) {
+  const safeName = String(name || "amigo/a").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  let fecha = "";
+  if (graceUntil) {
+    const d = new Date(String(graceUntil).replace(" ", "T") + "Z");
+    if (!isNaN(d)) fecha = d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "America/La_Paz" }) +
+      " a las " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "America/La_Paz" });
+  }
+  const subject = "⚠️ Tu pago de renovación de Reaviva no pudo procesarse";
+  const html = emailShell(
+    subject,
+    `<p style="color:#4a3728;line-height:1.6;">Hola ${safeName},</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">Intentamos renovar tu plan de <b>Reaviva</b>, pero <b>el pago no pudo procesarse</b> (suele pasar por fondos insuficientes o una tarjeta vencida).</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">No te preocupes: tienes <b>48 horas de gracia con acceso total</b>${fecha ? `, hasta el <b>${fecha}</b>` : ""}, para actualizar tu método de pago en PayPal o renovar tu plan desde la app.</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">Si el pago no se completa en ese plazo, tu acceso se pausará hasta que renueves. <b>Tu progreso y tu saldo de RV se conservan</b>, no pierdes nada.</p>` +
+    buttonHtml(SITE_URL + "/", "Renovar mi plan") +
+    `<p style="font-size:.85rem;color:#7a6252;">Estamos contigo, un día a la vez 💛</p>`
+  );
+  sendEmail({ to, subject, html }).catch(() => {});
+}
+
 /* Correo de celebración (cumpleaños / aniversario semestral).
  * Lo dispara el motor de celebrations.js. Fire-and-forget. */
 function sendCelebrationEmail({ to, nombre, asunto, titulo, parrafos }) {
@@ -188,6 +213,7 @@ module.exports = {
   sendWelcomeEmail,
   sendLoginAlertEmail,
   sendPlanChangedEmail,
+  sendPaymentFailedEmail,
   sendCelebrationEmail,
   SITE_URL,
 };

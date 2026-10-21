@@ -107,23 +107,23 @@ function trialEnded(user) {
  * Devuelve { blocked: bool, reason: 'failed'|null }. */
 async function billingAccess(user) {
   if (!user || user.is_admin === 1 || user.subscribed !== 1)
-    return { blocked: false, reason: null };
+    return { blocked: false, reason: null, graceUntil: null };
   let sub = null;
   try {
     sub = await db.get(
       "SELECT status, grace_until FROM paypal_subscriptions WHERE email = ?",
       String(user.email || "").toLowerCase());
-  } catch (e) { return { blocked: false, reason: null }; }
-  if (!sub || sub.status === "ACTIVE") return { blocked: false, reason: null };
+  } catch (e) { return { blocked: false, reason: null, graceUntil: null }; }
+  if (!sub || sub.status === "ACTIVE") return { blocked: false, reason: null, graceUntil: null };
   if (sub.status === "PAST_DUE") {
     const g = sub.grace_until
       ? new Date(String(sub.grace_until).replace(" ", "T") + "Z").getTime()
       : 0;
     if (!isNaN(g) && Date.now() < g)
-      return { blocked: false, reason: "grace" }; // 48h de gracia: acceso total
-    return { blocked: true, reason: "failed" }; // sin gracia: todo deshabilitado (el RV se conserva)
+      return { blocked: false, reason: "grace", graceUntil: sub.grace_until }; // 48h de gracia: acceso total
+    return { blocked: true, reason: "failed", graceUntil: sub.grace_until }; // sin gracia: todo deshabilitado (el RV se conserva)
   }
-  return { blocked: false, reason: null };
+  return { blocked: false, reason: null, graceUntil: null };
 }
 
 module.exports = { getPlanType, normalizePlan, avatarFor, iniciales, displayProfile, trialEnded, billingAccess };
