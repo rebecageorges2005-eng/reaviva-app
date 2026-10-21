@@ -66,6 +66,16 @@ function fmtDateTime(iso) {
   return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+/* Fecha absoluta (para vencimientos futuros): "20/11/2026 15:57". */
+function fmtFechaAbs(iso) {
+  if (!iso) return null;
+  const s = String(iso);
+  const d = new Date(s.length <= 10 ? s + "T12:00:00" : s.replace(" ", "T") + "Z");
+  if (isNaN(d)) return "—";
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/La_Paz" }) +
+    " " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "America/La_Paz" });
+}
+
 /* ---------- GET /api/admin/stats ---------- */
 router.get("/stats", requireAdmin, ah(async (req, res) => {
   const totalUsers = (await db.get("SELECT COUNT(*) AS n FROM users")).n;
@@ -264,7 +274,7 @@ router.get("/users", requireAdmin, ah(async (req, res) => {
       planDetalle: u.plan || u.plan_type || null,
       estadoSuscripcion: u.sub_status || null,
       proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
-    planVence: u.plan_expires_at ? fmtDateTime(u.plan_expires_at) : null,
+    planVence: u.plan_expires_at ? fmtFechaAbs(u.plan_expires_at) : null,
     planDiasRestantes: u.plan_expires_at ? Math.max(0, Math.ceil((new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() - Date.now()) / 86400000)) : null,
     planEsPaypal: u.sub_status === "ACTIVE",
       esAdmin: u.is_admin === 1,
@@ -388,7 +398,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
     planDetalle: u.plan || u.plan_type || null,
     estadoSuscripcion: u.sub_status || null,
     proximoCobro: u.next_billing_date ? fmtDay(u.next_billing_date) : null,
-    planVence: u.plan_expires_at ? fmtDateTime(u.plan_expires_at) : null,
+    planVence: u.plan_expires_at ? fmtFechaAbs(u.plan_expires_at) : null,
     planDiasRestantes: u.plan_expires_at ? Math.max(0, Math.ceil((new Date(String(u.plan_expires_at).replace(" ", "T") + "Z").getTime() - Date.now()) / 86400000)) : null,
     planEsPaypal: u.sub_status === "ACTIVE",
     subscriptionId: u.subscription_id || null,
@@ -690,7 +700,7 @@ router.post("/users/:id/plan-time", requireAdmin, ah(async (req, res) => {
   }
   const expiry = new Date(nuevo).toISOString().slice(0, 19).replace("T", " ");
   await db.run("UPDATE users SET plan_expires_at = ? WHERE id = ?", expiry, id);
-  res.json({ ok: true, planVence: fmtDateTime(expiry), planDiasRestantes: Math.ceil((nuevo - Date.now()) / 86400000) });
+  res.json({ ok: true, planVence: fmtFechaAbs(expiry), planDiasRestantes: Math.ceil((nuevo - Date.now()) / 86400000) });
 }));
 
 /* ---------- Álbumes de un usuario (el admin puede ver y eliminar) ---------- */
