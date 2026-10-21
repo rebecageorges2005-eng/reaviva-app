@@ -118,6 +118,63 @@ function applyReadOnlyUI(kind){
     : "⏰ Tu prueba gratuita terminó. Actualiza a un plan pago para seguir participando 💎 (tócalo aquí)";
 }
 
+/* ---------- estado de cobro: gracia (aviso) y bloqueo (ventana de renovación) ---------- */
+function fmtFechaCorta(iso){
+  if(!iso) return "";
+  const d = new Date(String(iso).replace(" ", "T") + "Z");
+  if(isNaN(d)) return "";
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "long" }) + " a las " +
+    d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+async function checkBillingState(){
+  try{
+    const r = await fetch("/api/auth/me", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    applyBillingState(j.billing);
+  }catch(e){}
+}
+function applyBillingState(b){
+  if(!b) return;
+  if(b.blocked){ showBillingLockout(); hideGraceBanner(); return; }
+  hideBillingLockout();
+  if(b.grace) showGraceBanner(b.graceUntil); else hideGraceBanner();
+}
+function showGraceBanner(graceUntil){
+  let bn = $("#grace-banner");
+  if(!bn){
+    bn = document.createElement("div");
+    bn.id = "grace-banner";
+    bn.style.cssText = "position:sticky;top:0;z-index:900;background:#fef3c7;color:#92400e;padding:10px 14px;font-size:.92rem;text-align:center;border-bottom:2px solid #f59e0b";
+    document.body.prepend(bn);
+  }
+  bn.innerHTML = "⚠️ <b>Tu pago de renovación falló.</b> Tienes acceso total hasta el <b>" +
+    esc(fmtFechaCorta(graceUntil)) + "</b>. Actualiza tu pago para no perder tu plan. " +
+    '<button class="btn btn-sm" style="margin-left:8px" onclick="openPaywall()">Renovar ahora</button>';
+  bn.style.display = "";
+}
+function hideGraceBanner(){ const bn = $("#grace-banner"); if(bn) bn.style.display = "none"; }
+function showBillingLockout(){
+  if($("#billing-lockout")) return;
+  const ov = document.createElement("div");
+  ov.id = "billing-lockout";
+  ov.style.cssText = "position:fixed;inset:0;z-index:2000;background:rgba(43,29,20,.92);display:flex;align-items:center;justify-content:center;padding:18px";
+  ov.innerHTML =
+    '<div style="background:#fffaf4;border-radius:18px;max-width:430px;width:100%;padding:28px 24px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.4)">' +
+    '<div style="font-size:3rem">💳</div>' +
+    "<h2 style=\"margin:8px 0\">Tu plan está pausado</h2>" +
+    '<p style="color:#7a6252;line-height:1.55">El pago de renovación de tu plan no pudo procesarse y el plazo de gracia terminó. ' +
+    "Renueva tu plan para seguir usando Reaviva.</p>" +
+    '<p style="color:#7a6252;line-height:1.55">💛 Tu progreso, tu diario y tu saldo de RV están guardados.</p>' +
+    '<button class="btn btn-primary btn-block" style="margin-top:10px" onclick="startCheckout(\'monthly\')">Plan Mensual · $4.99/mes</button>' +
+    '<button class="btn btn-block" style="margin-top:8px" onclick="startCheckout(\'yearly\')">⭐ Plan Anual · $39.99/año</button>' +
+    '<button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="location.reload()">Ya renové mi pago</button>' +
+    '<p style="margin-top:12px"><a href="#" onclick="doLogout();return false;" style="color:#a08063;font-size:.85rem">Cerrar sesión</a></p>' +
+    "</div>";
+  document.body.appendChild(ov);
+}
+function hideBillingLockout(){ const ov = $("#billing-lockout"); if(ov) ov.remove(); }
+
 /* Inserta un link en el compositor de la comunidad. */
 function insertChatLink(){
   const ta = $("#community-text");
@@ -159,7 +216,8 @@ function refreshLinkBtn(rvBalance){
 function handleSpamError(j){
   const code = j && j.error;
   const msg = (j && j.message) || "Contenido no permitido.";
-  if(code === "TRIAL_ENDED" || code === "BILLING_BLOCKED"){
+  if(code === "BILLING_BLOCKED"){ showBillingLockout(); return true; }
+  if(code === "TRIAL_ENDED"){
     openUpgradeModal(msg);
     return true;
   }
@@ -1078,6 +1136,7 @@ function enterApp(initialTab){
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
   try{ switchTab(initialTab || "hoy", !!initialTab); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
+  try{ checkBillingState(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
   try{ startDmWinPoll(); }catch(e){}
   // Sondeo del chat grupal SIEMPRE activo con la sesión iniciada: alimenta el
@@ -2447,8 +2506,11 @@ async function renderComunidad(){
     const j = await r.json();
     // Si el usuario está muteado por spam, deshabilitar el compositor (solo lectura).
     if(j.muted) disableCommunityComposer();
-    // Prueba culminada o cobro vencido sin RV: solo lectura (ver sin publicar).
-    if(j.trialEnded || j.billingBlocked) applyReadOnlyUI(j.billingBlocked ? "billing" : "trial");
+    // Prueba culminada: solo lectura. Cobro vencido (gracia terminada):
+    // ventana de renovación a pantalla completa; en gracia, aviso arriba.
+    if(j.billingBlocked){ showBillingLockout(); }
+    else { hideBillingLockout(); if(j.trialEnded) applyReadOnlyUI("trial"); }
+    if(j.billingGrace) showGraceBanner(j.graceUntil); else hideGraceBanner();
     refreshLinkBtn(j.rv);
     // Botón de usuarios en línea 🟢🔴.
     if(j.onlineCount != null) updateOnlineBtn(j.onlineCount);
