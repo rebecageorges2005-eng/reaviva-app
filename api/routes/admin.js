@@ -320,6 +320,7 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
               u.email_verified, u.verification_token,
               u.chat_strikes, u.chat_strikes_date, u.chat_muted, u.chat_mutes,
               u.chat_disabled, u.gender, u.birthdate,
+              u.locked_until, u.disabled_until, u.failed_logins,
               u.credits, u.img_block_remaining,
               u.banned, u.ban_reason, u.plan_type,
               s.plan, s.status AS sub_status, s.next_billing_date, s.subscription_id
@@ -389,6 +390,9 @@ router.get("/users/:id", requireAdmin, ah(async (req, res) => {
     registrado: fmtDateTime(u.created_at),
     ultimaConexion: fmtDateTime(u.last_seen),
     enLinea: !!u.last_seen && new Date(u.last_seen.replace(" ", "T") + "Z").getTime() > Date.now() - 5 * 60000,
+    lockedUntil: u.locked_until ? fmtDateTime(u.locked_until) : null,
+    disabledUntil: u.disabled_until ? fmtDateTime(u.disabled_until) : null,
+    cuentaBloqueada: !!((u.locked_until && u.locked_until > new Date().toISOString().slice(0, 19).replace("T", " ")) || (u.disabled_until && u.disabled_until > new Date().toISOString().slice(0, 19).replace("T", " "))),
     inicioPrograma: u.program_start ? fmtDay(u.program_start) : null,
     programa: {
       diasCompletados: doneRows,
@@ -675,6 +679,19 @@ router.delete("/albums/photos/:photoId", requireAdmin, ah(async (req, res) => {
 }));
 
 /* ---------- Contenido del programa: audios por día/sexo ---------- */
+/* POST /api/admin/users/:id/reactivate — levanta la desactivación de
+ * la cuenta: la de 48h por intentos fallidos de contraseña
+ * (locked_until) y la de 15 días (disabled_until), y reinicia el
+ * contador de intentos. No toca banderas ni muteos del chat. */
+router.post("/users/:id/reactivate", requireAdmin, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = await db.get("SELECT id FROM users WHERE id = ?", id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  await db.run("UPDATE users SET locked_until = NULL, disabled_until = NULL, failed_logins = 0 WHERE id = ?", id);
+  res.json({ ok: true });
+}));
+
 router.get("/program-audios", requireAdmin, ah(async (req, res) => {
   const rows = await db.all("SELECT day, gender, updated_at, LENGTH(audio) AS len FROM program_audios ORDER BY day ASC, gender ASC");
   res.json({
