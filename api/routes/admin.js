@@ -315,11 +315,12 @@ function calcularRacha(doneDays, currentDay) {
   return n;
 }
 
-/* Día actual del programa según program_start (YYYY-MM-DD). Sin inicio → 1. */
+/* Día actual del programa según program_start (YYYY-MM-DD). Sin inicio → 1.
+ * Sin tope en 30: con la Fase 2 el contador sigue (31, 32, …). */
 function diaActual(programStart) {
   if (!programStart) return 1;
   const diff = Math.floor((Date.now() - new Date(programStart + "T12:00:00").getTime()) / 86400000) + 1;
-  return Math.min(Math.max(diff, 1), 30);
+  return Math.max(diff, 1);
 }
 
 /* ---------- GET /api/admin/users/:id ---------- */
@@ -760,7 +761,7 @@ router.post("/program-audios", requireAdmin, ah(async (req, res) => {
   const day = parseInt((req.body || {}).day, 10);
   const gender = String((req.body || {}).gender || "");
   const audio = String((req.body || {}).audio || "");
-  if (!(day >= 1 && day <= 30)) return res.status(400).json({ error: "Elige un día del 1 al 30." });
+  if (!(day >= 1 && day <= 366)) return res.status(400).json({ error: "Elige un día válido (1–30 de la Fase 1, o 31+ de la Fase 2)." });
   if (gender !== "M" && gender !== "F") return res.status(400).json({ error: "Elige la voz (hombre o mujer)." });
   if (!/^data:audio\/(mpeg|mp3|x-mpeg);base64,[A-Za-z0-9+/=\s]+$/.test(audio)) {
     return res.status(400).json({ error: "El archivo debe ser un MP3 válido." });
