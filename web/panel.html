@@ -300,13 +300,13 @@ async function render(){
       '<div class="block"><h4>🎧 Audios por día (reemplazan al original)</h4>'+
       '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Sube un MP3 para un día y una voz: ese audio reemplaza al original SOLO para ese día y esa voz. Si lo quitas, vuelve el original.</p>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
-      '<select id="pa-day" class="field" style="max-width:110px">'+Array.from({length:30},function(_,i){return '<option value="'+(i+1)+'">Día '+(i+1)+'</option>';}).join("")+'</select>'+
+      '<select id="pa-day" class="field" style="max-width:170px">'+Array.from({length:86},function(_,i){var d=i+1;return '<option value="'+d+'">'+(d<=30?'Día '+d:'Día '+d+' · Fase 2')+'</option>';}).join("")+'</select>'+
       '<select id="pa-gender" class="field" style="max-width:150px"><option value="M">👨 Voz hombre</option><option value="F">👩 Voz mujer</option></select>'+
       '<input id="pa-file" type="file" accept="audio/mpeg,.mp3" class="field" style="max-width:260px">'+
       '<button class="btn" onclick="uploadProgramAudio()">⬆️ Subir audio</button></div>'+
       '<span id="pa-msg" style="font-size:.85rem"></span><div id="pa-list" style="margin-top:10px"></div>'+
       '<h4 style="margin-top:18px">🧠 Preguntas extra para los tests de progreso</h4>'+
-      '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Se agregan a los tests de cada 3 días de TODOS los usuarios (máximo 10 en total).</p>'+
+      '<p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Se agregan a los tests de progreso de TODOS los usuarios (cada 3 días en la Fase 1 y al cierre de cada ciclo semanal en la Fase 2; máximo 10 en total).</p>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="pq-text" class="field" placeholder="Escribe la pregunta…" maxlength="300" style="flex:1;min-width:200px">'+
       '<select id="pq-kind" class="field" style="max-width:170px"><option value="scale">🔢 Escala 1–5</option><option value="open">✍️ Respuesta abierta</option></select>'+
       '<button class="btn" onclick="addProgramQuestion()">➕ Agregar</button></div>'+

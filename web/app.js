@@ -948,7 +948,9 @@ function startDate(){
 }
 function currentDay(){
   const diff = Math.floor((Date.now() - startDate().getTime()) / 86400000) + 1;
-  return Math.min(Math.max(diff, 1), 30);
+  /* Sin tope: la Fase 2 ("Seguir sanando", program2.js) continúa el
+   * conteo de días 31, 32, … de forma indefinida. */
+  return Math.max(diff, 1);
 }
 function doneDays(){ return store.get(LS.done, []); }
 function isDone(d){ return doneDays().includes(d); }
@@ -956,7 +958,7 @@ function markDone(d){
   const arr = doneDays();
   if(!arr.includes(d)){ arr.push(d); store.set(LS.done, arr); }
 }
-function isUnlocked(d){ return d <= Math.min(currentDay(), 30); }
+function isUnlocked(d){ return d <= currentDay(); }
 function isPaid(){ return store.get("reaviva_paid", false); } // synced from /api/paypal/status
 function isAdmin(){ return store.get("reaviva_admin", false); }
 /* Tipo de plan: 'annual' | 'monthly' | 'free'. El admin cuenta como annual. */
@@ -1364,7 +1366,7 @@ async function openAdminUser(id){
             <div><small>Registrado</small><b>${esc(u.registrado)}</b></div>
             <div><small>Última conexión</small><b>${esc(u.ultimaConexion)} ${u.enLinea?'🟢':''}</b></div>
             <div><small>Inicio programa</small><b>${esc(u.inicioPrograma || "—")}</b></div>
-            <div><small>Días completados</small><b>${u.diasCompletados}/30</b></div>
+            <div><small>Días completados</small><b>${u.diasCompletados > 30 ? u.diasCompletados + " (Fase 2)" : u.diasCompletados + "/30"}</b></div>
             <div><small>Entradas diario</small><b>${u.entradasDiario}</b></div>
           </div>
           <button class="btn btn-primary btn-block" style="margin-top:14px"
@@ -1470,8 +1472,24 @@ async function toggleCommunityHide(id, hide){
 
 /* ---------- HOY ---------- */
 function renderHoy(){
-  const d = currentDay(), prog = window.REAVIVA_PROGRAM[d-1];
+  const d = currentDay(), prog = window.getDayContent(d);
   const done = doneDays().length;
+  if(d > 30 && prog){
+    /* FASE 2: sin corte al día 31+. Muestra ciclo y tema en curso. */
+    const info = prog.f2info;
+    $("#hoy-progress").innerHTML = `
+      <div class="pill"><b>${done}</b><span>días completados</span></div>
+      <div class="pill"><b>${streak()}</b><span>días de racha 🔥</span></div>
+      <div class="pill"><b>Ciclo ${info.cycle}</b><span>Fase 2 · ${esc(prog.theme.nombre)}${info.vuelta > 1 ? " · Vuelta " + info.vuelta : ""}</span></div>`;
+    $("#hoy-card").innerHTML = `
+      <div class="today-card">
+        <div class="kicker">Día ${d} · Fase 2 · Ciclo ${info.cycle} — ${esc(prog.theme.nombre)} · Día ${info.cycleDay} de 7 del ciclo</div>
+        <h2>${esc(gtext(prog.title))}</h2>
+        <p>${esc(gtext(prog.reflexion).slice(0,140))}…</p>
+        <button class="btn btn-primary" onclick="openDay(${d})">Continuar mi día ${d} →</button>
+      </div>`;
+    return;
+  }
   $("#hoy-progress").innerHTML = `
     <div class="pill"><b>${done}/30</b><span>días completados</span></div>
     <div class="pill"><b>${streak()}</b><span>días de racha 🔥</span></div>
@@ -1510,6 +1528,49 @@ function renderPrograma(){
     else btn.onclick = ()=>openPaywall();
     wrap.appendChild(btn);
   });
+  /* ---------- FASE 2: "Seguir sanando" (día 31+, solo con plan) ---------- */
+  const f2head = document.createElement("div");
+  f2head.style.cssText = "margin:22px 0 6px";
+  const fase1Done = window.REAVIVA_PROGRAM.every(p=>isDone(p.day));
+  f2head.innerHTML = `<h3 style="margin:0">🌱 Fase 2 · Seguir sanando</h3>
+    <p style="color:var(--cocoa-soft);font-size:.9rem;margin:4px 0 0">${fase1Done
+      ? "Completaste los 30 días. Tu proceso continúa en ciclos semanales con un tema por ciclo, sin fin."
+      : "Al completar los 30 días, tu proceso continúa aquí: ciclos semanales con un tema por ciclo, sin fin."}</p>`;
+  wrap.appendChild(f2head);
+  if(isPaid() || isAdmin()){
+    // Ciclos desde el 1 hasta el ciclo del día actual (tope visual: el actual).
+    const lastCycle = Math.max(1, (window.phase2Info(Math.max(currentDay(), 31)) || {cycle:1}).cycle);
+    for(let c = 1; c <= lastCycle; c++){
+      const firstDay = 30 + (c - 1) * 7 + 1;
+      const cycHead = document.createElement("div");
+      const c0 = window.getDayContent(firstDay);
+      cycHead.innerHTML = `<div style="margin:14px 0 4px;font-weight:700">Ciclo ${c} · ${esc(c0.theme.nombre)}${c0.f2info.vuelta > 1 ? " · Vuelta " + c0.f2info.vuelta : ""}</div>`;
+      wrap.appendChild(cycHead);
+      for(let cd = 1; cd <= 7; cd++){
+        const dayNum = firstDay + cd - 1;
+        const dc = window.getDayContent(dayNum);
+        const unlocked = isUnlocked(dayNum);
+        const btn = document.createElement("button");
+        btn.className = "prog-item" + (isDone(dayNum)?" done":"") + (!unlocked?" locked":"");
+        btn.innerHTML = `
+          <div class="check">✓</div>
+          <div class="info"><b>Día ${dayNum} · ${esc(gtext(dc.title))}</b><small>${esc(dc.part)}</small></div>
+          <div class="lock">${!unlocked ? "🔒" : (isDone(dayNum)?"":"→")}</div>`;
+        if(unlocked) btn.onclick = ()=>openDay(dayNum);
+        else btn.onclick = ()=>toast("Este día se desbloquea con el ritmo de tu proceso 🌱");
+        wrap.appendChild(btn);
+      }
+    }
+  } else {
+    const lock = document.createElement("button");
+    lock.className = "prog-item locked";
+    lock.innerHTML = `
+      <div class="check">✓</div>
+      <div class="info"><b>Fase 2 · Ciclos semanales sin fin</b><small>Autoestima, límites, recaídas, rencor, confianza, propósito y más — solo con tu plan 💎</small></div>
+      <div class="lock">🔒</div>`;
+    lock.onclick = ()=>openPaywall();
+    wrap.appendChild(lock);
+  }
   const gate = $("#programa-gate");
   if(!isPaid()){
     gate.innerHTML = `
@@ -1534,7 +1595,18 @@ function openDay(d){
     if(typeof openDayNum !== "undefined" && openDayNum && openDayNum !== d) clearDayDraft(openDayNum);
   }catch(e){}
   openDayNum = d;
-  const p = window.REAVIVA_PROGRAM[d-1];
+  const p = window.getDayContent(d);
+  if(!p){ toast("Día no disponible"); return; }
+  /* Fase 2: personaliza el ejercicio con fragmentos reales de su
+   * historia (token {frag}) y, desde la vuelta 2, con lo que escribió
+   * en el mismo día de la vuelta anterior. */
+  if(p.f2 && p.ejercicio){
+    p.ejercicio = personalizeFrag(p.ejercicio, d);
+    if(p.f2info && p.f2info.vuelta > 1){
+      const prev = (getExerciseText(d - 56) || "").trim();
+      if(prev) p.ejercicio += `\n\n🔁 En la vuelta anterior, en este mismo día del ciclo, escribiste: «${prev.slice(0, 200)}…». Compara: ¿qué cambió en ti desde entonces? Escríbelo como parte de tu ejercicio de hoy.`;
+    }
+  }
   const savedEx = getExerciseText(d);
   const savedStory = getStoryText(d);
   const done = isDone(d);
@@ -1563,7 +1635,7 @@ function openDay(d){
     </div>
     <div class="day-nav">
       <button class="btn btn-ghost" ${d<=1?"disabled":""} onclick="openDay(${d-1})">← Anterior</button>
-      <button class="btn btn-ghost" ${d>=30?"disabled":""} onclick="tryNextDay(${d})">Siguiente →</button>
+      <button class="btn btn-ghost" ${d>=currentDay()?"disabled":""} onclick="tryNextDay(${d})">Siguiente →</button>
     </div>
     <div style="margin-top:16px"><button class="btn btn-ghost btn-block" onclick="backToList()">← Volver al programa</button></div>`;
   $("#panel-programa-list").style.display = "none";
@@ -1670,8 +1742,73 @@ const STORY_PROMPTS = [
   "Escribe tu plan para los próximos 30 días: ¿qué vas a construir, paso a paso?",
   "Tu historia continúa. Escribe el capítulo que empieza hoy: ¿cómo quieres que siga tu vida desde aquí?",
 ];
+/* ============================================================
+   FASE 2 — personalización de ejercicios y preguntas.
+   Fuentes reales del usuario: su historia (reaviva_stories, todos
+   los días), su diario (reaviva_journal) y sus ejercicios previos.
+   ============================================================ */
+/* Fragmentos de lo que el usuario ha escrito (historia + diario),
+ * del más largo al más corto: misma heurística que la Fase 1. */
+function userStoryFragments(){
+  const parts = [];
+  const stories = store.get("reaviva_stories", {});
+  Object.values(stories || {}).forEach(t => { if(t) parts.push(String(t)); });
+  try{
+    const j = store.get(LS.journal, {});
+    Object.values(j || {}).forEach(e => { if(e && e.text) parts.push(String(e.text)); });
+  }catch(e){}
+  const all = parts.join(" ");
+  if(!all.trim()) return [];
+  return all.split(/[.!?]+/).map(s=>s.trim()).filter(s=>s.length > 25)
+    .sort((a,b)=>b.length - a.length);
+}
+/* La oración más sustanciosa de un texto (o "" si no hay). */
+function topSentence(text){
+  const s = String(text || "").split(/[.!?]+/).map(x=>x.trim())
+    .filter(x=>x.length > 25).sort((a,b)=>b.length - a.length);
+  return s.length ? s[0].slice(0, 140) : "";
+}
+/* Reemplaza el token {frag} de los contenidos de Fase 2 por un
+ * fragmento real del usuario (rotado por día). Sin textos del
+ * usuario, usa una referencia neutra a su experiencia. */
+function personalizeFrag(text, d){
+  if(!text || text.indexOf("{frag}") === -1) return text;
+  const frags = userStoryFragments();
+  const frag = frags.length
+    ? "«" + frags[((Number(d) || 1) - 1) % frags.length].slice(0, 140) + "…»"
+    : "lo que viviste en tu relación";
+  return text.split("{frag}").join(frag);
+}
+/* Preguntas de "Su historia" en Fase 2: parten de la pregunta del
+ * tema/ciclo (program2.js) y se personalizan con fragmentos reales.
+ * Vuelta 2+: profundiza con lo escrito hace 7 días ("la semana
+ * pasada escribiste…") y con lo escrito sobre este mismo tema en la
+ * vuelta anterior (56 días antes: 8 temas × 7 días). */
+function storyPromptF2(d){
+  const info = window.phase2Info(d);
+  const theme = window.REAVIVA_F2_THEMES[info.themeIndex];
+  let base = theme.dias[info.cycleDay - 1].historia;
+  if(info.vuelta > 1){
+    const lastWeek = topSentence(getStoryText(d - 7));
+    if(lastWeek)
+      base = `La semana pasada escribiste: «${lastWeek}…». Con eso presente: ` +
+        base.charAt(0).toLowerCase() + base.slice(1);
+    const prevRound = topSentence(getStoryText(d - 56));
+    if(prevRound)
+      base += ` En la vuelta anterior, sobre este mismo tema, contaste: «${prevRound}…». ¿Qué ves distinto hoy?`;
+    return base;
+  }
+  const frags = userStoryFragments();
+  if(frags.length){
+    const frag = frags[(info.f2day - 1) % frags.length].slice(0, 140);
+    return `En tu historia escribiste: «${frag}…». ` + base;
+  }
+  return base;
+}
+
 function storyPrompt(d){
   const day = Number(d) || 1;
+  if(day > 30) return storyPromptF2(day);
   if(day <= 1) return STORY_PROMPTS[0];
   /* Desde el día 2, las preguntas son DISTINTAS para cada usuario: se arman
      con fragmentos reales de lo que escribió el DÍA 1 (su propia historia). */
@@ -1744,8 +1881,10 @@ function completeDay(d){
     return;
   }
   markDone(d);
-  // Cada 3 días: test de 25 preguntas basado en su historia y relación.
-  if(d % 3 === 0 && !getTestResult(d)){
+  // Fase 1: test cada 3 días. Fase 2: test al cierre de cada ciclo
+  // (día 7 de cada bloque de 7). Mismo mecanismo y mismo mínimo (65).
+  const needsTest = d <= 30 ? (d % 3 === 0) : ((d - 30) % 7 === 0);
+  if(needsTest && !getTestResult(d)){
     renderProgressTest(d);
     return;
   }
@@ -1934,7 +2073,7 @@ function submitProgressTest(d){
         <p style="color:var(--cocoa-soft);font-size:.9rem">Puedes continuar al siguiente día.</p>
       </div>
       <div class="complete-row">
-        <button class="btn btn-primary btn-block" onclick="openDay(${d+1 > 30 ? 30 : d+1})">Continuar →</button>
+        <button class="btn btn-primary btn-block" onclick="openDay(${d+1})">Continuar →</button>
         <div style="margin-top:12px"><button class="btn btn-ghost btn-block" onclick="backToList()">← Volver al programa</button></div>
       </div>`;
   }else{
@@ -2392,7 +2531,11 @@ async function doProfilePwChange(){
 
 function renderProgreso(){
   const done = doneDays();
-  $("#prog-stats").innerHTML = `
+  const f2max = Math.max(0, ...done);
+  $("#prog-stats").innerHTML = f2max > 30 ? `
+    <div class="pill"><b>${done.length}</b><span>días en total</span></div>
+    <div class="pill"><b>${streak()}</b><span>racha 🔥</span></div>
+    <div class="pill"><b>Fase 2</b><span>${esc((window.getDayContent(f2max) || {}).part || "Seguir sanando")}</span></div>` : `
     <div class="pill"><b>${done.length}/30</b><span>días</span></div>
     <div class="pill"><b>${streak()}</b><span>racha 🔥</span></div>
     <div class="pill"><b>${Math.round(done.length/30*100)}%</b><span>completado</span></div>`;
