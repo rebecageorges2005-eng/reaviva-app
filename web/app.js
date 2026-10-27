@@ -958,7 +958,32 @@ function markDone(d){
   const arr = doneDays();
   if(!arr.includes(d)){ arr.push(d); store.set(LS.done, arr); }
 }
-function isUnlocked(d){ return d <= currentDay(); }
+/* Secuencia (26 oct 2026, Georges): un día solo se desbloquea si
+ * TODOS los días anteriores están completados Y no supera el día
+ * de calendario actual. El cambio de calendario NUNCA desbloquea
+ * por sí solo: si el día 1 sigue pendiente en el día 3 de
+ * calendario, el usuario sigue en el día 1 y los días 2 y 3 quedan
+ * bloqueados hasta completar el 1, en cadena. El tope de calendario
+ * solo impide adelantar más allá del día actual. Un día ya
+ * completado siempre se puede revisar (evita dejar al usuario sin
+ * acceso a su propio trabajo si la cadena quedó inconsistente). */
+function pendingDay(){
+  const cd = currentDay();
+  for(let d = 1; d <= cd; d++){ if(!isDone(d)) return d; }
+  return null;
+}
+function isUnlocked(d){
+  if(d > currentDay()) return false;
+  if(d <= 1) return true;
+  if(isDone(d)) return true;
+  for(let i = 1; i < d; i++){ if(!isDone(i)) return false; }
+  return true;
+}
+function sequenceLockMessage(d){
+  const pd = pendingDay();
+  if(pd) return "Completa el día " + pd + " primero 🔒";
+  return "Este día aún no está disponible 🌱";
+}
 function isPaid(){ return store.get("reaviva_paid", false); } // synced from /api/paypal/status
 function isAdmin(){ return store.get("reaviva_admin", false); }
 /* Tipo de plan: 'annual' | 'monthly' | 'free'. El admin cuenta como annual. */
@@ -1138,6 +1163,7 @@ function enterApp(initialTab){
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
   try{ switchTab(initialTab || "hoy", !!initialTab); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
+  try{ checkDailyNotifications(); }catch(e){}
   try{ checkBillingState(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
   try{ startDmWinPoll(); }catch(e){}
@@ -1198,6 +1224,44 @@ async function dismissMessage(id){
   const el = document.querySelector(`.admin-msg[data-mid="${id}"]`);
   if(el) el.remove();
   const box = $("#user-messages");
+  if(box && !box.querySelector(".admin-msg")) box.style.display = "none";
+}
+
+/* ============================================================
+   NOTIFICACIÓN DIARIA DEL PROGRAMA (banner en la pantalla
+   principal, 25 oct 2026, idea de Georges)
+   ------------------------------------------------------------
+   Al entrar, el banner muestra los avisos sin leer del día (uno
+   por día por usuario, generados por el envío diario). Se cierra
+   con ✕ y eso marca el aviso como leído en el servidor, así no
+   vuelve a aparecer. El botón lleva al día del programa.
+   Reutiliza el estilo .admin-msg de los mensajes del admin. */
+async function checkDailyNotifications(){
+  if(isAdmin()) return; // el admin no recibe su propio aviso diario
+  try{
+    const r = await fetch("/api/notifications", { headers: authHeaders() });
+    if(!r.ok) return;
+    const j = await r.json();
+    const box = $("#daily-notif");
+    if(!box) return;
+    if(!j.notifications || !j.notifications.length){ box.innerHTML = ""; box.style.display = "none"; return; }
+    box.innerHTML = j.notifications.map(n=>`
+      <div class="admin-msg" data-nid="${n.id}">
+        <div class="am-head"><b>📅 ${esc(n.titulo)}</b>
+          <button class="am-close" onclick="dismissDailyNotification(${n.id})" aria-label="Cerrar">✕</button></div>
+        <p>${esc(n.cuerpo)}</p>
+        <div style="margin-top:12px"><button class="btn btn-primary" onclick="openDay(${n.programDay})">Continuar mi día ${n.programDay} →</button></div>
+      </div>`).join("");
+    box.style.display = "";
+  }catch(e){ /* sin conexión: no mostrar nada */ }
+}
+async function dismissDailyNotification(id){
+  try{
+    await fetch("/api/notifications/" + id + "/read", { method: "POST", headers: authHeaders() });
+  }catch(e){}
+  const el = document.querySelector(`.admin-msg[data-nid="${id}"]`);
+  if(el) el.remove();
+  const box = $("#daily-notif");
   if(box && !box.querySelector(".admin-msg")) box.style.display = "none";
 }
 
@@ -1472,7 +1536,11 @@ async function toggleCommunityHide(id, hide){
 
 /* ---------- HOY ---------- */
 function renderHoy(){
-  const d = currentDay(), prog = window.getDayContent(d);
+  /* "Hoy" es el PRIMER día pendiente (menor no completado <= día
+   * calendario), no el día calendario: si el día 1 sigue pendiente
+   * en el día 3, Hoy sigue siendo el día 1. Sin pendiente, se
+   * muestra el día calendario (ya completado, para revisarlo). */
+  const d = pendingDay() || currentDay(), prog = window.getDayContent(d);
   const done = doneDays().length;
   if(d > 30 && prog){
     /* FASE 2: sin corte al día 31+. Muestra ciclo y tema en curso. */
@@ -1525,7 +1593,8 @@ function renderPrograma(){
       <div class="info"><b>Día ${p.day} · ${esc(gtext(p.title))}</b><small>${esc(p.part)}</small></div>
       <div class="lock">${gated ? "🔒" : (!unlocked ? "🔒" : (isDone(p.day)?"":"→"))}</div>`;
     if(unlocked && !gated) btn.onclick = ()=>openDay(p.day);
-    else btn.onclick = ()=>openPaywall();
+    else if(gated) btn.onclick = ()=>openPaywall();
+    else btn.onclick = ()=>{ const pd = pendingDay(); toast(sequenceLockMessage(p.day)); if(pd) openDay(pd); };
     wrap.appendChild(btn);
   });
   /* ---------- FASE 2: "Seguir sanando" (día 31+, solo con plan) ---------- */
@@ -1557,7 +1626,7 @@ function renderPrograma(){
           <div class="info"><b>Día ${dayNum} · ${esc(gtext(dc.title))}</b><small>${esc(dc.part)}</small></div>
           <div class="lock">${!unlocked ? "🔒" : (isDone(dayNum)?"":"→")}</div>`;
         if(unlocked) btn.onclick = ()=>openDay(dayNum);
-        else btn.onclick = ()=>toast("Este día se desbloquea con el ritmo de tu proceso 🌱");
+        else btn.onclick = ()=>{ const pd = pendingDay(); toast(sequenceLockMessage(dayNum)); if(pd) openDay(pd); };
         wrap.appendChild(btn);
       }
     }
@@ -1585,6 +1654,16 @@ function renderPrograma(){
 /* ---------- day detail ---------- */
 function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
+  /* Secuencia: un día bloqueado no se abre; se avisa cuál falta y
+   * se lleva al primer día pendiente. Sin pendiente (todo <= día
+   * calendario completado), el día pedido solo puede ser futuro:
+   * se avisa y no se abre nada. */
+  if(!isUnlocked(d)){
+    const pd = pendingDay();
+    toast(sequenceLockMessage(d));
+    if(pd) openDay(pd);
+    return;
+  }
   // Si se abre desde "Hoy" (u otra pestaña), ir primero a la pestaña
   // Programa: el detalle del día vive en ese panel; si no se cambia,
   // el clic parece no hacer nada.
