@@ -34,16 +34,36 @@ async function ensureStart(user) {
   return user.program_start;
 }
 
-/* GET /api/progress  → { programStart, doneDays: [1,2,3], currentDay } */
+/* Secuencia (26 oct 2026, Georges): el cambio de calendario NUNCA
+ * desbloquea por sí solo. Un día N solo se desbloquea si TODOS los
+ * días anteriores están completados y N <= día de calendario actual.
+ * pendingDay = primer día no completado <= día calendario, o null
+ * si todos los días hasta el calendario están completados. Un día ya
+ * completado siempre se puede revisar. */
+function pendingDayFor(doneDays, currentDay) {
+  const done = new Set(doneDays.map(Number));
+  for (let d = 1; d <= currentDay; d++) if (!done.has(d)) return d;
+  return null;
+}
+function firstMissingBefore(doneDays, day) {
+  const done = new Set(doneDays.map(Number));
+  for (let d = 1; d < day; d++) if (!done.has(d)) return d;
+  return null;
+}
+function calendarDayFor(programStart) {
+  const diff = Math.floor((Date.now() - new Date(programStart + "T12:00:00").getTime()) / 86400000) + 1;
+  return Math.min(Math.max(diff, 1), MAX_DAY); // Fase 2: el conteo sigue tras el día 30
+}
+
+/* GET /api/progress  → { programStart, doneDays: [1,2,3], currentDay, pendingDay } */
 router.get("/", ah(async (req, res) => {
   const programStart = await ensureStart(req.user);
   const rows = await db.all("SELECT day FROM progress WHERE user_id = ? ORDER BY day", req.user.id);
   const doneDays = rows.map((r) => r.day);
 
-  const diff = Math.floor((Date.now() - new Date(programStart + "T12:00:00").getTime()) / 86400000) + 1;
-  const currentDay = Math.min(Math.max(diff, 1), MAX_DAY); // Fase 2: el conteo sigue tras el día 30
+  const currentDay = calendarDayFor(programStart);
 
-  res.json({ programStart, doneDays, currentDay });
+  res.json({ programStart, doneDays, currentDay, pendingDay: pendingDayFor(doneDays, currentDay) });
 }));
 
 /* POST /api/progress  { day, done } — mark/unmark a day (1 en adelante;
@@ -59,6 +79,17 @@ router.post("/", ah(async (req, res) => {
   if (done && !canAccessDay(req.user, day))
     return res.status(403).json({ error: "Este día requiere un plan de pago 💎" });
 
+  // Secuencia: marcar un día N>1 como hecho exige TODOS los días
+  // anteriores completados (el admin puede saltarse esta regla).
+  // No se puede saltar un día pendiente aunque el calendario haya
+  // avanzado. Desmarcar (done=false) sí se permite siempre.
+  if (done && day > 1 && req.user.is_admin !== 1) {
+    const prior = await db.all("SELECT day FROM progress WHERE user_id = ? ORDER BY day", req.user.id);
+    const missing = firstMissingBefore(prior.map((r) => r.day), day);
+    if (missing !== null)
+      return res.status(403).json({ error: `Completa el día ${missing} primero 🔒` });
+  }
+
   ensureStart(req.user);
   if (done) {
     await db.run(
@@ -69,7 +100,9 @@ router.post("/", ah(async (req, res) => {
   }
 
   const rows = await db.all("SELECT day FROM progress WHERE user_id = ? ORDER BY day", req.user.id);
-  res.json({ doneDays: rows.map((r) => r.day) });
+  const doneDays = rows.map((r) => r.day);
+  const programStart = await ensureStart(req.user);
+  res.json({ doneDays, pendingDay: pendingDayFor(doneDays, calendarDayFor(programStart)) });
 }));
 
-module.exports = { router, canAccessDay, FREE_MAX_DAY };
+module.exports = { router, canAccessDay, FREE_MAX_DAY, pendingDayFor, firstMissingBefore, calendarDayFor };
