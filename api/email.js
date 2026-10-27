@@ -205,6 +205,35 @@ function sendCelebrationEmail({ to, nombre, asunto, titulo, parrafos }) {
   sendEmail({ to, subject: asunto, html });
 }
 
+/* Correo diario de progreso (notificación diaria del programa).
+ * Lo dispara generateDailyNotifications (api/daily-notifications.js).
+ * A diferencia de los demás send* (fire-and-forget), ESTE devuelve la
+ * promesa de sendEmail para que el generador pueda contar enviados
+ * y fallidos. Contenido 100% secular, tono cálido. */
+async function sendDailyProgressEmail({ to, name, programDay, phase, part, taskTitle, completedCount, streak, pending }) {
+  const safeName = String(name || "amigo/a").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const safeTask = String(taskTitle || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  const safePart = String(part || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  /* Si hay día pendiente (regla de secuencia 26 oct 2026), el correo
+   * habla de ese día pendiente, no del día de calendario. */
+  const diaLine = pending
+    ? `Tienes pendiente el día <b>${programDay}</b> en Reaviva.`
+    : (phase === 2
+      ? `Hoy es tu día <b>${programDay}</b> en Reaviva (${safePart}).`
+      : `Hoy es tu día <b>${programDay} de 30</b> en Reaviva.`);
+  const html = emailShell(
+    pending ? `Tienes pendiente el día ${programDay} 💛` : `Tu día ${programDay} te espera 💛`,
+    `<p style="color:#4a3728;line-height:1.6;">Hola ${safeName},</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">${diaLine}</p>` +
+    `<p style="color:#4a3728;line-height:1.6;">Llevas <b>${completedCount} día${completedCount === 1 ? "" : "s"} completado${completedCount === 1 ? "" : "s"}</b>` +
+    (streak > 0 ? ` y una racha de <b>${streak} día${streak === 1 ? "" : "s"}</b> 🔥.` : ".") + `</p>` +
+    (safeTask ? `<p style="color:#4a3728;line-height:1.6;">${pending ? "La tarea pendiente" : "La tarea de hoy"}: <b>“${safeTask}”</b>.</p>` : "") +
+    buttonHtml(SITE_URL + "/", `Continuar mi día ${programDay}`) +
+    `<p style="font-size:.85rem;color:#7a6252;">Un día a la vez 💛</p>`
+  );
+  return sendEmail({ to, subject: pending ? `Tienes pendiente el día ${programDay} en Reaviva 💛` : `Tu día ${programDay} en Reaviva 💛`, html });
+}
+
 module.exports = {
   isEmailConfigured,
   verificationUrl,
@@ -215,6 +244,7 @@ module.exports = {
   sendPlanChangedEmail,
   sendPaymentFailedEmail,
   sendCelebrationEmail,
+  sendDailyProgressEmail,
   SITE_URL,
 };
 

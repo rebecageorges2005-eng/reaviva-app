@@ -244,6 +244,31 @@ async function migrate() {
     console.error("[db] migración admin_messages:", e.message);
   }
 
+  /* Notificación diaria del programa (25 oct 2026, idea de Georges):
+   * un aviso por usuario y día (UNIQUE user_id + day_key en
+   * America/La_Paz): correo diario + banner en la app al entrar.
+   * La generación es idempotente gracias a INSERT OR IGNORE. */
+  try {
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS user_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        day_key TEXT NOT NULL,
+        program_day INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        read_at TEXT,
+        UNIQUE (user_id, day_key),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_notifications_user ON user_notifications(user_id, read_at);
+    `);
+    console.log("[db] migración: tabla user_notifications lista");
+  } catch (e) {
+    console.error("[db] migración user_notifications:", e.message);
+  }
+
   try {
     const cols4 = await tableCols("paypal_subscriptions");
     if (!cols4.includes("next_billing_date")) {
