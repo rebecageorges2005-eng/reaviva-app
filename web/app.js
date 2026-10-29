@@ -1652,6 +1652,42 @@ function renderPrograma(){
 }
 
 /* ---------- day detail ---------- */
+/* Audios virales extra (TikTok @reavivatufe1, top 30 por vistas;
+ * día 1 = más viral). SOLO audio: se reproduce aparte, sin video,
+ * y NO reemplaza el audio del día. Debe coincidir con VIRAL_TITLES
+ * en api/routes/program.js. */
+const VIRAL_TITLES = [
+  "Cuando el rechazo se convierte en desconexión emocional",
+  "Cuando el esfuerzo no es suficiente",
+  "¿Por qué sentimos atracción por alguien nuevo?",
+  "Cómo superar el dolor sin destruirte tras una ruptura",
+  "¿Amor verdadero o interés?",
+  "¿Por qué la novedad puede cambiar tu percepción en una relación larga?",
+  "¿Por qué cada vez más hombres eligen la soledad?",
+  "¿Por qué esforzarte más no siempre funciona en el amor?",
+  "¿Qué pasa cuando un hombre se siente invisible en su propio hogar?",
+  "¿Por qué perseguir a alguien que se aleja solo destruye tu dignidad?",
+  "El abuso psicológico que no se ve",
+  "El verdadero peligro tras una ruptura: vivir para impresionar a quien te dejó",
+  "¿Cómo evitar que la novedad destruya tu relación de años?",
+  "Las señales claras que indican que debes alejarte de una relación dañina",
+  "El peor error de un hombre: sacrificarlo todo por amor",
+  "El dolor de la traición descubierta",
+  "¿Amor o suscripción?",
+  "¿Sabes qué pasa realmente cuando una relación termina?",
+  "Cómo dejar de perseguir a alguien y recuperar tu vida",
+  "¿Amar no es suficiente?",
+  "¿Cómo una mujer puede destruir la confianza de un hombre sin insultos?",
+  "¿Sabías que la influencia no siempre es una orden?",
+  "El error que destruye tus límites cuando alguien regresa",
+  "¿Sabes cuándo empiezas a perder a una mujer?",
+  "Deja de perseguir aprobación",
+  "¿Qué destruye más una relación?",
+  "¿El matrimonio convierte a un hombre en esclavo emocional?",
+  "Cómo poner límites puede salvar tu relación",
+  "El verdadero poder en las relaciones",
+  "¿Sabes cuál es el momento más humillante para un hombre?",
+];
 function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
   /* Secuencia: un día bloqueado no se abre; se avisa cuál falta y
@@ -1695,6 +1731,7 @@ function openDay(d){
       <h2>Día ${p.day} · ${esc(gtext(p.title))}</h2>
     </div>
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/api/program/audio/${p.day}/${userGender()==="F"?"F":"M"}" style="width:100%"></audio></div>
+    ${(p.day>=1 && p.day<=30 && VIRAL_TITLES[p.day-1]) ? `<div class="block audio-block"><h4>🎙️ Audio viral de TikTok</h4><p style="margin:0 0 8px">${esc(VIRAL_TITLES[p.day-1])}</p><audio controls preload="none" src="/api/program/viral-audio/${p.day}?t=${encodeURIComponent(store.get("reaviva_token", "") || "")}" style="width:100%"></audio></div>` : ""}
     <div class="block case"><h4>📖 El caso</h4><p>${esc(gtext(p.caso))}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>📝 Su historia</h4><p>${esc(gtext(storyPrompt(p.day)))}</p>
