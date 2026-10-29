@@ -1687,6 +1687,13 @@ const VIRAL_TITLES = [
   "Cómo poner límites puede salvar tu relación",
   "El verdadero poder en las relaciones",
   "¿Sabes cuál es el momento más humillante para un hombre?",
+  "¿Cómo la comparación entre parejas afecta tu felicidad emocional?",
+  "¿Por qué la novedad puede cambiar tu percepción en una relación larga?",
+  "¿ATRACCIÓN O NOVEDAD?",
+  "¿Cuándo es momento de decir basta?",
+  "¡La verdad duele! Cuando descubres que no eres amado como creías",
+  "La tentación más peligrosa en el amor",
+  "¿CÓMO PUDO OLVIDARTE TAN RÁPIDO?",
 ];
 function openDay(d){
   if(!canAccess(d)){ openPaywall(); return; }
@@ -1731,7 +1738,7 @@ function openDay(d){
       <h2>Día ${p.day} · ${esc(gtext(p.title))}</h2>
     </div>
     <div class="block audio-block"><h4>🎧 Escuchar</h4><audio controls preload="none" src="/api/program/audio/${p.day}/${userGender()==="F"?"F":"M"}" style="width:100%"></audio></div>
-    ${(p.day>=1 && p.day<=30 && VIRAL_TITLES[p.day-1]) ? `<div class="block audio-block"><h4>🎙️ Reflexión de Relaciones</h4><p style="margin:0 0 8px">${esc(VIRAL_TITLES[p.day-1])}</p><audio controls preload="none" src="/api/program/viral-audio/${p.day}?t=${encodeURIComponent(store.get("reaviva_token", "") || "")}" style="width:100%"></audio></div>` : ""}
+    ${(p.day>=1 && p.day<=37 && VIRAL_TITLES[p.day-1]) ? `<div class="block audio-block"><h4>🎙️ Reflexión de Relaciones</h4><p style="margin:0 0 8px">${esc(VIRAL_TITLES[p.day-1])}</p><audio controls preload="none" src="/api/program/viral-audio/${p.day}?t=${encodeURIComponent(store.get("reaviva_token", "") || "")}" style="width:100%"></audio></div>` : ""}
     <div class="block case"><h4>📖 El caso</h4><p>${esc(gtext(p.caso))}</p></div>
     <div class="block"><h4>💭 Reflexión</h4><p>${esc(gtext(p.reflexion))}</p></div>
     <div class="block"><h4>📝 Su historia</h4><p>${esc(gtext(storyPrompt(p.day)))}</p>
