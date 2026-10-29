@@ -4,7 +4,7 @@
  *       subió uno para ese día/sexo, se sirve ese; si no, redirige al
  *       audio original (/audio/dia-N.mp3 o dia-N-f.mp3).
  *   GET /api/program/viral-audio/:day → audio viral extra del día
- *       (TikTok @reavivatufe1, top 30 por vistas, día 1 = más viral).
+ *       (TikTok @reavivatufe1, top 37 por vistas, día 1 = más viral).
  *       SOLO audio, sin video. Los archivos viven en api/viral-audio/
  *       (FUERA de web/), así no se sirven como estáticos: este endpoint
  *       exige un token válido (Bearer o ?t=, porque <audio> no envía
@@ -21,7 +21,7 @@ const db = require("../db");
 const { ah } = db;
 const { requireAuth, verifyToken } = require("./auth");
 
-/* Títulos de los audios virales (TikTok @reavivatufe1, top 30 por
+/* Títulos de los audios virales (TikTok @reavivatufe1, top 37 por
  * vistas, 28 oct 2026; día 1 = más viral). Solo se usa el título en
  * el frontend; el audio es el mp3 extraído del video. */
 const VIRAL_TITLES = [
@@ -55,6 +55,13 @@ const VIRAL_TITLES = [
   "Cómo poner límites puede salvar tu relación",
   "El verdadero poder en las relaciones",
   "¿Sabes cuál es el momento más humillante para un hombre?",
+  "¿Cómo la comparación entre parejas afecta tu felicidad emocional?",
+  "¿Por qué la novedad puede cambiar tu percepción en una relación larga?",
+  "¿ATRACCIÓN O NOVEDAD?",
+  "¿Cuándo es momento de decir basta?",
+  "¡La verdad duele! Cuando descubres que no eres amado como creías",
+  "La tentación más peligrosa en el amor",
+  "¿CÓMO PUDO OLVIDARTE TAN RÁPIDO?",
 ];
 
 const router = express.Router();
@@ -94,12 +101,12 @@ router.get("/audio/:day/:gender", ah(async (req, res) => {
   return res.redirect(302, "/audio/dia-" + day + (gender === "F" ? "-f" : "") + ".mp3");
 }));
 
-/* Audio viral extra del día (solo días 1-30). El token puede venir
+/* Audio viral extra del día (solo días 1-37). El token puede venir
  * por header Bearer o por ?t=, porque la etiqueta <audio> del
  * navegador no puede enviar headers personalizados. */
 router.get("/viral-audio/:day", ah(async (req, res) => {
   const day = parseInt(req.params.day, 10) || 0;
-  if (day < 1 || day > 30) return res.status(404).json({ error: "Día no válido" });
+  if (day < 1 || day > 37) return res.status(404).json({ error: "Día no válido" });
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : (req.query.t || null);
   const user = token ? await verifyToken(token) : null;
