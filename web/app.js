@@ -452,48 +452,48 @@ async function sendContact(){
 /* ---------- Mención en video: solicitud pagada con RV ---------- */
 let mentionImageDataUrl = null;
 function mentionWithImage(){
-  return !!(($("mention-opt-10") || {}).checked);
+  return !!(($("#mention-opt-10") || {}).checked);
 }
 function mentionCost(){
   return mentionWithImage() ? 10 : 3;
 }
 function openMentionModal(){
-  const modal = $("mention-modal");
-  if(!modal) return;
-  const err = $("mention-err"); if(err) err.textContent = "";
-  const nm = $("mention-name"); if(nm) nm.value = "";
-  const cm = $("mention-comment"); if(cm) cm.value = "";
-  const gd = $("mention-gender"); if(gd) gd.value = "M";
-  const o3 = $("mention-opt-3"); if(o3) o3.checked = true;
-  const tm = $("mention-terms"); if(tm) tm.checked = false;
+  const modal = $("#mention-modal");
+  if(!modal){ toast("No se pudo abrir la ventana. Recarga la página e intenta de nuevo."); return; }
+  const err = $("#mention-err"); if(err) err.textContent = "";
+  const nm = $("#mention-name"); if(nm) nm.value = "";
+  const cm = $("#mention-comment"); if(cm) cm.value = "";
+  const gd = $("#mention-gender"); if(gd) gd.value = "M";
+  const o3 = $("#mention-opt-3"); if(o3) o3.checked = true;
+  const tm = $("#mention-terms"); if(tm) tm.checked = false;
   mentionImageDataUrl = null;
-  const inp = $("mention-image-input"); if(inp) inp.value = "";
-  const prev = $("mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
+  const inp = $("#mention-image-input"); if(inp) inp.value = "";
+  const prev = $("#mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
   updateMentionOption();
   loadMyMentions();
   modal.classList.add("open");
 }
 function closeMentionModal(){
-  const modal = $("mention-modal");
+  const modal = $("#mention-modal");
   if(modal) modal.classList.remove("open");
 }
 function updateMentionOption(){
-  const box = $("mention-image-box");
+  const box = $("#mention-image-box");
   const withImg = mentionWithImage();
   if(box) box.style.display = withImg ? "" : "none";
   if(!withImg){
     mentionImageDataUrl = null;
-    const inp = $("mention-image-input"); if(inp) inp.value = "";
-    const prev = $("mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
+    const inp = $("#mention-image-input"); if(inp) inp.value = "";
+    const prev = $("#mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
   }
   updateMentionCost();
 }
 function updateMentionCost(){
-  const cost = $("mention-cost");
+  const cost = $("#mention-cost");
   if(cost) cost.textContent = "Costo: " + mentionCost() + " RV (sin devolución)";
 }
 function mentionImageChosen(input){
-  const err = $("mention-err");
+  const err = $("#mention-err");
   const f = input.files && input.files[0];
   if(!f) return;
   if(f.type !== "image/jpeg" && f.type !== "image/png"){
@@ -507,7 +507,7 @@ function mentionImageChosen(input){
   const reader = new FileReader();
   reader.onload = function(){
     mentionImageDataUrl = reader.result;
-    const prev = $("mention-image-preview");
+    const prev = $("#mention-image-preview");
     if(prev){ prev.src = mentionImageDataUrl; prev.style.display = ""; }
     if(err) err.textContent = "";
   };
@@ -515,13 +515,13 @@ function mentionImageChosen(input){
   reader.readAsDataURL(f);
 }
 async function loadMyMentions(){
-  const box = $("mention-mine");
+  const box = $("#mention-mine");
   if(!box) return;
   try{
     const r = await fetch("/api/mentions/mine", { headers: { ...authHeaders() } });
     const j = await r.json().catch(() => ({}));
     if(!r.ok) throw new Error(j.error || "No se pudo cargar.");
-    const bal = $("mention-balance");
+    const bal = $("#mention-balance");
     if(bal) bal.textContent = "Tu saldo: " + (j.balance ?? 0) + " RV";
     const list = j.mentions || [];
     if(!list.length){ box.innerHTML = '<p style="font-size:.85rem;color:var(--cocoa-soft)">Aún no has pedido ninguna mención.</p>'; return; }
@@ -537,12 +537,12 @@ async function loadMyMentions(){
   }
 }
 async function sendMention(){
-  const err = $("mention-err");
-  const name = (($("mention-name") || {}).value || "").trim();
-  const gender = ($("mention-gender") || {}).value || "M";
-  const comment = (($("mention-comment") || {}).value || "").trim();
+  const err = $("#mention-err");
+  const name = (($("#mention-name") || {}).value || "").trim();
+  const gender = ($("#mention-gender") || {}).value || "M";
+  const comment = (($("#mention-comment") || {}).value || "").trim();
   const withImg = mentionWithImage();
-  const terms = ($("mention-terms") || {}).checked;
+  const terms = ($("#mention-terms") || {}).checked;
   if(name.length < 2){ if(err) err.textContent = "Escribe el nombre de la persona."; return; }
   if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o elige la opción de 3 RV."; return; }
   if(!terms){ if(err) err.textContent = "Debes aceptar las condiciones para enviar tu solicitud."; return; }
@@ -556,8 +556,8 @@ async function sendMention(){
     const j = await r.json().catch(() => ({}));
     if(!r.ok) throw new Error(j.error || "No se pudo enviar.");
     if(err){ err.style.color = "#2e7d32"; err.textContent = "✅ ¡Solicitud enviada! Se cobraron " + j.rv_cost + " RV."; }
-    const nm = $("mention-name"); if(nm) nm.value = "";
-    const cm = $("mention-comment"); if(cm) cm.value = "";
+    const nm = $("#mention-name"); if(nm) nm.value = "";
+    const cm = $("#mention-comment"); if(cm) cm.value = "";
     mentionImageDataUrl = null;
     loadMyMentions();
     setTimeout(closeMentionModal, 1600);
