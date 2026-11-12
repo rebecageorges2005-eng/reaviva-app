@@ -891,6 +891,31 @@ router.delete("/contact-messages/:id", requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ---------- Menciones en video: solicitudes pagadas con RV ---------- */
+router.get("/video-mentions", requireAdmin, ah(async (req, res) => {
+  const rows = await db.all(
+    `SELECT m.id, m.user_id, m.name, m.gender, m.comment, m.has_image, m.image,
+            m.rv_cost, m.status, m.created_at, u.name AS user_name, u.email AS user_email
+     FROM video_mentions m LEFT JOIN users u ON u.id = m.user_id
+     ORDER BY m.id DESC LIMIT 100`);
+  res.json({ mentions: rows });
+}));
+
+router.post("/video-mentions/:id/status", requireAdmin, ah(async (req, res) => {
+  const status = String((req.body || {}).status || "");
+  if (!["aprobada", "rechazada", "pendiente"].includes(status))
+    return res.status(400).json({ error: "Estado inválido." });
+  const r = await db.run("UPDATE video_mentions SET status = ? WHERE id = ?", status, req.params.id);
+  if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  res.json({ ok: true });
+}));
+
+router.delete("/video-mentions/:id", requireAdmin, ah(async (req, res) => {
+  const r = await db.run("DELETE FROM video_mentions WHERE id = ?", req.params.id);
+  if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  res.json({ ok: true });
+}));
+
 router.get("/messages", requireAdmin, ah(async (req, res) => {
   const rows = await db.all(
       `SELECT id, user_id, email, title, body, created_at, read_at
