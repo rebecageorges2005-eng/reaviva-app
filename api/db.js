@@ -950,6 +950,7 @@ async function migrate() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
+      name2 TEXT,
       gender TEXT NOT NULL,
       comment TEXT,
       has_image INTEGER NOT NULL DEFAULT 0,
@@ -958,6 +959,11 @@ async function migrate() {
       status TEXT NOT NULL DEFAULT 'pendiente',
       created_at TEXT DEFAULT (datetime('now'))
     )`);
+    // Columna name2: segundo nombre cuando se eligen ambos sexos (hombre y mujer).
+    try {
+      const vCols = await tableCols("video_mentions");
+      if (!vCols.includes("name2")) await db.exec("ALTER TABLE video_mentions ADD COLUMN name2 TEXT");
+    } catch (e) { /* la tabla puede no existir aún en esta pasada */ }
     console.log("[db] migración: tabla video_mentions lista");
   } catch (e) {
     console.error("[db] migración video_mentions:", e.message);
