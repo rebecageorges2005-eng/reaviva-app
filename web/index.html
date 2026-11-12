@@ -472,14 +472,15 @@
 <div class="modal-bg" id="mention-modal">
   <div class="modal">
     <button class="modal-x" onclick="closeMentionModal()" aria-label="Cerrar">✕</button>
-    <h3>🎬 Mención en video</h3>
-    <p style="font-size:.85rem;color:var(--cocoa-soft)">Pide que mencionemos un nombre en un video. Cuesta <b>3 RV</b> solo el nombre, o <b>10 RV</b> con imagen. Los RV <b>no son reembolsables</b>.</p>
-    <input id="mention-name" class="field" maxlength="60" placeholder="Nombre de la persona" style="margin:12px 0 8px">
+    <h3>🎬 Mención en video Redes Sociales</h3>
+    <p style="font-size:.85rem;color:var(--cocoa-soft)">Pide que mencionemos un nombre en un video de nuestras redes sociales. Elige una opción. Los RV <b>no son reembolsables</b>.</p>
+    <label style="display:flex;gap:10px;align-items:center;border:1px solid var(--hatch-widget-border);border-radius:10px;padding:10px;margin:12px 0 8px;cursor:pointer"><input type="radio" name="mention-option" id="mention-opt-3" value="3" checked onchange="updateMentionOption()"><span style="font-size:.95rem"><b>3 RV</b> · Solo el nombre<br><small style="color:var(--cocoa-soft)">Nombre de hombre o mujer, sin imagen</small></span></label>
+    <label style="display:flex;gap:10px;align-items:center;border:1px solid var(--hatch-widget-border);border-radius:10px;padding:10px;margin:0 0 8px;cursor:pointer"><input type="radio" name="mention-option" id="mention-opt-10" value="10" onchange="updateMentionOption()"><span style="font-size:.95rem"><b>10 RV</b> · Nombre + imagen<br><small style="color:var(--cocoa-soft)">El nombre y una imagen en el video</small></span></label>
+    <input id="mention-name" class="field" maxlength="60" placeholder="Nombre de la persona" style="margin:4px 0 8px">
     <select id="mention-gender" class="field" style="margin:0 0 8px">
       <option value="M">👨 Hombre</option>
       <option value="F">👩 Mujer</option>
     </select>
-    <label style="display:flex;gap:8px;align-items:center;font-size:.92rem;margin:4px 0 8px"><input type="checkbox" id="mention-with-image" onchange="toggleMentionImage()"> 🖼️ Incluir una imagen en el video (+7 RV, total 10 RV)</label>
     <div id="mention-image-box" style="display:none;margin:0 0 8px">
       <input type="file" id="mention-image-input" accept="image/jpeg,image/png" style="display:none" onchange="mentionImageChosen(this)">
       <button class="btn btn-ghost btn-block" onclick="document.getElementById('mention-image-input').click()">📷 Elegir imagen (JPG o PNG, máx 1.5MB)</button>
@@ -551,6 +552,6 @@
 <script src="/program.js?v=3"></script>
 <script src="/program2.js?v=1"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=92"></script>
+<script src="/app.js?v=93"></script>
 </body>
 </html>

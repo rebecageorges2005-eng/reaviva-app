@@ -451,9 +451,11 @@ async function sendContact(){
 
 /* ---------- Mención en video: solicitud pagada con RV ---------- */
 let mentionImageDataUrl = null;
+function mentionWithImage(){
+  return !!(($("mention-opt-10") || {}).checked);
+}
 function mentionCost(){
-  const withImg = ($("mention-with-image") || {}).checked;
-  return withImg ? 10 : 3;
+  return mentionWithImage() ? 10 : 3;
 }
 function openMentionModal(){
   const modal = $("mention-modal");
@@ -462,13 +464,12 @@ function openMentionModal(){
   const nm = $("mention-name"); if(nm) nm.value = "";
   const cm = $("mention-comment"); if(cm) cm.value = "";
   const gd = $("mention-gender"); if(gd) gd.value = "M";
-  const wi = $("mention-with-image"); if(wi) wi.checked = false;
+  const o3 = $("mention-opt-3"); if(o3) o3.checked = true;
   const tm = $("mention-terms"); if(tm) tm.checked = false;
   mentionImageDataUrl = null;
   const inp = $("mention-image-input"); if(inp) inp.value = "";
   const prev = $("mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
-  toggleMentionImage();
-  updateMentionCost();
+  updateMentionOption();
   loadMyMentions();
   modal.classList.add("open");
 }
@@ -476,9 +477,9 @@ function closeMentionModal(){
   const modal = $("mention-modal");
   if(modal) modal.classList.remove("open");
 }
-function toggleMentionImage(){
+function updateMentionOption(){
   const box = $("mention-image-box");
-  const withImg = ($("mention-with-image") || {}).checked;
+  const withImg = mentionWithImage();
   if(box) box.style.display = withImg ? "" : "none";
   if(!withImg){
     mentionImageDataUrl = null;
@@ -540,10 +541,10 @@ async function sendMention(){
   const name = (($("mention-name") || {}).value || "").trim();
   const gender = ($("mention-gender") || {}).value || "M";
   const comment = (($("mention-comment") || {}).value || "").trim();
-  const withImg = ($("mention-with-image") || {}).checked;
+  const withImg = mentionWithImage();
   const terms = ($("mention-terms") || {}).checked;
   if(name.length < 2){ if(err) err.textContent = "Escribe el nombre de la persona."; return; }
-  if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o desmarca la opción de imagen."; return; }
+  if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o elige la opción de 3 RV."; return; }
   if(!terms){ if(err) err.textContent = "Debes aceptar las condiciones para enviar tu solicitud."; return; }
   if(err) err.textContent = "Enviando…";
   try{
@@ -2417,7 +2418,7 @@ function renderPerfil(){
       <div id="perfil-albums" style="margin-top:10px"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
     </div>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
-      <button class="btn btn-ghost btn-block" onclick="openMentionModal()">🎬 Mención en video · 3 RV / 10 RV con imagen</button>
+      <button class="btn btn-ghost btn-block" onclick="openMentionModal()">🎬 Mención en video Redes Sociales</button>
       <p style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px">Pide que mencionemos un nombre en un video, con o sin imagen.</p>
       <button class="btn btn-ghost btn-block" onclick="openContactModal()">📩 Sugerencias y problemas</button>
       <p style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px">¿Algo no funciona o tienes una idea? Escríbenos aquí.</p>
