@@ -50,6 +50,7 @@ function validarImagen(photo) {
 router.post("/", requireAuth, ah(async (req, res) => {
   const body = req.body || {};
   const name = String(body.name || "").trim();
+  const name2 = String(body.name2 || "").trim();
   const gender = String(body.gender || "").trim().toUpperCase();
   const comment = String(body.comment || "").trim();
   const includeImage = body.includeImage === true;
@@ -59,6 +60,9 @@ router.post("/", requireAuth, ah(async (req, res) => {
     return res.status(400).json({ error: "Escribe un nombre de 2 a 60 caracteres." });
   if (gender !== "M" && gender !== "F" && gender !== "B")
     return res.status(400).json({ error: "Elige hombre, mujer o ambos." });
+  // Ambos sexos: hacen falta los dos nombres (name = hombre, name2 = mujer).
+  if (gender === "B" && (name2.length < 2 || name2.length > 60))
+    return res.status(400).json({ error: "Escribe los dos nombres (hombre y mujer)." });
   if (comment.length > 500)
     return res.status(400).json({ error: "El comentario no puede pasar de 500 caracteres." });
   if (!acceptTerms)
@@ -95,9 +99,9 @@ router.post("/", requireAuth, ah(async (req, res) => {
   }
 
   const r = await db.run(
-    `INSERT INTO video_mentions (user_id, name, gender, comment, has_image, image, rv_cost, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente')`,
-    req.user.id, name, gender, comment || null, includeImage ? 1 : 0, image, costo);
+    `INSERT INTO video_mentions (user_id, name, name2, gender, comment, has_image, image, rv_cost, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente')`,
+    req.user.id, name, name2 || null, gender, comment || null, includeImage ? 1 : 0, image, costo);
 
   res.json({ ok: true, id: r.lastID, rv_cost: costo, balance: await getRV(req.user.id) });
 }));
@@ -105,7 +109,7 @@ router.post("/", requireAuth, ah(async (req, res) => {
 /* GET /api/mentions/mine → mis solicitudes (sin la imagen, para no pesar). */
 router.get("/mine", requireAuth, ah(async (req, res) => {
   const rows = await db.all(
-    `SELECT id, name, gender, comment, has_image, rv_cost, status, created_at
+    `SELECT id, name, name2, gender, comment, has_image, rv_cost, status, created_at
      FROM video_mentions WHERE user_id = ? ORDER BY id DESC LIMIT 50`,
     req.user.id);
   res.json({ mentions: rows, balance: await getRV(req.user.id) });

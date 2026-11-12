@@ -894,7 +894,7 @@ router.delete("/contact-messages/:id", requireAdmin, ah(async (req, res) => {
 /* ---------- Menciones en video: solicitudes pagadas con RV ---------- */
 router.get("/video-mentions", requireAdmin, ah(async (req, res) => {
   const rows = await db.all(
-    `SELECT m.id, m.user_id, m.name, m.gender, m.comment, m.has_image, m.image,
+    `SELECT m.id, m.user_id, m.name, m.name2, m.gender, m.comment, m.has_image, m.image,
             m.rv_cost, m.status, m.created_at, u.name AS user_name, u.email AS user_email
      FROM video_mentions m LEFT JOIN users u ON u.id = m.user_id
      ORDER BY m.id DESC LIMIT 100`);
