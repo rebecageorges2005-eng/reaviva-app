@@ -57,8 +57,8 @@ router.post("/", requireAuth, ah(async (req, res) => {
 
   if (name.length < 2 || name.length > 60)
     return res.status(400).json({ error: "Escribe un nombre de 2 a 60 caracteres." });
-  if (gender !== "M" && gender !== "F")
-    return res.status(400).json({ error: "Elige si es hombre o mujer." });
+  if (gender !== "M" && gender !== "F" && gender !== "B")
+    return res.status(400).json({ error: "Elige hombre, mujer o ambos." });
   if (comment.length > 500)
     return res.status(400).json({ error: "El comentario no puede pasar de 500 caracteres." });
   if (!acceptTerms)
