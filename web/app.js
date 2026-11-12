@@ -449,6 +449,122 @@ async function sendContact(){
   }
 }
 
+/* ---------- Mención en video: solicitud pagada con RV ---------- */
+let mentionImageDataUrl = null;
+function mentionCost(){
+  const withImg = ($("mention-with-image") || {}).checked;
+  return withImg ? 10 : 3;
+}
+function openMentionModal(){
+  const modal = $("mention-modal");
+  if(!modal) return;
+  const err = $("mention-err"); if(err) err.textContent = "";
+  const nm = $("mention-name"); if(nm) nm.value = "";
+  const cm = $("mention-comment"); if(cm) cm.value = "";
+  const gd = $("mention-gender"); if(gd) gd.value = "M";
+  const wi = $("mention-with-image"); if(wi) wi.checked = false;
+  const tm = $("mention-terms"); if(tm) tm.checked = false;
+  mentionImageDataUrl = null;
+  const inp = $("mention-image-input"); if(inp) inp.value = "";
+  const prev = $("mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
+  toggleMentionImage();
+  updateMentionCost();
+  loadMyMentions();
+  modal.classList.add("open");
+}
+function closeMentionModal(){
+  const modal = $("mention-modal");
+  if(modal) modal.classList.remove("open");
+}
+function toggleMentionImage(){
+  const box = $("mention-image-box");
+  const withImg = ($("mention-with-image") || {}).checked;
+  if(box) box.style.display = withImg ? "" : "none";
+  if(!withImg){
+    mentionImageDataUrl = null;
+    const inp = $("mention-image-input"); if(inp) inp.value = "";
+    const prev = $("mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
+  }
+  updateMentionCost();
+}
+function updateMentionCost(){
+  const cost = $("mention-cost");
+  if(cost) cost.textContent = "Costo: " + mentionCost() + " RV (sin devolución)";
+}
+function mentionImageChosen(input){
+  const err = $("mention-err");
+  const f = input.files && input.files[0];
+  if(!f) return;
+  if(f.type !== "image/jpeg" && f.type !== "image/png"){
+    if(err) err.textContent = "La imagen debe ser JPG o PNG.";
+    input.value = ""; return;
+  }
+  if(f.size > 1100000){
+    if(err) err.textContent = "La imagen es muy grande (máx 1.5MB).";
+    input.value = ""; return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(){
+    mentionImageDataUrl = reader.result;
+    const prev = $("mention-image-preview");
+    if(prev){ prev.src = mentionImageDataUrl; prev.style.display = ""; }
+    if(err) err.textContent = "";
+  };
+  reader.onerror = function(){ if(err) err.textContent = "No se pudo leer la imagen."; };
+  reader.readAsDataURL(f);
+}
+async function loadMyMentions(){
+  const box = $("mention-mine");
+  if(!box) return;
+  try{
+    const r = await fetch("/api/mentions/mine", { headers: { ...authHeaders() } });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || "No se pudo cargar.");
+    const bal = $("mention-balance");
+    if(bal) bal.textContent = "Tu saldo: " + (j.balance ?? 0) + " RV";
+    const list = j.mentions || [];
+    if(!list.length){ box.innerHTML = '<p style="font-size:.85rem;color:var(--cocoa-soft)">Aún no has pedido ninguna mención.</p>'; return; }
+    const badge = { pendiente: "⏳ Pendiente", aprobada: "✅ Aprobada", rechazada: "❌ Rechazada" };
+    box.innerHTML = list.map(function(m){
+      const g = m.gender === "F" ? "👩" : "👨";
+      const img = m.has_image ? " 🖼️" : "";
+      const escName = String(m.name || "").replace(/[<>&"]/g, "");
+      return '<div style="font-size:.88rem;padding:6px 0;border-bottom:1px solid var(--hatch-widget-border)">' + g + " <b>" + escName + "</b>" + img + " · " + m.rv_cost + " RV · " + (badge[m.status] || m.status) + "</div>";
+    }).join("");
+  }catch(e){
+    box.innerHTML = '<p style="font-size:.85rem;color:var(--cocoa-soft)">No se pudieron cargar tus solicitudes.</p>';
+  }
+}
+async function sendMention(){
+  const err = $("mention-err");
+  const name = (($("mention-name") || {}).value || "").trim();
+  const gender = ($("mention-gender") || {}).value || "M";
+  const comment = (($("mention-comment") || {}).value || "").trim();
+  const withImg = ($("mention-with-image") || {}).checked;
+  const terms = ($("mention-terms") || {}).checked;
+  if(name.length < 2){ if(err) err.textContent = "Escribe el nombre de la persona."; return; }
+  if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o desmarca la opción de imagen."; return; }
+  if(!terms){ if(err) err.textContent = "Debes aceptar las condiciones para enviar tu solicitud."; return; }
+  if(err) err.textContent = "Enviando…";
+  try{
+    const r = await fetch("/api/mentions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ name, gender, comment, includeImage: withImg, image: withImg ? mentionImageDataUrl : null, acceptTerms: true }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.error || "No se pudo enviar.");
+    if(err){ err.style.color = "#2e7d32"; err.textContent = "✅ ¡Solicitud enviada! Se cobraron " + j.rv_cost + " RV."; }
+    const nm = $("mention-name"); if(nm) nm.value = "";
+    const cm = $("mention-comment"); if(cm) cm.value = "";
+    mentionImageDataUrl = null;
+    loadMyMentions();
+    setTimeout(closeMentionModal, 1600);
+  }catch(e){
+    if(err){ err.style.color = ""; err.textContent = e.message || "No se pudo enviar. Intenta de nuevo."; }
+  }
+}
+
 /* Comprar RV: crea la orden en PayPal y redirige a aprobar. */
 async function buyRV(pack){
   const err = $("#rv-modal-err");
@@ -2301,6 +2417,8 @@ function renderPerfil(){
       <div id="perfil-albums" style="margin-top:10px"><p style="text-align:center;color:var(--cocoa-soft)">…</p></div>
     </div>
     <div style="margin-top:18px;border-top:1px solid var(--hatch-widget-border);padding-top:14px">
+      <button class="btn btn-ghost btn-block" onclick="openMentionModal()">🎬 Mención en video · 3 RV / 10 RV con imagen</button>
+      <p style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px">Pide que mencionemos un nombre en un video, con o sin imagen.</p>
       <button class="btn btn-ghost btn-block" onclick="openContactModal()">📩 Sugerencias y problemas</button>
       <p style="text-align:center;font-size:.8rem;color:var(--cocoa-soft);margin-top:6px">¿Algo no funciona o tienes una idea? Escríbenos aquí.</p>
     </div>

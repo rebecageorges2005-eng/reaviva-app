@@ -469,6 +469,36 @@
   </div>
 </div>
 
+<div class="modal-bg" id="mention-modal">
+  <div class="modal">
+    <button class="modal-x" onclick="closeMentionModal()" aria-label="Cerrar">✕</button>
+    <h3>🎬 Mención en video</h3>
+    <p style="font-size:.85rem;color:var(--cocoa-soft)">Pide que mencionemos un nombre en un video. Cuesta <b>3 RV</b> solo el nombre, o <b>10 RV</b> con imagen. Los RV <b>no son reembolsables</b>.</p>
+    <input id="mention-name" class="field" maxlength="60" placeholder="Nombre de la persona" style="margin:12px 0 8px">
+    <select id="mention-gender" class="field" style="margin:0 0 8px">
+      <option value="M">👨 Hombre</option>
+      <option value="F">👩 Mujer</option>
+    </select>
+    <label style="display:flex;gap:8px;align-items:center;font-size:.92rem;margin:4px 0 8px"><input type="checkbox" id="mention-with-image" onchange="toggleMentionImage()"> 🖼️ Incluir una imagen en el video (+7 RV, total 10 RV)</label>
+    <div id="mention-image-box" style="display:none;margin:0 0 8px">
+      <input type="file" id="mention-image-input" accept="image/jpeg,image/png" style="display:none" onchange="mentionImageChosen(this)">
+      <button class="btn btn-ghost btn-block" onclick="document.getElementById('mention-image-input').click()">📷 Elegir imagen (JPG o PNG, máx 1.5MB)</button>
+      <div style="text-align:center;margin-top:8px"><img id="mention-image-preview" style="display:none;max-width:100%;max-height:180px;border-radius:10px"></div>
+    </div>
+    <textarea id="mention-comment" class="field" rows="3" maxlength="500" placeholder="Deja un comentario (opcional): ¿qué quieres que se diga o se sepa de esta persona?…"></textarea>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:.82rem;color:var(--cocoa-soft);margin:8px 0"><input type="checkbox" id="mention-terms" style="margin-top:3px"><span>Confirmo que la imagen <b>NO</b> es una foto de una persona real y <b>NO</b> contiene abuso, sangre ni desnudez. Entiendo que los RV pagados <b>no tienen devolución</b>.</span></label>
+    <p id="mention-cost" style="font-size:.95rem;font-weight:700;text-align:center;margin:6px 0"></p>
+    <p id="mention-balance" style="font-size:.85rem;color:var(--cocoa-soft);text-align:center;margin:0 0 6px"></p>
+    <p id="mention-err" class="auth-err"></p>
+    <button class="btn btn-primary btn-block" onclick="sendMention()">Enviar solicitud 🎬</button>
+    <button class="btn btn-block" style="background:none;color:var(--cocoa-soft);margin-top:10px" onclick="closeMentionModal()">Cerrar ✕</button>
+    <div style="margin-top:14px;border-top:1px solid var(--hatch-widget-border);padding-top:10px">
+      <h4 style="margin:0 0 8px;font-size:.95rem">Mis solicitudes</h4>
+      <div id="mention-mine"><p style="font-size:.85rem;color:var(--cocoa-soft)">Cargando…</p></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="online-modal">
   <div class="modal">
     <button class="modal-x" onclick="closeOnlineModal()" aria-label="Cerrar">✕</button>
@@ -521,6 +551,6 @@
 <script src="/program.js?v=3"></script>
 <script src="/program2.js?v=1"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=91"></script>
+<script src="/app.js?v=92"></script>
 </body>
 </html>

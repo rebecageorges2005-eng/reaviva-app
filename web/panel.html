@@ -293,6 +293,8 @@ async function render(){
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Publica un link en el <b>perfil</b> de los usuarios (tu canal de YouTube, tu blog…). Aparece con el logo de la plataforma y solo lo ven los usuarios que elijas. Si no hay links para un usuario, la sección no se muestra.</p><div id="linkpub"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">📩 Sugerencias y contacto</h2>'+
       '<div class="block"><div id="contact-list" class="scroll-box"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
+      '<h2 class="sec">🎬 Menciones en video <span id="mentions-badge"></span></h2>'+
+      '<div class="block"><div id="mentions-list" class="scroll-box"><p style="color:var(--cocoa-soft)">Cargando…</p></div></div>'+
       '<h2 class="sec">🕵️ Mi apodo en el chat grupal</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuando participes en el chat grupal desde la app, los usuarios verán <b>este apodo</b> en tus mensajes. Si lo dejas vacío, te verán como <b>«Guest007»</b>. Tu nombre real nunca se muestra en el chat.</p><div style="display:flex;gap:8px"><input id="chat-alias" class="field" placeholder="Tu apodo (ej. Un amigo, Carlos…)" maxlength="30" style="flex:1"><button class="btn" onclick="saveChatAlias()">Guardar</button></div><span id="chat-alias-msg" style="font-size:.85rem"></span></div>'+
       '<h2 class="sec">💬 Comunidad</h2><div id="community-list"><p style="color:var(--cocoa-soft)">Cargando…</p></div>'+
@@ -328,7 +330,7 @@ async function render(){
       '<h2 class="sec">🚫 Seguridad: usuarios baneados</h2>'+
       '<div class="block"><p style="font-size:.85rem;color:var(--cocoa-soft);margin-bottom:10px">Cuentas suspendidas permanentemente. No pueden entrar y sus tokens quedan invalidados.</p>'+
       '<div class="scroll-box small"><table><thead><tr><th>Nombre</th><th>Email</th><th>País</th><th>Motivo</th><th></th></tr></thead><tbody id="banned-body"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></div>';
-    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadChatAlias(); loadProgramContent();
+    loadGrowth(); loadUsers(); loadSent(); loadCommunity(); loadBackupEmail(); loadBlockedIps(); loadBannedUsers(); loadMuseReports(); loadLinkPub(); loadContactMessages(); loadVideoMentions(); loadChatAlias(); loadProgramContent();
   }catch(e){ if(e.message==="AUTH") authFail(); else $("#app").innerHTML='<div class="err">No se pudo cargar el panel: '+esc(e.message)+'</div>'; }
 }
 
@@ -1501,6 +1503,36 @@ async function loadContactMessages(){
 }
 async function deleteContactMessage(id){
   try{ await api("DELETE","/api/admin/contact-messages/"+id); loadContactMessages(); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+
+/* ---------- Menciones en video (solicitudes pagadas con RV) ---------- */
+async function loadVideoMentions(){
+  var box=$("#mentions-list"); if(!box) return;
+  try{
+    var d=await api("GET","/api/admin/video-mentions");
+    var list=d.mentions||[];
+    var pend=list.filter(function(m){ return m.status==="pendiente"; }).length;
+    var badge=$("#mentions-badge");
+    if(badge) badge.textContent = pend ? ("("+pend+" pendientes)") : "";
+    if(!list.length){ box.innerHTML='<p style="color:var(--cocoa-soft)">Todavía no hay solicitudes de mención.</p>'; return; }
+    var badgeSt={pendiente:"⏳ Pendiente",aprobada:"✅ Aprobada",rechazada:"❌ Rechazada"};
+    box.innerHTML=list.map(function(m){
+      var g=m.gender==="F"?"👩 Mujer":"👨 Hombre";
+      var img=m.has_image&&m.image?'<br><a href="'+esc(m.image)+'" target="_blank" rel="noopener"><img src="'+esc(m.image)+'" style="max-width:220px;max-height:160px;border-radius:8px;margin-top:6px"></a>':"";
+      var cm=m.comment?'<br><span style="font-size:.92rem">💬 '+esc(m.comment)+'</span>':"";
+      return '<div class="rowline" style="align-items:flex-start"><span><b>'+esc(m.name)+'</b> · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+'</span>'+
+      '<span style="white-space:nowrap"><button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'aprobada\')">✅</button> <button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'rechazada\')">❌</button> <button class="btn btn-sm" onclick="deleteMention('+m.id+')">🗑️</button></span></div>';
+    }).join("");
+  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">Error cargando menciones: '+esc(e.message)+'</div>'; }
+}
+async function setMentionStatus(id,status){
+  try{ await api("POST","/api/admin/video-mentions/"+id+"/status",{status:status}); loadVideoMentions(); }
+  catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+async function deleteMention(id){
+  if(!confirm("¿Eliminar esta solicitud de mención?")) return;
+  try{ await api("DELETE","/api/admin/video-mentions/"+id); loadVideoMentions(); }
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
 
