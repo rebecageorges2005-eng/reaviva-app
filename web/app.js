@@ -463,7 +463,8 @@ function openMentionModal(){
   const err = $("#mention-err"); if(err) err.textContent = "";
   const nm = $("#mention-name"); if(nm) nm.value = "";
   const cm = $("#mention-comment"); if(cm) cm.value = "";
-  const gd = $("#mention-gender"); if(gd) gd.value = "M";
+  const gm = $("#mention-gender-m"); if(gm) gm.checked = true;
+  const gf = $("#mention-gender-f"); if(gf) gf.checked = false;
   const o3 = $("#mention-opt-3"); if(o3) o3.checked = true;
   const tm = $("#mention-terms"); if(tm) tm.checked = false;
   mentionImageDataUrl = null;
@@ -527,7 +528,7 @@ async function loadMyMentions(){
     if(!list.length){ box.innerHTML = '<p style="font-size:.85rem;color:var(--cocoa-soft)">Aún no has pedido ninguna mención.</p>'; return; }
     const badge = { pendiente: "⏳ Pendiente", aprobada: "✅ Aprobada", rechazada: "❌ Rechazada" };
     box.innerHTML = list.map(function(m){
-      const g = m.gender === "F" ? "👩" : "👨";
+      const g = m.gender === "F" ? "👩" : m.gender === "B" ? "👨👩" : "👨";
       const img = m.has_image ? " 🖼️" : "";
       const escName = String(m.name || "").replace(/[<>&"]/g, "");
       return '<div style="font-size:.88rem;padding:6px 0;border-bottom:1px solid var(--hatch-widget-border)">' + g + " <b>" + escName + "</b>" + img + " · " + m.rv_cost + " RV · " + (badge[m.status] || m.status) + "</div>";
@@ -539,11 +540,14 @@ async function loadMyMentions(){
 async function sendMention(){
   const err = $("#mention-err");
   const name = (($("#mention-name") || {}).value || "").trim();
-  const gender = ($("#mention-gender") || {}).value || "M";
+  const isM = !!(($("#mention-gender-m") || {}).checked);
+  const isF = !!(($("#mention-gender-f") || {}).checked);
+  const gender = (isM && isF) ? "B" : (isF ? "F" : "M");
   const comment = (($("#mention-comment") || {}).value || "").trim();
   const withImg = mentionWithImage();
   const terms = ($("#mention-terms") || {}).checked;
   if(name.length < 2){ if(err) err.textContent = "Escribe el nombre de la persona."; return; }
+  if(!isM && !isF){ if(err) err.textContent = "Elige hombre, mujer o ambos."; return; }
   if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o elige la opción de 3 RV."; return; }
   if(!terms){ if(err) err.textContent = "Debes aceptar las condiciones para enviar tu solicitud."; return; }
   if(err) err.textContent = "Enviando…";

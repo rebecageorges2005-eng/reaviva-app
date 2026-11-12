@@ -1518,7 +1518,7 @@ async function loadVideoMentions(){
     if(!list.length){ box.innerHTML='<p style="color:var(--cocoa-soft)">Todavía no hay solicitudes de mención.</p>'; return; }
     var badgeSt={pendiente:"⏳ Pendiente",aprobada:"✅ Aprobada",rechazada:"❌ Rechazada"};
     box.innerHTML=list.map(function(m){
-      var g=m.gender==="F"?"👩 Mujer":"👨 Hombre";
+      var g=m.gender==="F"?"👩 Mujer":m.gender==="B"?"👨👩 Ambos":"👨 Hombre";
       var img=m.has_image&&m.image?'<br><a href="'+esc(m.image)+'" target="_blank" rel="noopener"><img src="'+esc(m.image)+'" style="max-width:220px;max-height:160px;border-radius:8px;margin-top:6px"></a>':"";
       var cm=m.comment?'<br><span style="font-size:.92rem">💬 '+esc(m.comment)+'</span>':"";
       return '<div class="rowline" style="align-items:flex-start"><span><b>'+esc(m.name)+'</b> · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+'</span>'+
