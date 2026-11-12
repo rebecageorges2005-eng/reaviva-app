@@ -942,6 +942,27 @@ async function migrate() {
     console.error("[db] migración contact_messages:", e.message);
   }
 
+  /* Menciones en video: el usuario paga RV para pedir que un nombre se
+   * mencione en un video (3 RV sin imagen, 10 RV con imagen JPG/PNG).
+   * status: 'pendiente' | 'aprobada' | 'rechazada'. Sin devolución de RV. */
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS video_mentions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      gender TEXT NOT NULL,
+      comment TEXT,
+      has_image INTEGER NOT NULL DEFAULT 0,
+      image TEXT,
+      rv_cost INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pendiente',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    console.log("[db] migración: tabla video_mentions lista");
+  } catch (e) {
+    console.error("[db] migración video_mentions:", e.message);
+  }
+
   /* Sexo del usuario (M/F) para adaptar contenido y voz */
   try {
     const cols = await db.all("PRAGMA table_info(users)");
