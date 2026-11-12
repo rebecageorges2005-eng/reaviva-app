@@ -476,11 +476,12 @@
     <p style="font-size:.85rem;color:var(--cocoa-soft)">Pide que mencionemos un nombre en un video de nuestras redes sociales. Elige una opción. Los RV <b>no son reembolsables</b>.</p>
     <label style="display:flex;gap:10px;align-items:center;border:1px solid var(--hatch-widget-border);border-radius:10px;padding:10px;margin:12px 0 8px;cursor:pointer"><input type="radio" name="mention-option" id="mention-opt-3" value="3" checked onchange="updateMentionOption()"><span style="font-size:.95rem"><b>3 RV</b> · Solo el nombre<br><small style="color:var(--cocoa-soft)">Nombre de hombre o mujer, sin imagen</small></span></label>
     <label style="display:flex;gap:10px;align-items:center;border:1px solid var(--hatch-widget-border);border-radius:10px;padding:10px;margin:0 0 8px;cursor:pointer"><input type="radio" name="mention-option" id="mention-opt-10" value="10" onchange="updateMentionOption()"><span style="font-size:.95rem"><b>10 RV</b> · Nombre + imagen<br><small style="color:var(--cocoa-soft)">El nombre y una imagen en el video</small></span></label>
-    <input id="mention-name" class="field" maxlength="60" placeholder="Nombre de la persona" style="margin:4px 0 8px">
-    <div style="display:flex;gap:20px;margin:0 0 10px;font-size:.95rem">
-      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mention-gender-m" checked> 👨 Hombre</label>
-      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mention-gender-f"> 👩 Mujer</label>
+    <div style="display:flex;gap:20px;margin:4px 0 10px;font-size:.95rem">
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mention-gender-m" checked onchange="updateMentionGender()"> 👨 Hombre</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="mention-gender-f" onchange="updateMentionGender()"> 👩 Mujer</label>
     </div>
+    <input id="mention-name-m" class="field" maxlength="60" placeholder="Nombre del hombre" style="margin:0 0 8px">
+    <input id="mention-name-f" class="field" maxlength="60" placeholder="Nombre de la mujer" style="margin:0 0 8px;display:none">
     <div id="mention-image-box" style="display:none;margin:0 0 8px">
       <input type="file" id="mention-image-input" accept="image/jpeg,image/png" style="display:none" onchange="mentionImageChosen(this)">
       <button class="btn btn-ghost btn-block" onclick="document.getElementById('mention-image-input').click()">📷 Elegir imagen (JPG o PNG, máx 1.5MB)</button>
@@ -552,6 +553,6 @@
 <script src="/program.js?v=3"></script>
 <script src="/program2.js?v=1"></script>
 <script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=95"></script>
+<script src="/app.js?v=96"></script>
 </body>
 </html>

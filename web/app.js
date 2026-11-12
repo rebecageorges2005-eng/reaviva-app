@@ -461,7 +461,8 @@ function openMentionModal(){
   const modal = $("#mention-modal");
   if(!modal){ toast("No se pudo abrir la ventana. Recarga la página e intenta de nuevo."); return; }
   const err = $("#mention-err"); if(err) err.textContent = "";
-  const nm = $("#mention-name"); if(nm) nm.value = "";
+  const nm = $("#mention-name-m"); if(nm) nm.value = "";
+  const nf0 = $("#mention-name-f"); if(nf0) nf0.value = "";
   const cm = $("#mention-comment"); if(cm) cm.value = "";
   const gm = $("#mention-gender-m"); if(gm) gm.checked = true;
   const gf = $("#mention-gender-f"); if(gf) gf.checked = false;
@@ -470,6 +471,7 @@ function openMentionModal(){
   mentionImageDataUrl = null;
   const inp = $("#mention-image-input"); if(inp) inp.value = "";
   const prev = $("#mention-image-preview"); if(prev){ prev.style.display = "none"; prev.src = ""; }
+  updateMentionGender();
   updateMentionOption();
   loadMyMentions();
   modal.classList.add("open");
@@ -477,6 +479,13 @@ function openMentionModal(){
 function closeMentionModal(){
   const modal = $("#mention-modal");
   if(modal) modal.classList.remove("open");
+}
+/* Muestra 1 textbox (solo hombre o solo mujer) o 2 (ambos). */
+function updateMentionGender(){
+  const isM = !!(($("#mention-gender-m") || {}).checked);
+  const isF = !!(($("#mention-gender-f") || {}).checked);
+  const nm = $("#mention-name-m"); if(nm) nm.style.display = (isM || (!isM && !isF)) ? "" : "none";
+  const nf = $("#mention-name-f"); if(nf) nf.style.display = isF ? "" : "none";
 }
 function updateMentionOption(){
   const box = $("#mention-image-box");
@@ -531,7 +540,8 @@ async function loadMyMentions(){
       const g = m.gender === "F" ? "👩" : m.gender === "B" ? "👨👩" : "👨";
       const img = m.has_image ? " 🖼️" : "";
       const escName = String(m.name || "").replace(/[<>&"]/g, "");
-      return '<div style="font-size:.88rem;padding:6px 0;border-bottom:1px solid var(--hatch-widget-border)">' + g + " <b>" + escName + "</b>" + img + " · " + m.rv_cost + " RV · " + (badge[m.status] || m.status) + "</div>";
+      const escName2 = m.name2 ? String(m.name2).replace(/[<>&"]/g, "") : "";
+      return '<div style="font-size:.88rem;padding:6px 0;border-bottom:1px solid var(--hatch-widget-border)">' + g + " <b>" + escName + (escName2 ? " y " + escName2 : "") + "</b>" + img + " · " + m.rv_cost + " RV · " + (badge[m.status] || m.status) + "</div>";
     }).join("");
   }catch(e){
     box.innerHTML = '<p style="font-size:.85rem;color:var(--cocoa-soft)">No se pudieron cargar tus solicitudes.</p>';
@@ -539,15 +549,19 @@ async function loadMyMentions(){
 }
 async function sendMention(){
   const err = $("#mention-err");
-  const name = (($("#mention-name") || {}).value || "").trim();
   const isM = !!(($("#mention-gender-m") || {}).checked);
   const isF = !!(($("#mention-gender-f") || {}).checked);
+  const nameM = (($("#mention-name-m") || {}).value || "").trim();
+  const nameF = (($("#mention-name-f") || {}).value || "").trim();
   const gender = (isM && isF) ? "B" : (isF ? "F" : "M");
+  const name = isM ? nameM : nameF;
+  const name2 = (isM && isF) ? nameF : null;
   const comment = (($("#mention-comment") || {}).value || "").trim();
   const withImg = mentionWithImage();
   const terms = ($("#mention-terms") || {}).checked;
-  if(name.length < 2){ if(err) err.textContent = "Escribe el nombre de la persona."; return; }
   if(!isM && !isF){ if(err) err.textContent = "Elige hombre, mujer o ambos."; return; }
+  if(isM && (nameM.length < 2 || nameM.length > 60)){ if(err) err.textContent = "Escribe el nombre del hombre (2 a 60 caracteres)."; return; }
+  if(isF && (nameF.length < 2 || nameF.length > 60)){ if(err) err.textContent = "Escribe el nombre de la mujer (2 a 60 caracteres)."; return; }
   if(withImg && !mentionImageDataUrl){ if(err) err.textContent = "Elige una imagen JPG o PNG, o elige la opción de 3 RV."; return; }
   if(!terms){ if(err) err.textContent = "Debes aceptar las condiciones para enviar tu solicitud."; return; }
   if(err) err.textContent = "Enviando…";
@@ -555,12 +569,13 @@ async function sendMention(){
     const r = await fetch("/api/mentions", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ name, gender, comment, includeImage: withImg, image: withImg ? mentionImageDataUrl : null, acceptTerms: true }),
+      body: JSON.stringify({ name, name2, gender, comment, includeImage: withImg, image: withImg ? mentionImageDataUrl : null, acceptTerms: true }),
     });
     const j = await r.json().catch(() => ({}));
     if(!r.ok) throw new Error(j.error || "No se pudo enviar.");
     if(err){ err.style.color = "#2e7d32"; err.textContent = "✅ ¡Solicitud enviada! Se cobraron " + j.rv_cost + " RV."; }
-    const nm = $("#mention-name"); if(nm) nm.value = "";
+    const nm = $("#mention-name-m"); if(nm) nm.value = "";
+    const nf0 = $("#mention-name-f"); if(nf0) nf0.value = "";
     const cm = $("#mention-comment"); if(cm) cm.value = "";
     mentionImageDataUrl = null;
     loadMyMentions();
