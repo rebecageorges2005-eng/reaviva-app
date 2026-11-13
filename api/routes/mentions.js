@@ -4,11 +4,11 @@
  *   GET  /api/mentions/mine   → mis solicitudes y su estado
  *
  * Precios (orden de Georges, 12 nov 2026):
- *   nombre SIN imagen: 3 RV · nombre CON imagen: 10 RV.
- * La imagen debe ser JPG o PNG (máx 1.5MB en base64, magic bytes reales,
- * mismo criterio que /api/albums). El usuario confirma que la imagen NO es
- * una foto de una persona real y no contiene abuso, sangre ni desnudez; el
- * admin revisa cada solicitud en el panel antes de usarla en un video.
+ *   nombre SIN imagen: 3 RV · nombre CON imagen: 10 RV (hasta 5 imágenes).
+ * Cada imagen debe ser JPG o PNG (máx 1.5MB en base64, magic bytes reales,
+ * mismo criterio que /api/albums). El usuario confirma que ninguna imagen es
+ * una foto de una persona real y ninguna contiene abuso, sangre ni desnudez;
+ * el admin revisa cada solicitud en el panel antes de usarla en un video.
  * Los RV cobrados NO son reembolsables (ni siquiera si se rechaza).
  */
 "use strict";
@@ -68,11 +68,19 @@ router.post("/", requireAuth, ah(async (req, res) => {
   if (!acceptTerms)
     return res.status(400).json({ error: "Debes aceptar las condiciones para enviar tu solicitud." });
 
-  let image = null;
+  // Hasta 5 imágenes (se acepta también el campo único `image` de la v1).
+  let images = [];
   if (includeImage) {
-    const err = validarImagen(body.image);
-    if (err) return res.status(400).json({ error: err });
-    image = body.image;
+    const arr = Array.isArray(body.images) ? body.images : (body.image ? [body.image] : []);
+    if (!arr.length)
+      return res.status(400).json({ error: "Elige al menos una imagen JPG o PNG." });
+    if (arr.length > 5)
+      return res.status(400).json({ error: "Puedes enviar hasta 5 imágenes." });
+    for (const im of arr) {
+      const err = validarImagen(im);
+      if (err) return res.status(400).json({ error: err });
+    }
+    images = arr;
   }
 
   const costo = includeImage ? RV_CON_IMAGEN : RV_SIN_IMAGEN;
@@ -99,11 +107,16 @@ router.post("/", requireAuth, ah(async (req, res) => {
   }
 
   const r = await db.run(
-    `INSERT INTO video_mentions (user_id, name, name2, gender, comment, has_image, image, rv_cost, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente')`,
-    req.user.id, name, name2 || null, gender, comment || null, includeImage ? 1 : 0, image, costo);
+    `INSERT INTO video_mentions (user_id, name, name2, gender, comment, has_image, rv_cost, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente')`,
+    req.user.id, name, name2 || null, gender, comment || null, includeImage ? 1 : 0, costo);
+  for (let i = 0; i < images.length; i++) {
+    await db.run(
+      "INSERT INTO video_mention_images (mention_id, image, sort_order) VALUES (?, ?, ?)",
+      r.lastInsertRowid, images[i], i);
+  }
 
-  res.json({ ok: true, id: r.lastID, rv_cost: costo, balance: await getRV(req.user.id) });
+  res.json({ ok: true, id: r.lastInsertRowid, rv_cost: costo, balance: await getRV(req.user.id) });
 }));
 
 /* GET /api/mentions/mine → mis solicitudes (sin la imagen, para no pesar). */

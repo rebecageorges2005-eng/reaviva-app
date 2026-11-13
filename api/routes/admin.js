@@ -898,7 +898,52 @@ router.get("/video-mentions", requireAdmin, ah(async (req, res) => {
             m.rv_cost, m.status, m.created_at, u.name AS user_name, u.email AS user_email
      FROM video_mentions m LEFT JOIN users u ON u.id = m.user_id
      ORDER BY m.id DESC LIMIT 100`);
-  res.json({ mentions: rows });
+  // Imágenes: tabla nueva (hasta 5); si una solicitud vieja no tiene filas
+  // ahí, se usa su columna legacy `image` como única imagen.
+  const byMention = {};
+  if (rows.length) {
+    const ids = rows.map((r) => r.id);
+    const ph = ids.map(() => "?").join(",");
+    const imgs = await db.all(
+      `SELECT mention_id, image FROM video_mention_images
+       WHERE mention_id IN (${ph}) ORDER BY mention_id, sort_order ASC, id ASC`, ...ids);
+    for (const im of imgs) {
+      if (!byMention[im.mention_id]) byMention[im.mention_id] = [];
+      byMention[im.mention_id].push(im.image);
+    }
+  }
+  const mentions = rows.map((m) => ({
+    ...m,
+    images: (byMention[m.id] && byMention[m.id].length) ? byMention[m.id] : (m.image ? [m.image] : []),
+  }));
+  res.json({ mentions });
+}));
+
+/* Descarga segura de una imagen de mención (solo admin).
+ * El servidor vuelve a verificar los magic bytes JPG/PNG y sirve solo esos
+ * bytes con Content-Type de imagen + nosniff: nada ejecutable puede pasar. */
+router.get("/video-mentions/:id/images/:index", requireAdmin, ah(async (req, res) => {
+  const m = await db.get("SELECT id, image FROM video_mentions WHERE id = ?", req.params.id);
+  if (!m) return res.status(404).json({ error: "No encontrado." });
+  const idx = Number(req.params.index);
+  const rows = await db.all(
+    "SELECT image FROM video_mention_images WHERE mention_id = ? ORDER BY sort_order ASC, id ASC", m.id);
+  const list = rows.length ? rows.map((r) => r.image) : (m.image ? [m.image] : []);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= list.length)
+    return res.status(404).json({ error: "No encontrado." });
+  const mm = String(list[idx]).match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+  if (!mm) return res.status(400).json({ error: "Imagen inválida." });
+  const buf = Buffer.from(mm[2], "base64");
+  const isJpeg = buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  if (!((mm[1] === "jpeg" && isJpeg) || (mm[1] === "png" && isPng)))
+    return res.status(400).json({ error: "Imagen inválida." });
+  const ext = mm[1] === "jpeg" ? "jpg" : "png";
+  res.set("Content-Type", "image/" + mm[1]);
+  res.set("Content-Disposition", `attachment; filename="mencion-${m.id}-${idx + 1}.${ext}"`);
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Cache-Control", "private, no-store");
+  res.send(buf);
 }));
 
 router.post("/video-mentions/:id/status", requireAdmin, ah(async (req, res) => {
@@ -913,6 +958,7 @@ router.post("/video-mentions/:id/status", requireAdmin, ah(async (req, res) => {
 router.delete("/video-mentions/:id", requireAdmin, ah(async (req, res) => {
   const r = await db.run("DELETE FROM video_mentions WHERE id = ?", req.params.id);
   if (r.changes === 0) return res.status(404).json({ error: "No encontrado." });
+  await db.run("DELETE FROM video_mention_images WHERE mention_id = ?", req.params.id);
   res.json({ ok: true });
 }));
 
