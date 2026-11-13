@@ -27,6 +27,7 @@ const { router: linksRouter } = require("./routes/links");
 const { router: flagsRouter } = require("./routes/flags");
 const { router: programRouter } = require("./routes/program");
 const { router: mentionsRouter } = require("./routes/mentions");
+const { router: triviaRouter } = require("./routes/trivia");
 const { notificationsRouter, dailyAdminRouter } = require("./routes/notifications");
 
 const app = express();
@@ -141,6 +142,7 @@ app.use("/api/program", programRouter); // /api/program/* (audios y tests editab
 app.use("/api/links", linksRouter); // /api/links/* (Link Pub del admin en perfiles)
 app.use("/api/flags", flagsRouter); // /api/flags/* (banderas de advertencia)
 app.use("/api/mentions", mentionsRouter); // /api/mentions/* (menciones en video con RV)
+app.use("/api/trivia", triviaRouter); // /api/trivia/* (Trivia de Sanación)
 
 /* --- Mensajes del administrador para el usuario ---
  * GET /api/messages → mensajes no leídos (para mí o para todos).
