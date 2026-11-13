@@ -1,8 +1,11 @@
 /* Reaviva — Trivia de Sanación 🎮 (pestaña Juegos)
  * Juego de 10 preguntas al azar, 10 puntos por acierto.
  * Corazones = RV: 3 corazones = 30 RV en juego; cada error quita 5 RV
- * (medio corazón). Al terminar, los RV que quedan van al saldo del usuario,
- * solo en la primera partida completa del día.
+ * (medio corazón). Al terminar una partida completa con al menos medio
+ * corazón, lo que queda va al saldo (una vez por ciclo). En 0 corazones
+ * no hay regalía: para jugar hay que recargar con 30 RV (automático al
+ * intentar jugar teniendo saldo) o esperar la renovación gratis de 48h
+ * (solo si el saldo es >= 30 RV); si no, hay que comprar RV.
  * Las respuestas correctas viven solo en el servidor: cada respuesta
  * se valida con POST /api/trivia/answer y el puntaje final se registra
  * con POST /api/trivia/finish.
@@ -14,8 +17,18 @@
 /* Estado del juego. */
 const T = {
   questions: [], idx: 0, rvLeft: 30, rvLeftToday: 30, score: 0,
-  picked: -1, answers: [], best: 0, streak: 0, rvEarnedToday: 0, loading: false,
+  picked: -1, answers: [], best: 0, streak: 0, rvEarnedToday: 0,
+  rvBalance: 0, renewsAt: null, loading: false,
 };
+
+/* Fecha legible para la renovación de corazones. */
+function triviaRenewText(){
+  if(!T.renewsAt) return "";
+  const d = new Date(T.renewsAt);
+  if(isNaN(d.getTime())) return "";
+  try{ return d.toLocaleString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+  catch(e){ return d.toLocaleString(); }
+}
 
 /* ---------- Diseño (CSS propio del juego, inyectado una sola vez) ---------- */
 function triviaCss(){
@@ -112,6 +125,8 @@ async function renderTrivia(){
     T.streak = d.streak || 0;
     T.rvEarnedToday = d.rvEarnedToday || 0;
     T.rvLeftToday = (typeof d.rvLeftToday === "number") ? d.rvLeftToday : 30;
+    T.rvBalance = d.rvBalance || 0;
+    T.renewsAt = d.renewsAt || null;
     triviaHome();
   }catch(e){
     root.innerHTML = '<div class="tq">' + triviaHead() + '<div class="tq-body tq-center"><p>😔 ' + esc(e.message) + '</p><button class="tq-btn" onclick="renderTrivia()">Reintentar</button></div></div>';
@@ -124,21 +139,62 @@ function triviaHome(){
   if(!root) return;
   triviaCss();
   root.dataset.phase = "home";
+  const noHearts = T.rvLeftToday <= 0;
+  const canRecharge = T.rvBalance >= 30;
+  let action = "";
+  if(!noHearts){
+    action = '<button class="tq-btn" onclick="triviaStart()">▶ Jugar</button>';
+  }else if(canRecharge){
+    action = '<p style="margin:12px 0">💔 Tus corazones están en 0. Al jugar se recargan automáticamente con <b>30 RV</b> de tu saldo.</p>' +
+      (T.renewsAt ? '<p class="tq-muted">O espera gratis hasta el ' + esc(triviaRenewText()) + '.</p>' : '') +
+      '<button class="tq-btn" onclick="triviaStart()">▶ Jugar (recarga 30 RV)</button>';
+  }else{
+    action = '<p style="margin:12px 0">💔 Tus corazones están en 0 y no tienes suficientes RV (mínimo 30 RV).</p>' +
+      '<p class="tq-muted">Recarga tu cuenta desde <b>$12 USD por 120 RV</b> para seguir jugando.</p>' +
+      '<button class="tq-btn" onclick="triviaBuyRV()">Recargar RV 💰</button>';
+  }
   root.innerHTML = '<div class="tq">' + triviaHead() +
     '<div class="tq-body tq-center">' +
       '<div class="tq-hearts" style="font-size:1.8rem">' + triviaHearts(T.rvLeftToday) + '</div>' +
-      '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Cada día tienes 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón) y lo que te quede al terminar va a tu saldo. Los corazones perdidos <b>no se recuperan</b> al volver a jugar: vuelven mañana.</p>' +
-      (T.rvLeftToday <= 0 ? '<p style="margin:12px 0">💔 Hoy ya usaste tus corazones — mañana vuelves a tener 3. Puedes seguir jugando por puntos y racha.</p>' : '') +
-      (T.rvEarnedToday > 0
-        ? '<p style="margin:12px 0">🎉 Hoy ya ganaste <b>' + T.rvEarnedToday + ' RV</b> — puedes seguir jugando por puntos y racha.</p>'
-        : '<p style="margin:12px 0">💎 El premio se gana en la primera partida completa del día.</p>') +
-      '<div class="tq-stats"><span class="tq-stat">⭐ Mejor: ' + T.best + '</span><span class="tq-stat">🔥 Racha: ' + T.streak + (T.streak === 1 ? ' día' : ' días') + '</span></div>' +
-      '<button class="tq-btn" onclick="triviaStart()">▶ Jugar</button>' +
+      '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Tienes 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón). Al terminar con al menos medio corazón, lo que queda va a tu saldo. Los corazones perdidos <b>no se recuperan</b> al volver a jugar.</p>' +
+      (T.rvEarnedToday > 0 && !noHearts
+        ? '<p style="margin:12px 0">🎉 Ya ganaste <b>' + T.rvEarnedToday + ' RV</b> en este ciclo — puedes seguir jugando por puntos y racha.</p>'
+        : '') +
+      '<div class="tq-stats"><span class="tq-stat">⭐ Mejor: ' + T.best + '</span><span class="tq-stat">🔥 Racha: ' + T.streak + (T.streak === 1 ? ' día' : ' días') + '</span><span class="tq-stat">💎 Saldo: ' + T.rvBalance + ' RV</span></div>' +
+      action +
     '</div></div>';
 }
 
-function triviaStart(){
-  // La partida empieza con los corazones que quedan del día (los perdidos
+/* Abrir la compra de RV (packs desde $12 USD por 120 RV). */
+function triviaBuyRV(){
+  try{ if(typeof openRVModal === "function"){ openRVModal(); return; } }catch(e){}
+  try{ switchTab("perfil"); }catch(e){}
+  toast("Recarga RV desde tu perfil 💰");
+}
+
+async function triviaStart(){
+  // Sin corazones: recarga automática con 30 RV al intentar jugar.
+  if(T.rvLeftToday <= 0){
+    try{
+      const r = await fetch("/api/trivia/recharge", { method: "POST", headers: authHeaders() });
+      const d = await r.json();
+      if(!r.ok || !d.hearts){
+        T.rvBalance = (d && d.rvBalance) || T.rvBalance;
+        triviaHome();
+        toast("😔 " + ((d && d.error) || "No se pudo recargar."));
+        return;
+      }
+      T.rvLeftToday = d.hearts;
+      T.rvBalance = d.rvBalance || 0;
+      T.renewsAt = null;
+      toast(d.free ? "❤️ Tus corazones volvieron gratis" : "❤️ Corazones recargados 💎 −30 RV");
+      try{ if(typeof loadRVBalance === "function") loadRVBalance().catch(function(){}); }catch(e){}
+    }catch(e){
+      toast("😔 No se pudo recargar. Inténtalo de nuevo.");
+      return;
+    }
+  }
+  // La partida empieza con los corazones que quedan del ciclo (los perdidos
   // en partidas anteriores ya no vuelven).
   T.idx = 0; T.rvLeft = T.rvLeftToday; T.score = 0; T.picked = -1; T.answers = [];
   triviaQuestion();
@@ -246,6 +302,9 @@ async function triviaFinish(){
     if(r.ok) d = j;
   }catch(e){ /* Sin conexión: mostrar el puntaje local. */ }
   T.best = d.best || T.best; T.streak = d.streak || T.streak;
+  if(typeof d.rvLeftToday === "number") T.rvLeftToday = d.rvLeftToday;
+  if(typeof d.rvBalance === "number") T.rvBalance = d.rvBalance;
+  T.renewsAt = d.renewsAt || null;
   if(d.rvEarned > 0){ T.rvEarnedToday = (T.rvEarnedToday || 0) + d.rvEarned; try{ if(typeof loadRVBalance === "function") loadRVBalance().catch(function(){}); }catch(e){} }
   const byId = {};
   T.questions.forEach(function(q){ byId[q.id] = q; });
@@ -269,7 +328,9 @@ async function triviaFinish(){
       '<p class="tq-big">✨ ' + d.score + ' puntos</p>' +
       (d.rvEarned > 0
         ? '<p style="font-size:1.3rem;margin:8px 0">💎 <b>+' + d.rvEarned + ' RV</b> a tu saldo</p>'
-        : '<p class="tq-muted">Sin RV esta vez — el premio es una vez al día.</p>') +
+        : (T.rvLeftToday <= 0
+          ? '<p class="tq-muted">💔 Tus corazones quedaron en 0 — sin regalía. Recarga con 30 RV o espera 48 horas.</p>'
+          : '<p class="tq-muted">Sin RV esta vez — el premio es una vez por ciclo.</p>')) +
       '<p class="tq-muted">' + d.correct + ' de ' + d.total + ' correctas · Mejor: ' + d.best + ' · 🔥 Racha: ' + d.streak + (d.streak === 1 ? ' día' : ' días') + '</p>' +
       '<button class="tq-btn" onclick="triviaAgain()">🔄 Jugar de nuevo</button>' +
     '</div>' + review + '</div>';
@@ -280,5 +341,6 @@ async function triviaAgain(){
   const root = triviaRoot();
   if(root) root.dataset.phase = "";
   await renderTrivia();
-  if(T.questions.length) triviaStart();
+  // Sin corazones, quedarse en el inicio (ahí está la recarga / compra).
+  if(T.questions.length && T.rvLeftToday > 0) triviaStart();
 }
