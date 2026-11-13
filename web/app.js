@@ -491,6 +491,8 @@ function updateMentionOption(){
   const box = $("#mention-image-box");
   const withImg = mentionWithImage();
   if(box) box.style.display = withImg ? "" : "none";
+  const notice = $("#mention-name-notice");
+  if(notice) notice.style.display = withImg ? "none" : "";
   if(!withImg){
     mentionImages = [];
     const inp = $("#mention-image-input"); if(inp) inp.value = "";
