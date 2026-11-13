@@ -243,7 +243,8 @@ function triviaPick(i){
 }
 
 /* Sonidos del juego (Web Audio, sin archivos): al acertar suena un
- * sonidito alegre ascendente; al fallar, un tono grave descendente.
+ * sonidito alegre ascendente; al fallar suena UNA nota grave FUERTE
+ * con timbre de piano (fundamental + armónicos con caída rápida).
  * Nunca rompe el juego: cualquier error de audio se ignora. */
 let triviaAC = null;
 function triviaSound(ok){
@@ -253,16 +254,29 @@ function triviaSound(ok){
     if(!triviaAC) triviaAC = new AC();
     if(triviaAC.state === "suspended") triviaAC.resume();
     const t0 = triviaAC.currentTime;
-    const notes = ok
-      ? [[659.25, 0, 0.12], [783.99, 0.09, 0.12], [1046.5, 0.18, 0.22]]
-      : [[196.0, 0, 0.18], [146.83, 0.14, 0.3]];
-    notes.forEach(function(n){
+    if(!ok){
+      // Piano grave: Do3 (130.81 Hz) + armónicos que se apagan rápido.
+      const base = 130.81;
+      [[1, 0.34, 0.8], [2, 0.15, 0.55], [3, 0.07, 0.4], [4, 0.035, 0.3]].forEach(function(h){
+        const o = triviaAC.createOscillator();
+        const g = triviaAC.createGain();
+        o.type = "sine";
+        o.frequency.value = base * h[0];
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(h[1], t0 + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + h[2]);
+        o.connect(g); g.connect(triviaAC.destination);
+        o.start(t0); o.stop(t0 + h[2] + 0.05);
+      });
+      return;
+    }
+    [[659.25, 0, 0.12], [783.99, 0.09, 0.12], [1046.5, 0.18, 0.22]].forEach(function(n){
       const o = triviaAC.createOscillator();
       const g = triviaAC.createGain();
-      o.type = ok ? "sine" : "triangle";
+      o.type = "sine";
       o.frequency.value = n[0];
       g.gain.setValueAtTime(0.0001, t0 + n[1]);
-      g.gain.exponentialRampToValueAtTime(ok ? 0.18 : 0.16, t0 + n[1] + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + n[1] + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + n[2]);
       o.connect(g); g.connect(triviaAC.destination);
       o.start(t0 + n[1]); o.stop(t0 + n[1] + n[2] + 0.05);
