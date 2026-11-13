@@ -496,7 +496,7 @@ function updateMentionOption(){
   /* Con imagen: confirmación más seria y profesional. */
   const termsText = $("#mention-terms-text");
   if(termsText) termsText.innerHTML = withImg
-    ? "Confirmo que ninguna imagen es una foto de una persona real y ninguna contiene abuso, nada de contenido infantil, nada de político, sangre ni desnudez. Entiendo que los RV pagados <b>no tienen devolución</b>."
+    ? "Por medio de la presente, confirmo que ninguna de las imágenes contiene fotografías de personas reales. Asimismo, certifico que el contenido no incluye ningún tipo de abuso, material relacionado con menores de edad, contenido político, violencia gráfica, sangre ni desnudez. Todas las imágenes cumplen con estas condiciones. Entiendo que los RV pagados <b>no tienen devolución</b>."
     : "Confirmo que ninguna imagen es una foto de una persona real y ninguna contiene abuso, sangre ni desnudez. Entiendo que los RV pagados <b>no tienen devolución</b>.";
   const termsLabel = $("#mention-terms-label");
   if(termsLabel) termsLabel.style.cssText = withImg
