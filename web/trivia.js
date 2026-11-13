@@ -13,7 +13,7 @@
 
 /* Estado del juego. */
 const T = {
-  questions: [], idx: 0, rvLeft: 30, score: 0,
+  questions: [], idx: 0, rvLeft: 30, rvLeftToday: 30, score: 0,
   picked: -1, answers: [], best: 0, streak: 0, rvEarnedToday: 0, loading: false,
 };
 
@@ -111,6 +111,7 @@ async function renderTrivia(){
     T.best = d.best || 0;
     T.streak = d.streak || 0;
     T.rvEarnedToday = d.rvEarnedToday || 0;
+    T.rvLeftToday = (typeof d.rvLeftToday === "number") ? d.rvLeftToday : 30;
     triviaHome();
   }catch(e){
     root.innerHTML = '<div class="tq">' + triviaHead() + '<div class="tq-body tq-center"><p>😔 ' + esc(e.message) + '</p><button class="tq-btn" onclick="renderTrivia()">Reintentar</button></div></div>';
@@ -125,8 +126,9 @@ function triviaHome(){
   root.dataset.phase = "home";
   root.innerHTML = '<div class="tq">' + triviaHead() +
     '<div class="tq-body tq-center">' +
-      '<div class="tq-hearts" style="font-size:1.8rem">' + triviaHearts(30) + '</div>' +
-      '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Empiezas con 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón) y lo que te quede al terminar va a tu saldo.</p>' +
+      '<div class="tq-hearts" style="font-size:1.8rem">' + triviaHearts(T.rvLeftToday) + '</div>' +
+      '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Cada día tienes 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón) y lo que te quede al terminar va a tu saldo. Los corazones perdidos <b>no se recuperan</b> al volver a jugar: vuelven mañana.</p>' +
+      (T.rvLeftToday <= 0 ? '<p style="margin:12px 0">💔 Hoy ya usaste tus corazones — mañana vuelves a tener 3. Puedes seguir jugando por puntos y racha.</p>' : '') +
       (T.rvEarnedToday > 0
         ? '<p style="margin:12px 0">🎉 Hoy ya ganaste <b>' + T.rvEarnedToday + ' RV</b> — puedes seguir jugando por puntos y racha.</p>'
         : '<p style="margin:12px 0">💎 El premio se gana en la primera partida completa del día.</p>') +
@@ -136,7 +138,9 @@ function triviaHome(){
 }
 
 function triviaStart(){
-  T.idx = 0; T.rvLeft = 30; T.score = 0; T.picked = -1; T.answers = [];
+  // La partida empieza con los corazones que quedan del día (los perdidos
+  // en partidas anteriores ya no vuelven).
+  T.idx = 0; T.rvLeft = T.rvLeftToday; T.score = 0; T.picked = -1; T.answers = [];
   triviaQuestion();
 }
 
