@@ -6,9 +6,11 @@
  *
  * Las respuestas correctas NUNCA salen del servidor antes de terminar el juego.
  *
- * RV (orden de Georges, 12 nov 2026): cada juego empieza con 3 corazones =
- * 30 RV en juego; cada error quita 5 RV (medio corazón). Al terminar, los RV
- * que quedan van al saldo del usuario. El premio se paga SOLO en la primera
+ * RV (orden de Georges, 12 nov 2026): cada DÍA hay 3 corazones = 30 RV en
+ * juego; cada error quita 5 RV (medio corazón). Los corazones perdidos NO se
+ * recuperan al volver a jugar: el pozo del día se va gastando con los errores
+ * de todas las partidas registradas, y al terminar una partida los RV que
+ * quedan van al saldo del usuario. El premio se paga SOLO en la primera
  * partida COMPLETA del día (10 preguntas o 0 corazones): así no se puede
  * farmear RV jugando sin parar ni abandonar a medias. Idempotente por UNIQUE
  * en credit_purchases.paypal_order_id ("TRIVIA-<uid>-<día>").
@@ -83,6 +85,20 @@ async function streakFor(userId) {
   return streak;
 }
 
+/* Errores registrados hoy (todas las partidas terminadas con /finish). */
+async function errorsToday(userId, dayKey) {
+  const row = await db.get(
+    "SELECT COALESCE(SUM(total - correct), 0) AS e FROM trivia_attempts WHERE user_id = ? AND day_key = ?",
+    userId, dayKey
+  );
+  return (row && row.e) || 0;
+}
+
+/* RV que quedan del pozo del día: 30 menos 5 por cada error registrado. */
+async function rvLeftToday(userId, dayKey) {
+  return Math.max(0, RV_START - RV_PER_ERROR * (await errorsToday(userId, dayKey)));
+}
+
 /* Baraja una copia del banco y toma N preguntas. */
 function pickQuestions(n) {
   const pool = QUESTIONS.slice();
@@ -112,6 +128,7 @@ router.get("/today", requireAuth, ah(async (req, res) => {
     questions, best, streak,
     playedToday: (played && played.c) || 0,
     rvEarnedToday: (earned && earned.s) || 0,
+    rvLeftToday: await rvLeftToday(req.user.id, dayKeyLaPaz()),
     rvBalance: await getRV(req.user.id),
   });
 }));
@@ -152,10 +169,14 @@ router.post("/finish", requireAuth, ah(async (req, res) => {
   if (results.length === 0) return res.status(400).json({ error: "Ninguna respuesta válida." });
   const score = correct * POINTS_PER_CORRECT;
   const errors = results.length - correct;
-  const rvLeft = Math.max(0, RV_START - RV_PER_ERROR * errors);
+  const dayKey = dayKeyLaPaz();
+  // El premio sale del pozo del día: lo que quedaba antes de esta partida
+  // menos los errores de esta partida (los corazones perdidos en partidas
+  // anteriores ya no están).
+  const poolBefore = await rvLeftToday(req.user.id, dayKey);
+  const rvLeft = Math.max(0, poolBefore - RV_PER_ERROR * errors);
   // Solo paga una partida COMPLETA: las 10 preguntas, o 0 corazones (6 errores).
   const complete = results.length >= QUESTIONS_PER_GAME || errors >= RV_START / RV_PER_ERROR;
-  const dayKey = dayKeyLaPaz();
   let rvEarned = 0;
   if (complete && rvLeft > 0) {
     // Idempotente: un solo premio por usuario y día (UNIQUE en paypal_order_id).
