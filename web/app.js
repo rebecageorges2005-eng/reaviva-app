@@ -493,6 +493,15 @@ function updateMentionOption(){
   if(box) box.style.display = withImg ? "" : "none";
   const notice = $("#mention-name-notice");
   if(notice) notice.style.display = withImg ? "none" : "";
+  /* Con imagen: confirmación más seria y profesional. */
+  const termsText = $("#mention-terms-text");
+  if(termsText) termsText.innerHTML = withImg
+    ? "Confirmo que ninguna imagen es una foto de una persona real y ninguna contiene abuso, nada de contenido infantil, nada de político, sangre ni desnudez. Entiendo que los RV pagados <b>no tienen devolución</b>."
+    : "Confirmo que ninguna imagen es una foto de una persona real y ninguna contiene abuso, sangre ni desnudez. Entiendo que los RV pagados <b>no tienen devolución</b>.";
+  const termsLabel = $("#mention-terms-label");
+  if(termsLabel) termsLabel.style.cssText = withImg
+    ? "display:flex;gap:8px;align-items:flex-start;font-size:.88rem;color:#7c2d12;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:10px 12px;margin:8px 0"
+    : "display:flex;gap:8px;align-items:flex-start;font-size:.82rem;color:var(--cocoa-soft);margin:8px 0";
   if(!withImg){
     mentionImages = [];
     const inp = $("#mention-image-input"); if(inp) inp.value = "";
