@@ -1525,8 +1525,8 @@ async function loadVideoMentions(){
         return '<span style="display:inline-block;margin:6px 10px 0 0;text-align:center;vertical-align:top"><a href="'+esc(src)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" style="max-width:180px;max-height:130px;border-radius:8px;display:block"></a><button class="btn btn-sm" style="margin-top:4px" onclick="downloadMentionImage('+m.id+','+i+')">⬇️ Descargar</button></span>';
       }).join(""):"";
       var cm=m.comment?'<br><span style="font-size:.92rem">💬 '+esc(m.comment)+'</span>':"";
-      var replyBox=m.user_id?'<div id="mention-reply-box-'+m.id+'" style="display:none;margin-top:8px"><textarea id="mention-reply-text-'+m.id+'" class="field" rows="2" maxlength="2000" placeholder="Escribe tu respuesta para '+esc(m.user_name||"el usuario")+'…" style="resize:vertical"></textarea><div style="margin-top:6px;display:flex;gap:8px;align-items:center"><button class="btn btn-sm" onclick="sendMentionReply('+m.id+','+m.user_id+')">Enviar ✉️</button><button class="btn btn-sm" onclick="toggleMentionReply('+m.id+')">Cancelar</button><span id="mention-reply-msg-'+m.id+'" style="font-size:.85rem"></span></div></div>':"";
-      var replyBtn=m.user_id?'<button class="btn btn-sm" onclick="toggleMentionReply('+m.id+')" title="Responder al usuario">✉️</button> ':"";
+      var replyBox=m.user_id?'<div id="mention-reply-box-'+m.id+'" style="display:none;margin-top:8px"><div id="mention-conv-'+m.id+'" class="scroll-box" style="max-height:180px;margin-bottom:8px"><p style="color:var(--cocoa-soft)">Cargando conversación…</p></div><textarea id="mention-reply-text-'+m.id+'" class="field" rows="2" maxlength="2000" placeholder="Escribe tu respuesta para '+esc(m.user_name||"el usuario")+'…" style="resize:vertical"></textarea><div style="margin-top:6px;display:flex;gap:8px;align-items:center"><button class="btn btn-sm" onclick="sendMentionReply('+m.id+','+m.user_id+')">Enviar ✉️</button><button class="btn btn-sm" onclick="toggleMentionReply('+m.id+','+m.user_id+')">Cancelar</button><span id="mention-reply-msg-'+m.id+'" style="font-size:.85rem"></span></div></div>':"";
+      var replyBtn=m.user_id?'<button class="btn btn-sm" onclick="toggleMentionReply('+m.id+','+m.user_id+')" title="Responder al usuario">✉️</button> ':"";
       return '<div class="rowline" style="align-items:flex-start"><span>'+nombres+' · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+replyBox+'</span>'+
       '<span style="white-space:nowrap">'+replyBtn+'<button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'aprobada\')">✅</button> <button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'rechazada\')">❌</button> <button class="btn btn-sm" onclick="deleteMention('+m.id+')">🗑️</button></span></div>';
     }).join("");
@@ -1542,10 +1542,27 @@ async function deleteMention(id){
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
 /* Respuesta al usuario que pidió la mención (mensaje en la app). */
-function toggleMentionReply(id){
+function toggleMentionReply(id,userId){
   var box=$("#mention-reply-box-"+id); if(!box) return;
   box.style.display=(box.style.display==="none")?"":"none";
-  if(box.style.display===""){ var t=$("#mention-reply-text-"+id); if(t) t.focus(); }
+  if(box.style.display===""){ loadMentionConversation(id,userId); var t=$("#mention-reply-text-"+id); if(t) t.focus(); }
+}
+async function loadMentionConversation(id,userId){
+  var box=$("#mention-conv-"+id); if(!box) return;
+  box.innerHTML='<p style="color:var(--cocoa-soft)">Cargando conversación…</p>';
+  try{
+    var d=await api("GET","/api/admin/users/"+userId+"/conversation");
+    var list=d.conversation||[];
+    if(!list.length){ box.innerHTML='<p style="color:var(--cocoa-soft)">Sin mensajes previos con este usuario.</p>'; return; }
+    box.innerHTML=list.map(function(m){
+      var mine=m.from==="admin";
+      var who=mine?"👑 Tú":"👤 "+esc(m.name||"Usuario");
+      var title=m.title?' <b>'+esc(m.title)+'</b><br>':"";
+      var style=mine?'background:#f6ead9':'border:1px solid #e8dcc8;background:#fff';
+      return '<div style="margin:6px 0;'+(mine?'text-align:right':'')+'"><div style="display:inline-block;text-align:left;max-width:88%;padding:8px 10px;border-radius:10px;'+style+'">'+who+' <small style="color:var(--cocoa-soft)">'+esc(m.created_at||"")+'</small>'+title+'<span style="white-space:pre-wrap">'+esc(m.body)+'</span></div></div>';
+    }).join("");
+    box.scrollTop=box.scrollHeight;
+  }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<p class="err">Error: '+esc(e.message)+'</p>'; }
 }
 async function sendMentionReply(id,userId){
   var t=$("#mention-reply-text-"+id); var msg=$("#mention-reply-msg-"+id);
@@ -1555,7 +1572,8 @@ async function sendMentionReply(id,userId){
     await api("POST","/api/admin/users/"+userId+"/message",{title:"🎬 Respuesta a tu mención en video",text:text});
     if(t) t.value="";
     if(msg) msg.textContent="✅ Mensaje enviado.";
-    setTimeout(function(){ toggleMentionReply(id); if(msg) msg.textContent=""; },1400);
+    loadMentionConversation(id,userId);
+    setTimeout(function(){ toggleMentionReply(id,userId); if(msg) msg.textContent=""; },1400);
   }catch(e){ if(e.message==="AUTH") authFail(); else if(msg) msg.textContent="Error: "+e.message; }
 }
 
