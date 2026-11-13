@@ -242,6 +242,34 @@ function triviaPick(i){
   if(c) c.disabled = false;
 }
 
+/* Sonidos del juego (Web Audio, sin archivos): al acertar suena un
+ * sonidito alegre ascendente; al fallar, un tono grave descendente.
+ * Nunca rompe el juego: cualquier error de audio se ignora. */
+let triviaAC = null;
+function triviaSound(ok){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    if(!triviaAC) triviaAC = new AC();
+    if(triviaAC.state === "suspended") triviaAC.resume();
+    const t0 = triviaAC.currentTime;
+    const notes = ok
+      ? [[659.25, 0, 0.12], [783.99, 0.09, 0.12], [1046.5, 0.18, 0.22]]
+      : [[196.0, 0, 0.18], [146.83, 0.14, 0.3]];
+    notes.forEach(function(n){
+      const o = triviaAC.createOscillator();
+      const g = triviaAC.createGain();
+      o.type = ok ? "sine" : "triangle";
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0 + n[1]);
+      g.gain.exponentialRampToValueAtTime(ok ? 0.18 : 0.16, t0 + n[1] + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + n[2]);
+      o.connect(g); g.connect(triviaAC.destination);
+      o.start(t0 + n[1]); o.stop(t0 + n[1] + n[2] + 0.05);
+    });
+  }catch(e){ /* Sin sonido: el juego sigue igual. */ }
+}
+
 /* Valida la respuesta en el servidor y muestra la explicación. */
 async function triviaConfirm(){
   const q = T.questions[T.idx];
@@ -266,6 +294,7 @@ async function triviaConfirm(){
     return;
   }
   T.answers.push({ id: q.id, choice: choice });
+  triviaSound(!!d.correct);
   if(d.correct) T.score += 10; else T.rvLeft = Math.max(0, T.rvLeft - 5);
   // Colorear opciones: verde la correcta, rojo la elegida si falló.
   document.querySelectorAll(".tq-opt").forEach(function(b){
