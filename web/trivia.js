@@ -41,6 +41,7 @@ function triviaCss(){
     ".tq-head{background:linear-gradient(135deg,#d99a76,#c4704f);border-radius:22px 22px 0 0;padding:18px 18px 26px;color:#3d2317;box-shadow:var(--shadow)}",
     ".tq-head-row{display:flex;align-items:center;gap:12px}",
     ".tq-back{background:none;border:none;font-size:1.5rem;color:#3d2317;cursor:pointer;padding:0 4px;line-height:1}",
+    ".tq-fwd{background:none;border:none;font-size:1.7rem;color:#3d2317;cursor:pointer;padding:0 4px;line-height:1}",
     ".tq-title{font-size:1.45rem;font-weight:800;flex:1}",
     ".tq-streak{background:#fffaf3;border-radius:999px;padding:4px 12px;font-weight:800;box-shadow:0 4px 12px rgba(74,55,40,.15)}",
     /* Cuerpo crema que se solapa con la cabecera */
@@ -98,8 +99,17 @@ function triviaHearts(rv){
 
 function triviaRoot(){ return document.getElementById("trivia-root"); }
 
-/* Cabecera compartida: flecha (volver al inicio del juego), título y racha. */
-function triviaHead(){
+/* Cabecera: al inicio del juego la flecha va a la DERECHA y apunta
+ * adelante (→ empieza el juego); al estar jugando, la flecha va a la
+ * IZQUIERDA y vuelve atrás (← al inicio del juego). */
+function triviaHead(mode){
+  if(mode === "home"){
+    return '<div class="tq-head"><div class="tq-head-row">' +
+      '<div class="tq-title">Trivia de Sanación</div>' +
+      '<span class="tq-streak">🔥 ' + T.streak + '</span>' +
+      '<button class="tq-fwd" onclick="triviaStart()" aria-label="Adelante">→</button>' +
+      '</div></div>';
+  }
   return '<div class="tq-head"><div class="tq-head-row">' +
     '<button class="tq-back" onclick="triviaHome()" aria-label="Volver">←</button>' +
     '<div class="tq-title">Trivia de Sanación</div>' +
@@ -153,7 +163,7 @@ function triviaHome(){
       '<p class="tq-muted">Recarga tu cuenta desde <b>$12 USD por 120 RV</b> para seguir jugando.</p>' +
       '<button class="tq-btn" onclick="triviaBuyRV()">Recargar RV 💰</button>';
   }
-  root.innerHTML = '<div class="tq">' + triviaHead() +
+  root.innerHTML = '<div class="tq">' + triviaHead("home") +
     '<div class="tq-body tq-center">' +
       '<div class="tq-hearts" style="font-size:1.8rem">' + triviaHearts(T.rvLeftToday) + '</div>' +
       '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Tienes 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón). Al terminar con al menos medio corazón, lo que queda va a tu saldo. Los corazones perdidos <b>no se recuperan</b> al volver a jugar.</p>' +
