@@ -157,6 +157,7 @@ function triviaHome(){
     '<div class="tq-body tq-center">' +
       '<div class="tq-hearts" style="font-size:1.8rem">' + triviaHearts(T.rvLeftToday) + '</div>' +
       '<p class="tq-muted" style="margin-top:10px">10 preguntas sobre límites, amor propio y sanación. Tienes 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón). Al terminar con al menos medio corazón, lo que queda va a tu saldo. Los corazones perdidos <b>no se recuperan</b> al volver a jugar.</p>' +
+      '<p style="margin:12px 0"><b>⚠️ Si te quedas con 0 corazones, no se aplicará la regalía.</b></p>' +
       (T.rvEarnedToday > 0 && !noHearts
         ? '<p style="margin:12px 0">🎉 Ya ganaste <b>' + T.rvEarnedToday + ' RV</b> en este ciclo — puedes seguir jugando por puntos y racha.</p>'
         : '') +
