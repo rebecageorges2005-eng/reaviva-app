@@ -569,9 +569,11 @@ router.get("/users/:id/conversation", requireAdmin, ah(async (req, res) => {
   const received = u.email
     ? await db.all("SELECT name, message, created_at FROM contact_messages WHERE email = ? ORDER BY created_at ASC LIMIT 100", u.email)
     : [];
+  // Fecha absoluta (día/mes/año + hora de Bolivia) para que el admin sepa
+  // exactamente cuándo se envió cada mensaje.
   const conv = [
-    ...sent.map((m) => ({ from: "admin", title: m.title, body: m.body, created_at: fmtDateTime(m.created_at), _t: m.created_at })),
-    ...received.map((m) => ({ from: "user", name: m.name, body: m.message, created_at: fmtDateTime(m.created_at), _t: m.created_at })),
+    ...sent.map((m) => ({ from: "admin", title: m.title, body: m.body, created_at: fmtFechaAbs(m.created_at), _t: m.created_at })),
+    ...received.map((m) => ({ from: "user", name: m.name, body: m.message, created_at: fmtFechaAbs(m.created_at), _t: m.created_at })),
   ].sort((a, b) => String(a._t).localeCompare(String(b._t)));
   res.json({ conversation: conv.map(({ _t, ...rest }) => rest) });
 }));
