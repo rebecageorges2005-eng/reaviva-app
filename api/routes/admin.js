@@ -555,6 +555,27 @@ router.post("/users/:id/message", requireAdmin, ah(async (req, res) => {
   res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), para: u.email });
 }));
 
+/* ---------- GET /api/admin/users/:id/conversation ----------
+ * Toda la conversación con un usuario: mensajes enviados por el admin
+ * (admin_messages) + mensajes de contacto del usuario (contact_messages),
+ * en orden cronológico, para ver el historial al responder. */
+router.get("/users/:id/conversation", requireAdmin, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+  const u = await db.get("SELECT id, name, email FROM users WHERE id = ?", id);
+  if (!u) return res.status(404).json({ error: "Usuario no encontrado" });
+  const sent = await db.all(
+    "SELECT title, body, created_at FROM admin_messages WHERE user_id = ? ORDER BY created_at ASC LIMIT 100", id);
+  const received = u.email
+    ? await db.all("SELECT name, message, created_at FROM contact_messages WHERE email = ? ORDER BY created_at ASC LIMIT 100", u.email)
+    : [];
+  const conv = [
+    ...sent.map((m) => ({ from: "admin", title: m.title, body: m.body, created_at: fmtDateTime(m.created_at), _t: m.created_at })),
+    ...received.map((m) => ({ from: "user", name: m.name, body: m.message, created_at: fmtDateTime(m.created_at), _t: m.created_at })),
+  ].sort((a, b) => String(a._t).localeCompare(String(b._t)));
+  res.json({ conversation: conv.map(({ _t, ...rest }) => rest) });
+}));
+
 /* ---------- POST /api/admin/users/:id/unmute ----------
  * Reactiva la capacidad de escribir en el chat de un usuario muteado
  * por el sistema anti-spam. Reinicia sus strikes. */
