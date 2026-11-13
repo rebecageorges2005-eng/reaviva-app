@@ -1372,6 +1372,13 @@ function authHeaders(){
    El sondeo revisa cada 30 s, así la notificación aparece aunque
    el usuario ya esté dentro de la app cuando el admin responde.
    ============================================================ */
+/* URLs en enlaces que abren en otra ventana (el texto va escapado primero). */
+function linkify(text){
+  return esc(text).replace(/(https?:\/\/[^\s<]+)/g, function(url){
+    var clean = url.replace(/[.,;:!?]+$/, "");
+    return '<a href="' + clean + '" target="_blank" rel="noopener">' + clean + '</a>' + url.slice(clean.length);
+  });
+}
 let adminMsgPollTimer = null;
 function updateAdminMsgBadge(n){
   const b = $("#admin-msg-badge");
@@ -1396,7 +1403,7 @@ async function checkUserMessages(){
       <div class="admin-msg" data-mid="${m.id}">
         <div class="am-head"><b>📢 ${esc(m.titulo)}</b>
           <button class="am-close" onclick="dismissMessage(${m.id})" aria-label="Cerrar">✕</button></div>
-        <p>${esc(m.cuerpo)}</p>
+        <p style="white-space:pre-wrap">${linkify(m.cuerpo)}</p>
       </div>`).join("");
     box.style.display = "";
   }catch(e){ /* sin conexión: no mostrar nada */ }
