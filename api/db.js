@@ -964,6 +964,15 @@ async function migrate() {
       const vCols = await tableCols("video_mentions");
       if (!vCols.includes("name2")) await db.exec("ALTER TABLE video_mentions ADD COLUMN name2 TEXT");
     } catch (e) { /* la tabla puede no existir aún en esta pasada */ }
+    // Imágenes de las menciones: hasta 5 por solicitud (las viejas, de una
+    // sola imagen, siguen en la columna video_mentions.image).
+    await db.exec(`CREATE TABLE IF NOT EXISTS video_mention_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mention_id INTEGER NOT NULL,
+      image TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
     console.log("[db] migración: tabla video_mentions lista");
   } catch (e) {
     console.error("[db] migración video_mentions:", e.message);
