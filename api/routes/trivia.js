@@ -22,6 +22,14 @@
  *   de al menos 30 RV, los corazones vuelven solos y GRATIS (sin descuento).
  *   Si el saldo es menor de 30 RV, la renovación de 48 horas NO se aplica:
  *   el usuario debe comprar RV (plan mínimo $12 USD = 120 RV).
+ *
+ * SIN REPETICIONES (orden de Georges, 12 nov 2026): una pregunta NUNCA
+ * se repite a un usuario hasta que haya visto todo el banco. Cada
+ * pregunta respondida queda marcada en trivia_seen; cada juego reparte
+ * solo preguntas no vistas. Si el usuario abandona un juego a medias,
+ * el juego en curso queda guardado (trivia_game_state) y se le sirve
+ * el mismo set al volver, sin marcar nada como visto hasta terminar.
+ * Cuando el banco se agota, empieza una ronda nueva (se limpia lo visto).
  */
 "use strict";
 
@@ -97,6 +105,17 @@ async function ensureTables() {
       await db.run("ALTER TABLE trivia_hearts ADD COLUMN cycle_no INTEGER NOT NULL DEFAULT 1");
     }
   } catch (e) { /* La columna ya existe. */ }
+  await db.run(`CREATE TABLE IF NOT EXISTS trivia_seen (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    question_id INTEGER NOT NULL,
+    seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, question_id)
+  )`);
+  await db.run(`CREATE TABLE IF NOT EXISTS trivia_game_state (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+    question_ids TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
 }
 
 /* Mejor puntaje histórico del usuario. */
@@ -160,9 +179,9 @@ async function rvEarnedInCycle(userId, cycleNo) {
   return (row && row.s) || 0;
 }
 
-/* Baraja una copia del banco y toma N preguntas. */
-function pickQuestions(n) {
-  const pool = QUESTIONS.slice();
+/* Baraja una copia de la lista y toma N elementos. */
+function shuffledTake(list, n) {
+  const pool = list.slice();
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -170,10 +189,41 @@ function pickQuestions(n) {
   return pool.slice(0, n);
 }
 
+/* Reparte el juego del usuario SIN repetir preguntas vistas:
+ * - Si hay un juego en curso guardado, devuelve ese mismo set.
+ * - Si no, toma 10 del banco excluyendo las vistas; si quedan menos
+ *   de 10 sin ver, empieza una ronda nueva (limpia lo visto).
+ * Nada se marca como visto aquí: eso pasa en /finish con lo respondido. */
+async function dealQuestions(userId) {
+  const byId = new Map(QUESTIONS.map(q => [q.id, q]));
+  const state = await db.get("SELECT question_ids FROM trivia_game_state WHERE user_id = ?", userId);
+  if (state) {
+    try {
+      const ids = JSON.parse(state.question_ids);
+      const qs = ids.map(id => byId.get(id)).filter(Boolean);
+      if (qs.length === QUESTIONS_PER_GAME) return qs;
+    } catch (e) { /* Estado corrupto: se reparte un juego nuevo. */ }
+    await db.run("DELETE FROM trivia_game_state WHERE user_id = ?", userId);
+  }
+  const seenRows = await db.all("SELECT question_id FROM trivia_seen WHERE user_id = ?", userId);
+  const seen = new Set(seenRows.map(r => r.question_id));
+  let pool = QUESTIONS.filter(q => !seen.has(q.id));
+  if (pool.length < QUESTIONS_PER_GAME) {
+    await db.run("DELETE FROM trivia_seen WHERE user_id = ?", userId);
+    pool = QUESTIONS.slice();
+  }
+  const picked = shuffledTake(pool, QUESTIONS_PER_GAME);
+  await db.run(
+    "INSERT OR REPLACE INTO trivia_game_state (user_id, question_ids) VALUES (?, ?)",
+    userId, JSON.stringify(picked.map(q => q.id))
+  );
+  return picked;
+}
+
 /* GET /api/trivia/today — preguntas sin respuestas + estado del jugador. */
 router.get("/today", requireAuth, ah(async (req, res) => {
   await ensureTables();
-  const questions = pickQuestions(QUESTIONS_PER_GAME).map(q => ({
+  const questions = (await dealQuestions(req.user.id)).map(q => ({
     id: q.id, q: q.q, options: q.options,
   }));
   const [best, streak, hearts] = [await bestScore(req.user.id), await streakFor(req.user.id), await heartsState(req.user.id)];
@@ -225,6 +275,15 @@ router.post("/finish", requireAuth, ah(async (req, res) => {
     results.push({ id: q.id, correct: ok, answer: q.answer, why: q.why });
   }
   if (results.length === 0) return res.status(400).json({ error: "Ninguna respuesta válida." });
+  // Sin repeticiones: lo respondido queda marcado como visto y el juego
+  // en curso se cierra (las preguntas no alcanzadas vuelven al banco).
+  for (const r of results) {
+    await db.run(
+      "INSERT OR IGNORE INTO trivia_seen (user_id, question_id) VALUES (?, ?)",
+      req.user.id, r.id
+    );
+  }
+  await db.run("DELETE FROM trivia_game_state WHERE user_id = ?", req.user.id);
   const score = correct * POINTS_PER_CORRECT;
   const errors = results.length - correct;
 
