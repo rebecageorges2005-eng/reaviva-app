@@ -1525,8 +1525,10 @@ async function loadVideoMentions(){
         return '<span style="display:inline-block;margin:6px 10px 0 0;text-align:center;vertical-align:top"><a href="'+esc(src)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" style="max-width:180px;max-height:130px;border-radius:8px;display:block"></a><button class="btn btn-sm" style="margin-top:4px" onclick="downloadMentionImage('+m.id+','+i+')">⬇️ Descargar</button></span>';
       }).join(""):"";
       var cm=m.comment?'<br><span style="font-size:.92rem">💬 '+esc(m.comment)+'</span>':"";
-      return '<div class="rowline" style="align-items:flex-start"><span>'+nombres+' · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+'</span>'+
-      '<span style="white-space:nowrap"><button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'aprobada\')">✅</button> <button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'rechazada\')">❌</button> <button class="btn btn-sm" onclick="deleteMention('+m.id+')">🗑️</button></span></div>';
+      var replyBox=m.user_id?'<div id="mention-reply-box-'+m.id+'" style="display:none;margin-top:8px"><textarea id="mention-reply-text-'+m.id+'" class="field" rows="2" maxlength="2000" placeholder="Escribe tu respuesta para '+esc(m.user_name||"el usuario")+'…" style="resize:vertical"></textarea><div style="margin-top:6px;display:flex;gap:8px;align-items:center"><button class="btn btn-sm" onclick="sendMentionReply('+m.id+','+m.user_id+')">Enviar ✉️</button><button class="btn btn-sm" onclick="toggleMentionReply('+m.id+')">Cancelar</button><span id="mention-reply-msg-'+m.id+'" style="font-size:.85rem"></span></div></div>':"";
+      var replyBtn=m.user_id?'<button class="btn btn-sm" onclick="toggleMentionReply('+m.id+')" title="Responder al usuario">✉️</button> ':"";
+      return '<div class="rowline" style="align-items:flex-start"><span>'+nombres+' · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+replyBox+'</span>'+
+      '<span style="white-space:nowrap">'+replyBtn+'<button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'aprobada\')">✅</button> <button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'rechazada\')">❌</button> <button class="btn btn-sm" onclick="deleteMention('+m.id+')">🗑️</button></span></div>';
     }).join("");
   }catch(e){ if(e.message==="AUTH") authFail(); else box.innerHTML='<div class="err">Error cargando menciones: '+esc(e.message)+'</div>'; }
 }
@@ -1539,6 +1541,24 @@ async function deleteMention(id){
   try{ await api("DELETE","/api/admin/video-mentions/"+id); loadVideoMentions(); }
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
 }
+/* Respuesta al usuario que pidió la mención (mensaje en la app). */
+function toggleMentionReply(id){
+  var box=$("#mention-reply-box-"+id); if(!box) return;
+  box.style.display=(box.style.display==="none")?"":"none";
+  if(box.style.display===""){ var t=$("#mention-reply-text-"+id); if(t) t.focus(); }
+}
+async function sendMentionReply(id,userId){
+  var t=$("#mention-reply-text-"+id); var msg=$("#mention-reply-msg-"+id);
+  var text=t?t.value.trim():"";
+  if(!text){ if(msg) msg.textContent="Escribe el mensaje primero."; return; }
+  try{
+    await api("POST","/api/admin/users/"+userId+"/message",{title:"🎬 Respuesta a tu mención en video",text:text});
+    if(t) t.value="";
+    if(msg) msg.textContent="✅ Mensaje enviado.";
+    setTimeout(function(){ toggleMentionReply(id); if(msg) msg.textContent=""; },1400);
+  }catch(e){ if(e.message==="AUTH") authFail(); else if(msg) msg.textContent="Error: "+e.message; }
+}
+
 /* Descarga segura: el servidor re-verifica que sea JPG/PNG real y sirve
  * solo esos bytes como imagen (nada ejecutable puede pasar). */
 async function downloadMentionImage(id,idx){
