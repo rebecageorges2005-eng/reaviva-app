@@ -1351,6 +1351,7 @@ function switchTab(tab, fromHash){
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
   if(tab==="progreso") renderProgreso();
+  if(tab==="juegos" && typeof renderTrivia==="function") renderTrivia();
   if(tab==="comunidad") renderComunidad();
   if(tab==="privados") renderDmList();
   if(tab==="perfil"){ renderPerfil(); loadRVBalance().catch(()=>{}); }
