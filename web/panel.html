@@ -1520,7 +1520,10 @@ async function loadVideoMentions(){
     box.innerHTML=list.map(function(m){
       var g=m.gender==="F"?"👩 Mujer":m.gender==="B"?"👨👩 Ambos":"👨 Hombre";
       var nombres=m.name2?'👨 Hombre: <b>'+esc(m.name)+'</b> · 👩 Mujer: <b>'+esc(m.name2)+'</b>':'<b>'+esc(m.name)+'</b>';
-      var img=m.has_image&&m.image?'<br><a href="'+esc(m.image)+'" target="_blank" rel="noopener"><img src="'+esc(m.image)+'" style="max-width:220px;max-height:160px;border-radius:8px;margin-top:6px"></a>':"";
+      var imgs=m.images||[];
+      var img=imgs.length?'<br>'+imgs.map(function(src,i){
+        return '<span style="display:inline-block;margin:6px 10px 0 0;text-align:center;vertical-align:top"><a href="'+esc(src)+'" target="_blank" rel="noopener"><img src="'+esc(src)+'" style="max-width:180px;max-height:130px;border-radius:8px;display:block"></a><button class="btn btn-sm" style="margin-top:4px" onclick="downloadMentionImage('+m.id+','+i+')">⬇️ Descargar</button></span>';
+      }).join(""):"";
       var cm=m.comment?'<br><span style="font-size:.92rem">💬 '+esc(m.comment)+'</span>':"";
       return '<div class="rowline" style="align-items:flex-start"><span>'+nombres+' · '+g+' · '+m.rv_cost+' RV · '+(badgeSt[m.status]||esc(m.status))+'<br><small style="color:var(--cocoa-soft)">'+esc(m.user_name||"")+' · '+esc(m.user_email||"")+' · '+esc(m.created_at||"")+'</small>'+cm+img+'</span>'+
       '<span style="white-space:nowrap"><button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'aprobada\')">✅</button> <button class="btn btn-sm" onclick="setMentionStatus('+m.id+',\'rechazada\')">❌</button> <button class="btn btn-sm" onclick="deleteMention('+m.id+')">🗑️</button></span></div>';
@@ -1535,6 +1538,22 @@ async function deleteMention(id){
   if(!confirm("¿Eliminar esta solicitud de mención?")) return;
   try{ await api("DELETE","/api/admin/video-mentions/"+id); loadVideoMentions(); }
   catch(e){ if(e.message==="AUTH") authFail(); else alert("Error: "+e.message); }
+}
+/* Descarga segura: el servidor re-verifica que sea JPG/PNG real y sirve
+ * solo esos bytes como imagen (nada ejecutable puede pasar). */
+async function downloadMentionImage(id,idx){
+  try{
+    var r=await fetch("/api/admin/video-mentions/"+id+"/images/"+idx,{headers:headers()});
+    if(r.status===401||r.status===403) throw new Error("AUTH");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    var blob=await r.blob();
+    var ext=(blob.type==="image/png")?"png":"jpg";
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="mencion-"+id+"-"+(idx+1)+"."+ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); },5000);
+  }catch(e){ if(e.message==="AUTH") authFail(); else alert("Error descargando: "+e.message); }
 }
 
 /* ---------- Planes manuales y apodo en el chat ---------- */
