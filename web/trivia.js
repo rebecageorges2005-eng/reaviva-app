@@ -1,15 +1,38 @@
 /* Reaviva — Trivia de Sanación 🎮 (pestaña Juegos)
- * Juego de 10 preguntas al azar, 3 vidas, 10 puntos por acierto.
+ * Juego de 10 preguntas al azar, 10 puntos por acierto.
+ * Corazones = RV: 3 corazones = 30 RV en juego; cada error quita 5 RV
+ * (medio corazón). Al terminar, los RV que quedan van al saldo del usuario,
+ * solo en la primera partida completa del día.
  * Las respuestas correctas viven solo en el servidor: cada respuesta
  * se valida con POST /api/trivia/answer y el puntaje final se registra
- * con POST /api/trivia/finish. V1: puntos y racha, sin RV. */
+ * con POST /api/trivia/finish. */
 "use strict";
 
 /* Estado del juego. */
 const T = {
-  questions: [], idx: 0, lives: 3, score: 0,
-  picked: -1, answers: [], best: 0, streak: 0, loading: false,
+  questions: [], idx: 0, rvLeft: 30, score: 0,
+  picked: -1, answers: [], best: 0, streak: 0, rvEarnedToday: 0, loading: false,
 };
+
+/* Corazones con mitades: cada corazón vale 10 RV (lleno), 5 RV (mitad:
+ * una mitad pálida y la otra en rojo) o 0 RV (vacío). */
+function triviaHearts(rv){
+  let out = "";
+  for(let i = 0; i < 3; i++){
+    const v = Math.max(0, Math.min(10, rv - i * 10));
+    const w = v >= 10 ? 100 : v >= 5 ? 50 : 0;
+    out += '<span class="trivia-heart">♥<span class="fill" style="width:' + w + '%">♥</span></span>';
+  }
+  return out;
+}
+
+function triviaHeartCss(){
+  if(document.getElementById("trivia-heart-css")) return;
+  const st = document.createElement("style");
+  st.id = "trivia-heart-css";
+  st.textContent = ".trivia-heart{position:relative;display:inline-block;font-size:1.5rem;line-height:1;color:#e8cfc4;margin-right:2px}.trivia-heart .fill{position:absolute;left:0;top:0;overflow:hidden;color:#e0503c;white-space:nowrap}";
+  document.head.appendChild(st);
+}
 
 function triviaRoot(){ return document.getElementById("trivia-root"); }
 
@@ -18,7 +41,8 @@ async function renderTrivia(){
   if(!root) return;
   if(T.loading) return;
   // Si hay un juego en curso, no reiniciar la pantalla al reentrar a la pestaña.
-  if(T.questions.length && T.idx < T.questions.length && T.lives > 0 && root.dataset.phase === "playing") return;
+  triviaHeartCss();
+  if(T.questions.length && T.idx < T.questions.length && T.rvLeft > 0 && root.dataset.phase === "playing") return;
   T.loading = true;
   root.innerHTML = '<p style="text-align:center;color:var(--muted);padding:24px 0">Cargando la trivia…</p>';
   try{
@@ -28,6 +52,7 @@ async function renderTrivia(){
     T.questions = d.questions || [];
     T.best = d.best || 0;
     T.streak = d.streak || 0;
+    T.rvEarnedToday = d.rvEarnedToday || 0;
     triviaHome();
   }catch(e){
     root.innerHTML = '<div class="card"><p>😔 ' + esc(e.message) + '</p><button class="btn btn-primary" onclick="renderTrivia()">Reintentar</button></div>';
@@ -42,14 +67,17 @@ function triviaHome(){
     '<div class="card" style="text-align:center">' +
       '<div class="icon">🎮</div>' +
       '<h3>Trivia de Sanación</h3>' +
-      '<p style="color:var(--muted)">10 preguntas sobre límites, amor propio y sanación. Tienes 3 vidas y cada acierto vale 10 puntos.</p>' +
+      '<p style="color:var(--muted)">10 preguntas sobre límites, amor propio y sanación. Empiezas con 3 corazones = <b>30 RV</b>. Cada error te quita <b>5 RV</b> (medio corazón) y lo que te quede al terminar va a tu saldo.</p>' +
+      (T.rvEarnedToday > 0
+        ? '<p style="margin:12px 0">🎉 Hoy ya ganaste <b>' + T.rvEarnedToday + ' RV</b> — puedes seguir jugando por puntos y racha.</p>'
+        : '<p style="margin:12px 0">💎 El premio se gana en la primera partida completa del día.</p>') +
       '<p style="margin:12px 0">⭐ Mejor puntaje: <b>' + T.best + '</b> &nbsp;·&nbsp; 🔥 Racha: <b>' + T.streak + (T.streak === 1 ? ' día' : ' días') + '</b></p>' +
       '<button class="btn btn-primary" onclick="triviaStart()">▶ Jugar</button>' +
     '</div>';
 }
 
 function triviaStart(){
-  T.idx = 0; T.lives = 3; T.score = 0; T.picked = -1; T.answers = [];
+  T.idx = 0; T.rvLeft = 30; T.score = 0; T.picked = -1; T.answers = [];
   triviaQuestion();
 }
 
@@ -59,15 +87,16 @@ function triviaQuestion(){
   const q = T.questions[T.idx];
   if(!q){ triviaFinish(); return; }
   root.dataset.phase = "playing";
-  const hearts = "❤️".repeat(T.lives) + "🤍".repeat(3 - T.lives);
+  const hearts = triviaHearts(T.rvLeft);
   let opts = "";
   q.options.forEach(function(o, i){
     opts += '<button class="btn btn-ghost trivia-opt" data-i="' + i + '" style="display:block;width:100%;text-align:left;margin:8px 0" onclick="triviaPick(' + i + ')">' + esc(o) + '</button>';
   });
   root.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-      '<span style="font-size:1.2rem">' + hearts + '</span>' +
-      '<span style="background:var(--rose);padding:6px 14px;border-radius:999px;font-weight:700">✨ ' + T.score + ' puntos</span>' +
+      '<span>' + hearts + '</span>' +
+      '<span style="background:var(--rose);padding:6px 14px;border-radius:999px;font-weight:700">💎 ' + T.rvLeft + ' RV</span>' +
+      '<span style="background:var(--rose);padding:6px 14px;border-radius:999px;font-weight:700">✨ ' + T.score + '</span>' +
     '</div>' +
     '<p style="text-align:center;color:var(--muted)">Pregunta ' + (T.idx + 1) + ' de ' + T.questions.length + '</p>' +
     '<div class="card"><h3 style="text-align:center">' + esc(q.q) + '</h3></div>' +
@@ -112,7 +141,7 @@ async function triviaConfirm(){
     return;
   }
   T.answers.push({ id: q.id, choice: choice });
-  if(d.correct) T.score += 10; else T.lives -= 1;
+  if(d.correct) T.score += 10; else T.rvLeft = Math.max(0, T.rvLeft - 5);
   // Colorear opciones: verde la correcta, rojo la elegida si falló.
   document.querySelectorAll(".trivia-opt").forEach(function(b){
     const i = Number(b.dataset.i);
@@ -120,7 +149,7 @@ async function triviaConfirm(){
     else if(i === choice){ b.style.background = "#f4cccc"; b.style.borderColor = "#c0392b"; }
   });
   const last = (T.idx + 1 >= T.questions.length);
-  const dead = T.lives <= 0;
+  const dead = T.rvLeft <= 0;
   const fb = document.getElementById("trivia-feedback");
   fb.innerHTML =
     '<div class="card" style="margin-top:12px;background:var(--cream)">' +
@@ -143,7 +172,7 @@ async function triviaFinish(){
   const root = triviaRoot();
   root.dataset.phase = "done";
   root.innerHTML = '<p style="text-align:center;color:var(--muted);padding:24px 0">Guardando tu resultado…</p>';
-  let d = { score: T.score, correct: 0, total: T.answers.length, results: [], best: T.best, streak: T.streak };
+  let d = { score: T.score, correct: 0, total: T.answers.length, results: [], best: T.best, streak: T.streak, rvEarned: 0 };
   try{
     const r = await fetch("/api/trivia/finish", {
       method: "POST",
@@ -154,6 +183,7 @@ async function triviaFinish(){
     if(r.ok) d = j;
   }catch(e){ /* Sin conexión: mostrar el puntaje local. */ }
   T.best = d.best || T.best; T.streak = d.streak || T.streak;
+  if(d.rvEarned > 0){ T.rvEarnedToday = (T.rvEarnedToday || 0) + d.rvEarned; try{ if(typeof loadRVBalance === "function") loadRVBalance().catch(function(){}); }catch(e){} }
   const byId = {};
   T.questions.forEach(function(q){ byId[q.id] = q; });
   let review = "";
@@ -174,6 +204,9 @@ async function triviaFinish(){
     '<div class="card" style="text-align:center">' +
       '<div class="icon">🎮</div><h3>' + msg + '</h3>' +
       '<p style="font-size:2rem;margin:8px 0">✨ <b>' + d.score + '</b> puntos</p>' +
+      (d.rvEarned > 0
+        ? '<p style="font-size:1.3rem;margin:8px 0">💎 <b>+' + d.rvEarned + ' RV</b> a tu saldo</p>'
+        : '<p style="color:var(--muted)">Sin RV esta vez — el premio es una vez al día.</p>') +
       '<p style="color:var(--muted)">' + d.correct + ' de ' + d.total + ' correctas · Mejor: ' + d.best + ' · 🔥 Racha: ' + d.streak + (d.streak === 1 ? ' día' : ' días') + '</p>' +
       '<button class="btn btn-primary" onclick="triviaAgain()">🔄 Jugar de nuevo</button>' +
     '</div>' + review;
