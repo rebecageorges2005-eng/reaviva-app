@@ -255,9 +255,10 @@ function triviaSound(ok){
     if(triviaAC.state === "suspended") triviaAC.resume();
     const t0 = triviaAC.currentTime;
     if(!ok){
-      // Piano grave: Do3 (130.81 Hz) + armónicos que se apagan rápido.
+      // Piano grave FUERTE: Do3 (130.81 Hz) + armónicos con más presencia
+      // para que se escuche también en bocinas pequeñas.
       const base = 130.81;
-      [[1, 0.34, 0.8], [2, 0.15, 0.55], [3, 0.07, 0.4], [4, 0.035, 0.3]].forEach(function(h){
+      [[1, 0.7, 1.0], [2, 0.35, 0.7], [3, 0.18, 0.5], [4, 0.09, 0.35]].forEach(function(h){
         const o = triviaAC.createOscillator();
         const g = triviaAC.createGain();
         o.type = "sine";
