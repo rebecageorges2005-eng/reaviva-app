@@ -340,6 +340,13 @@
       </div>
     </div>
 
+    <!-- JUEGOS -->
+    <div class="panel" id="panel-juegos">
+      <div class="greet">Juegos</div>
+      <p class="greet-sub">Aprende jugando, un día a la vez.</p>
+      <div id="trivia-root"></div>
+    </div>
+
     <!-- MI PERFIL -->
     <div class="panel" id="panel-perfil">
       <div class="greet">Mi perfil</div>
@@ -404,6 +411,7 @@
     <button class="tab" data-tab="programa" onclick="switchTab('programa')"><span class="ticon">📖</span><span data-i18n="tab.program">Programa</span></button>
     <button class="tab" data-tab="diario" onclick="switchTab('diario')"><span class="ticon">✍️</span><span data-i18n="tab.diary">Diario</span></button>
     <button class="tab" data-tab="progreso" onclick="switchTab('progreso')"><span class="ticon">📊</span><span data-i18n="tab.progress">Progreso</span></button>
+    <button class="tab" data-tab="juegos" onclick="switchTab('juegos')"><span class="ticon">🎮</span><span data-i18n="tab.games">Juegos</span></button>
     <button class="tab" data-tab="comunidad" onclick="openGroupChat()"><span class="ticon">💬</span><span data-i18n="tab.community">Comunidad</span><span id="group-badge" class="dm-badge" style="display:none"></span></button>
     <button class="tab" data-tab="privados" onclick="switchTab('privados')"><span class="ticon">✉️</span><span data-i18n="tab.dm">Privados</span><span id="dm-badge" class="dm-badge" style="display:none"></span></button>
     <button class="tab" data-tab="perfil" onclick="switchTab('perfil')"><span class="ticon">👤</span><span data-i18n="tab.profile">Perfil</span></button>
@@ -553,7 +561,8 @@
 
 <script src="/program.js?v=3"></script>
 <script src="/program2.js?v=1"></script>
-<script src="/i18n.js?v=1"></script>
-<script src="/app.js?v=103"></script>
+<script src="/i18n.js?v=2"></script>
+<script src="/trivia.js?v=1"></script>
+<script src="/app.js?v=104"></script>
 </body>
 </html>

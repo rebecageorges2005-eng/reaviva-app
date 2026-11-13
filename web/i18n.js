@@ -56,7 +56,7 @@ es: {
 "auth.check_email_d": "Te enviamos un enlace de verificación. Haz clic en él para activar tu cuenta.",
 "auth.verified": "¡Cuenta confirmada! 🎉", "auth.verified_d": "Tu correo fue verificado. Ya puedes entrar.",
 /* ---------- pestañas ---------- */
-"tab.today": "Hoy", "tab.program": "Programa", "tab.diary": "Diario", "tab.progress": "Progreso",
+"tab.today": "Hoy", "tab.program": "Programa", "tab.diary": "Diario", "tab.progress": "Progreso", "tab.games": "Juegos",
 "tab.community": "Comunidad", "tab.dm": "Privados", "tab.profile": "Perfil", "tab.admin": "Admin",
 /* ---------- chat ---------- */
 "chat.title": "💬 Comunidad",
@@ -217,7 +217,7 @@ en: {
 "auth.check_email_d": "We sent you a verification link. Click it to activate your account.",
 "auth.verified": "Account confirmed! 🎉", "auth.verified_d": "Your email was verified. You can now log in.",
 /* ---------- tabs ---------- */
-"tab.today": "Today", "tab.program": "Program", "tab.diary": "Journal", "tab.progress": "Progress",
+"tab.today": "Today", "tab.program": "Program", "tab.diary": "Journal", "tab.progress": "Progress", "tab.games": "Games",
 "tab.community": "Community", "tab.dm": "Private", "tab.profile": "Profile", "tab.admin": "Admin",
 /* ---------- chat ---------- */
 "chat.title": "💬 Community",
@@ -382,7 +382,7 @@ pt: {
 "auth.check_email_d": "Enviamos um link de verificação. Clique nele para ativar sua conta.",
 "auth.verified": "Conta confirmada! 🎉", "auth.verified_d": "Seu e-mail foi verificado. Já pode entrar.",
 /* ---------- abas ---------- */
-"tab.today": "Hoje", "tab.program": "Programa", "tab.diary": "Diário", "tab.progress": "Progresso",
+"tab.today": "Hoje", "tab.program": "Programa", "tab.diary": "Diário", "tab.progress": "Progresso", "tab.games": "Jogos",
 "tab.community": "Comunidade", "tab.dm": "Privados", "tab.profile": "Perfil", "tab.admin": "Admin",
 /* ---------- chat ---------- */
 "chat.title": "💬 Comunidade",
@@ -543,7 +543,7 @@ fr: {
 "auth.check_email_d": "Nous vous avons envoyé un lien de vérification. Cliquez dessus pour activer votre compte.",
 "auth.verified": "Compte confirmé ! 🎉", "auth.verified_d": "Votre e-mail a été vérifié. Vous pouvez vous connecter.",
 /* ---------- onglets ---------- */
-"tab.today": "Aujourd'hui", "tab.program": "Programme", "tab.diary": "Journal", "tab.progress": "Progrès",
+"tab.today": "Aujourd'hui", "tab.program": "Programme", "tab.diary": "Journal", "tab.progress": "Progrès", "tab.games": "Jeux",
 "tab.community": "Communauté", "tab.dm": "Privés", "tab.profile": "Profil", "tab.admin": "Admin",
 /* ---------- chat ---------- */
 "chat.title": "💬 Communauté",
