@@ -1319,6 +1319,7 @@ function enterApp(initialTab){
   if(adminTab) adminTab.style.display = isAdmin() ? "" : "none";
   try{ switchTab(initialTab || "hoy", !!initialTab); }catch(e){ console.error("switchTab:", e); }
   try{ checkUserMessages(); }catch(e){}
+  try{ startAdminMsgPoll(); }catch(e){}
   try{ checkDailyNotifications(); }catch(e){}
   try{ checkBillingState(); }catch(e){}
   try{ startDmPoll(); }catch(e){}
@@ -1335,7 +1336,7 @@ function switchTab(tab, fromHash){
   // El sondeo de mensajes corre siempre con la sesión iniciada (contador de
   // no leídos); al ENTRAR a la comunidad, los mensajes quedan leídos (contador a 0).
   if(tab === "comunidad") markGroupRead();
-  if(tab==="hoy") renderHoy();
+  if(tab==="hoy"){ renderHoy(); try{ checkUserMessages(); }catch(e){} }
   if(tab==="programa") renderPrograma();
   if(tab==="diario") renderDiario();
   if(tab==="progreso") renderProgreso();
@@ -1354,7 +1355,21 @@ function authHeaders(){
 
 /* ============================================================
    MENSAJES DEL ADMINISTRADOR (para usuarios normales)
+   ------------------------------------------------------------
+   El usuario ve los mensajes sin leer como banner en "Hoy" y un
+   contador rojo en la pestaña Hoy mientras tenga alguno pendiente.
+   El sondeo revisa cada 30 s, así la notificación aparece aunque
+   el usuario ya esté dentro de la app cuando el admin responde.
    ============================================================ */
+let adminMsgPollTimer = null;
+function updateAdminMsgBadge(n){
+  const b = $("#admin-msg-badge");
+  if(b){ b.style.display = n > 0 ? "" : "none"; b.textContent = n > 99 ? "99+" : String(n); }
+}
+function startAdminMsgPoll(){
+  if(adminMsgPollTimer) clearInterval(adminMsgPollTimer);
+  adminMsgPollTimer = setInterval(checkUserMessages, 30000);
+}
 async function checkUserMessages(){
   if(isAdmin()) return; // el admin no recibe sus propios mensajes
   try{
@@ -1363,7 +1378,9 @@ async function checkUserMessages(){
     const j = await r.json();
     const box = $("#user-messages");
     if(!box) return;
-    if(!j.messages || !j.messages.length){ box.innerHTML = ""; box.style.display = "none"; return; }
+    const n = (j.messages && j.messages.length) || 0;
+    updateAdminMsgBadge(n);
+    if(!n){ box.innerHTML = ""; box.style.display = "none"; return; }
     box.innerHTML = j.messages.map(m=>`
       <div class="admin-msg" data-mid="${m.id}">
         <div class="am-head"><b>📢 ${esc(m.titulo)}</b>
@@ -1380,6 +1397,7 @@ async function dismissMessage(id){
   const el = document.querySelector(`.admin-msg[data-mid="${id}"]`);
   if(el) el.remove();
   const box = $("#user-messages");
+  updateAdminMsgBadge(box ? box.querySelectorAll(".admin-msg").length : 0);
   if(box && !box.querySelector(".admin-msg")) box.style.display = "none";
 }
 
